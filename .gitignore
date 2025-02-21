@@ -1,0 +1,7 @@
+config.json
+secret.txt
+QUEUE
+CURRENT
+NEXT
+__pycache__/
+thumbnails/

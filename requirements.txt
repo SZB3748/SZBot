@@ -1,0 +1,6 @@
+Flask
+flask-sock
+gevent
+python-vlc
+requests
+yt-dlp

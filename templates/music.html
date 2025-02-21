@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block styles %}
+<link rel="stylesheet" type="text/css" href="/static/css/music.css">
+{% endblock %}
+{% block scripts %}
+<script src="/static/js/music.js"></script>
+{% endblock %}
+{% block body %}
+<h1>Music Queue Controller</h1>
+<h2>Overlay</h2>
+<div id="overlay-controls">
+    <button id="enable-ovpersist-button">Enable Persistence</button>
+    <button id="disable-ovpersist-button">Disable Persistence</button>
+</div>
+
+<h2>Queue</h2>
+<button id="pauseplay-song">Pause</button>
+<button id="skip-song">Skip</button>
+<div id="current-song">
+</div>
+
+<ol id="next-container" class="hidden">
+    <li id="next-song">
+    </li>
+</ol>
+
+<ol id="queue-container" start="2">
+</ol>
+{% endblock %}
