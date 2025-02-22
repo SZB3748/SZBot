@@ -14,16 +14,20 @@
 </div>
 
 <h2>Queue</h2>
-<button id="pauseplay-song">Pause</button>
-<button id="skip-song">Skip</button>
-<div id="current-song">
+<div id="current-container">
+    <div id="current-song">
+    </div>
+    <button id="pauseplay-song" class="pause"><img></button>
+    <button id="skip-song"><img></button>
 </div>
 
-<ol id="next-container" class="hidden">
-    <li id="next-song">
-    </li>
-</ol>
+<div id="next-container">
+    <b>Up Next</b>
+    <hr>
+    <div id="next-song" class="item">
+    </div>
+</div>
 
-<ol id="queue-container" start="2">
-</ol>
+<div id="queue-container">
+</div>
 {% endblock %}
