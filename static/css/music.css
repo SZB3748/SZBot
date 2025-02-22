@@ -4,6 +4,13 @@
     flex-direction: column;
 }
 
+a.title {
+    width: fit-content;
+    text-decoration: none;
+    color: var(--color-fg);
+    border-bottom: 1px dashed var(--color-fg);
+}
+
 #pauseplay-song, #skip-song {
     background-color: transparent;
     border: none;
@@ -40,10 +47,6 @@
     }
 }
 
-#next-container.hidden {
-    list-style: none;
-}
-
 #current-container {
     display: flex;
     flex-direction: row;
@@ -60,6 +63,11 @@
 
 #current-song .progress {
     width: 98%;
+    margin-top: 0.5rem;
+}
+
+#current-song .title {
+    margin: 0.5rem 0;
 }
 
 #next-container {
@@ -114,4 +122,46 @@
 
 #queue-container > .item {
     margin-bottom: 1rem;
+}
+
+/*Chrome*/
+@media screen and (-webkit-min-device-pixel-ratio:0) {
+    input[type='range'] {
+      overflow: hidden;
+      width: 100%;
+      -webkit-appearance: none;
+      appearance: none;
+      background-color: var(--color-fg2);
+    }
+    
+    input[type='range']::-webkit-slider-runnable-track {
+      height: 10px;
+      -webkit-appearance: none;
+      color: var(--color-fg);
+      margin-top: -1px;
+    }
+    
+    input[type='range']::-webkit-slider-thumb {
+      width: 9px;
+      -webkit-appearance: none;
+      height: 10px;
+      cursor: pointer;
+      background: #fff;
+      box-shadow: -2000px 0 0 2000px var(--color-fg);
+    }
+
+}
+/** FF*/
+input[type="range"]::-moz-range-progress {
+  background-color: var(--color-fg); 
+}
+input[type="range"]::-moz-range-track {  
+  background-color: var(--color-fg2);
+}
+/* IE*/
+input[type="range"]::-ms-fill-lower {
+  background-color: var(--color-fg); 
+}
+input[type="range"]::-ms-fill-upper {  
+  background-color: var(--color-fg2);
 }

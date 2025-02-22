@@ -188,7 +188,7 @@ function populateSongItem(elm, num, data) {
     const marker = document.createElement("span");
     const container = document.createElement("div");
     const icon = document.createElement("img");
-    const title = document.createElement("span");
+    const title = document.createElement("a");
     const duration = document.createElement("span");
 
     marker.classList.add("marker");
@@ -199,6 +199,7 @@ function populateSongItem(elm, num, data) {
 
     marker.innerText = num + ".";
     icon.src = "/music/thumbnail/"+data.thumbnail;
+    title.href = "https://youtube.com/watch?v=" + data.id;
     title.innerText = data.title;
     duration.innerText = `${formatDuration(data.start)} / ${data.duration}`;
 
@@ -216,7 +217,7 @@ function updateQueueVisuals(state) {
     /** @type {HTMLOListElement} */
     const queueContainer = document.getElementById("queue-container");
 
-    if (state.current == null) {
+    if (state.current == null || playerState == null) {
         while (currentSong.children.length > 0)
             currentSong.firstChild.remove();
         currentSong.removeAttribute("song-id");
@@ -230,7 +231,7 @@ function updateQueueVisuals(state) {
 
             currentSong.setAttribute("song-id", state.current.id);
             const icon = document.createElement("img");
-            const title = document.createElement("span");
+            const title = document.createElement("a");
             const progress = document.createElement("input");
             const durationCurrent = document.createElement("span");
             const durationTotal = document.createElement("span");
@@ -242,6 +243,7 @@ function updateQueueVisuals(state) {
             icon.src = "/music/thumbnail/"+state.current.thumbnail;
             
             title.classList.add("title");
+            title.href = "https://youtube.com/watch?v=" + state.current.id;
             title.innerText = state.current.title;
 
             durationCurrent.classList.add("duration-current");
@@ -338,11 +340,29 @@ events.addEventListener("close", ev => {
 });
 
 window.addEventListener("load", async () => {
+    /** @type {HTMLInputElement} */
+    const addSongInput = document.getElementById("add-song");
     const persistenceEnableButton = document.getElementById("enable-ovpersist-button");
     const persistenceDisableButton = document.getElementById("disable-ovpersist-button");
     const skipSongButton = document.getElementById("skip-song");
     /** @type {HTMLButtonElement} */
     const pausePlayButton = document.getElementById("pauseplay-song");
+
+    addSongInput.addEventListener("keydown", ev => {
+        if (ev.key !== "Enter" || ev.shiftKey || ev.ctrlKey || !addSongInput.reportValidity())
+            return;
+        
+        ev.preventDefault();
+        
+        const body = new FormData();
+        body.set("url", addSongInput.value);
+        
+        fetch("/api/music/queue/push", {
+            method: "POST",
+            body: body
+        })
+        addSongInput.value = "";
+    });
 
     persistenceEnableButton.addEventListener("click", () => { setOverlayPersistence(true) });
     persistenceDisableButton.addEventListener("click", () => { setOverlayPersistence(false) });
