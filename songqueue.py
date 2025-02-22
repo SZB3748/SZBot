@@ -222,8 +222,9 @@ def song_cycle():
     global current_song
 
     configs = config.read()
-    device, _ = get_device(configs["Output-Device"])
-    vlc.libvlc_audio_output_device_set(vlc_player, None, device)
+    if "Output-Device" in configs:
+        device, _ = get_device(configs["Output-Device"])
+        vlc.libvlc_audio_output_device_set(vlc_player, None, device)
     
     event_manager = vlc_player.event_manager()
     event_manager.event_attach(vlc.EventType.MediaPlayerEndReached, lambda _: song_done.set())

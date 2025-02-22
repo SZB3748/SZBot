@@ -35,7 +35,9 @@ def run():
 
 if __name__ == "__main__":
     oauth = config.read(path=config.OAUTH_FILE)
-    if "Token" not in oauth:
+    if not ("Client-Id" in oauth and "Client-Secret" in oauth and "Scopes" in oauth):
+        print("You must create an oauth.json file with your twitch application's \"Client-Id\", \"Client-Secret\", and \"Scopes\".")
+    elif "Token" not in oauth:
         try:
             get_auth_token(oauth)
         except KeyboardInterrupt:

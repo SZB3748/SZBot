@@ -16,7 +16,7 @@ class Bot(commands.Bot):
             token=oauth["Token"],
             prefix=configs["Prefix"],
             client_secret=oauth["Client-Secret"],
-            initial_channels=configs["Channels"],
+            initial_channels=configs.get("Channels", None) or [],
         )
 
     async def event_command_error(self, ctx: commands.Context, err: Exception):
@@ -48,6 +48,10 @@ class Bot(commands.Bot):
 def init_bot():
     configs = config.read()
     oauth = config.read(path=config.OAUTH_FILE)
+
+    if not ("Token" in oauth and "Client-Secret" in oauth and "Prefix" in configs):
+        return None
+
     return Bot(configs, oauth)
 
 async def main():
@@ -73,6 +77,9 @@ def log_command(f:Callable[..., Awaitable[Any]]):
 
 if __name__ == "__main__":
     bot = init_bot()
+    if bot is None:
+        print("You must run main.py first to make sure your oauth.json file is fine.\nAlso, make sure to make a config.json file with your bot's \"Prefix\".")
+        exit(-1)
 
     @bot.event()
     async def event_ready():
