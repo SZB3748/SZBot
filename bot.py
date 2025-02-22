@@ -10,11 +10,15 @@ from urllib.parse import quote
 
 TOKEN_REFRESH_ENDPOINT = "https://id.twitch.tv/oauth2/token"
 
+def get_prefix(bot:commands.Bot, message:twitchio.Message):
+    configs = config.read()
+    return configs["Prefix"]
+
 class Bot(commands.Bot):
     def __init__(self, configs:dict[str], oauth:dict[str]):
         super().__init__(
             token=oauth["Token"],
-            prefix=configs["Prefix"],
+            prefix=get_prefix,
             client_secret=oauth["Client-Secret"],
             initial_channels=configs.get("Channels", None) or [],
         )
@@ -61,7 +65,7 @@ async def main():
         print(e)
         token = await bot.event_token_expired()
         if token is None:
-            print("Failed to refresh token. Make sure Token is removed from config,json and run the main script to generate a new token.")
+            print("Failed to refresh token. Make sure Token is removed from config.json and run the main script to generate a new token.")
         else:
             print("New token generated. Rerun bot script.")
     except KeyboardInterrupt:
@@ -122,7 +126,7 @@ if __name__ == "__main__":
 
     @bot.command(name="playsong")
     @log_command
-    async def pause_song(ctx:commands.Context):
+    async def play_song(ctx:commands.Context):
         if not ctx.author.is_mod:
             return
         r = requests.post("http://localhost:6742/api/music/playerstate", data={"state": "play"})
@@ -130,6 +134,18 @@ if __name__ == "__main__":
             print("Paused")
         else:
             print("Failed to pause")
+
+
+    @bot.command(name="musicpersist")
+    @log_command
+    async def music_persistence(ctx:commands.Context, state:str="true"):
+        if not ctx.author.is_mod:
+            return
+        state = state.strip().lower()
+        if state in ("true", "false"):
+            requests.post("http://localhost:6742/api/music/overlay/persistent", data={"value": state})
+        else:
+            print("Invalid music persistent state (true/false)")
 
     loop = asyncio.get_event_loop()
     loop.run_until_complete(main())
