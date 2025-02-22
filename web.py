@@ -40,7 +40,7 @@ def music_thumbnail(name:str):
 @app.get("/oauth")
 def oauth():
     code = request.args["code"]
-    configs = config.read()
+    configs = config.read(path=config.OAUTH_FILE)
     r = requests.post("https://id.twitch.tv/oauth2/token", data={
         "client_id": configs["Client-Id"],
         "client_secret": configs["Client-Secret"],
@@ -52,7 +52,7 @@ def oauth():
         print("oauth failure")
         return r.text, r.status_code
     d = r.json()
-    config.write(config_updates={"Token": d["access_token"], "Refresh-Token": d["refresh_token"]})
+    config.write(config_updates={"Token": d["access_token"], "Refresh-Token": d["refresh_token"]}, path=config.OAUTH_FILE)
     return "Restart", 200
 
 def _v_to_dict(v:songqueue.QueuedVideo)->dict[str]:

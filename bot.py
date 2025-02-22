@@ -11,11 +11,11 @@ from urllib.parse import quote
 TOKEN_REFRESH_ENDPOINT = "https://id.twitch.tv/oauth2/token"
 
 class Bot(commands.Bot):
-    def __init__(self, configs:dict[str]):
+    def __init__(self, configs:dict[str], oauth:dict[str]):
         super().__init__(
-            token=configs["Token"],
+            token=oauth["Token"],
             prefix=configs["Prefix"],
-            client_secret=configs["Client-Secret"],
+            client_secret=oauth["Client-Secret"],
             initial_channels=configs["Channels"],
         )
 
@@ -26,28 +26,29 @@ class Bot(commands.Bot):
             traceback.print_exception(err)
 
     async def event_token_expired(self):
-        configs = config.read()
-        r = requests.post(f"{TOKEN_REFRESH_ENDPOINT}?client_id={configs["Client-Id"]}&client_secret={configs["Client-Secret"]}&grant_type=refresh_token&refresh_token={quote(configs["Refresh-Token"])}")
+        oauth = config.read(path=config.OAUTH_FILE)
+        r = requests.post(f"{TOKEN_REFRESH_ENDPOINT}?client_id={oauth["Client-Id"]}&client_secret={oauth["Client-Secret"]}&grant_type=refresh_token&refresh_token={quote(oauth["Refresh-Token"])}")
         if r.ok:
             j = r.json()
             token:str = j["access_token"]
             config.write(config_updates={
                 "Token": token,
                 "Refresh-Token": j["refresh_token"]
-            })
+            }, path=config.OAUTH_FILE)
             return token
         else:
             print(r.text)
-            if "Token" in configs:
-                del configs["Token"]
-            del configs["Refresh-Token"]
-            config.write(new_configs=configs)
+            if "Token" in oauth:
+                del oauth["Token"]
+            del oauth["Refresh-Token"]
+            config.write(new_configs=oauth, path=config.OAUTH_FILE)
             return None
 
 #set up the bot
-def init_bot():    
+def init_bot():
     configs = config.read()
-    return Bot(configs)
+    oauth = config.read(path=config.OAUTH_FILE)
+    return Bot(configs, oauth)
 
 async def main():
     try:

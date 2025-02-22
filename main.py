@@ -6,11 +6,11 @@ from urllib.parse import quote
 
 OAUTH_ENDPOINT = "https://id.twitch.tv/oauth2/authorize"
 
-def get_auth_token():
+def get_auth_token(oauth:dict[str]):
     import webbrowser
     redirect = f"http://localhost:6742/oauth"
-    scope = " ".join(configs["Scopes"])
-    webbrowser.open(f"{OAUTH_ENDPOINT}?response_type=code&client_id={configs["Client-Id"]}&redirect_uri={quote(redirect)}&scope={quote(scope)}")
+    scope = " ".join(oauth["Scopes"])
+    webbrowser.open(f"{OAUTH_ENDPOINT}?response_type=code&client_id={oauth["Client-Id"]}&redirect_uri={quote(redirect)}&scope={quote(scope)}")
     web.serve()
 
 
@@ -34,10 +34,10 @@ def run():
             print("Song cycle stopped")
 
 if __name__ == "__main__":
-    configs = config.read()
-    if "Token" not in configs:
+    oauth = config.read(path=config.OAUTH_FILE)
+    if "Token" not in oauth:
         try:
-            get_auth_token()
+            get_auth_token(oauth)
         except KeyboardInterrupt:
             pass
         exit(0)
