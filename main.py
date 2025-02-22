@@ -8,7 +8,7 @@ OAUTH_ENDPOINT = "https://id.twitch.tv/oauth2/authorize"
 
 def get_auth_token():
     import webbrowser
-    redirect = f"http://localhost:8080/oauth"
+    redirect = f"http://localhost:6742/oauth"
     scope = " ".join(configs["Scopes"])
     webbrowser.open(f"{OAUTH_ENDPOINT}?response_type=code&client_id={configs["Client-Id"]}&redirect_uri={quote(redirect)}&scope={quote(scope)}")
     web.serve()
@@ -24,9 +24,8 @@ def run():
     except KeyboardInterrupt:
         pass
     finally:
-        songqueue.song_done()
+        songqueue.song_done.set()
         songqueue.stop_loop.set()
-        songqueue.queue_populated.set() #just making sure the cycle stops
         print("Waiting for song cycle to stop...")
         cycle.join(5)
         if cycle.is_alive():

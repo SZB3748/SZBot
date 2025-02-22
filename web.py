@@ -5,7 +5,7 @@ monkey.patch_all() #this complains about being called too late, so now it gets c
 import config
 from datetime import timedelta
 import events
-from flask import Flask, render_template, request
+from flask import Flask, render_template, request, send_from_directory
 from flask_sock import Server, Sock
 from gevent.pywsgi import WSGIServer
 import json
@@ -15,7 +15,7 @@ import songqueue
 import string
 
 HOST = "127.0.0.1"
-PORT = 8080
+PORT = 6742
 SECRET_FILE = "secret.txt"
 
 app = Flask(__name__)
@@ -32,6 +32,10 @@ def index():
 @app.get("/music")
 def music_interface():
     return render_template("music.html")
+
+@app.get("/music/thumbnail/<name>")
+def music_thumbnail(name:str):
+    return send_from_directory(songqueue.THUMBNAILS_DIR, name)
 
 @app.get("/oauth")
 def oauth():
@@ -56,7 +60,8 @@ def _v_to_dict(v:songqueue.QueuedVideo)->dict[str]:
         "id": v.video_id,
         "duration": songqueue.format_duration(v.duration),
         "start": v.start,
-        "title": v.title
+        "title": v.title,
+        "thumbnail": v.thumbnail
     }
 
 @app.get("/api/music/queue")
@@ -66,12 +71,13 @@ def api_music_queue_get():
         for line in f:
             if all(c in string.whitespace for c in line):
                 continue
-            id, duration_s, start_s, title = (line[:-1] if line.endswith("\n") else line).split(" ", 3)
+            id, duration_s, thumbnail, start_s, title = (line[:-1] if line.endswith("\n") else line).split(" ", 4)
             queue_list.append({
                 "id": id,
                 "duration": duration_s,
                 "start": int(start_s),
-                "title": title
+                "title": title,
+                "thumbnail": thumbnail
             })
     return json.dumps({
         "current": None if songqueue.current_song is None else _v_to_dict(songqueue.current_song),
@@ -84,17 +90,18 @@ def api_music_queue_push():
     url = request.form["url"]
     v = songqueue.get_video(url)
     if v is None:
-        events.dispatch(songqueue.QueuedSongEvent(-1, False, video_id=url, title="", duration=timedelta(seconds=0), start=0))
+        events.dispatch(songqueue.QueuedSongEvent(-1, False, video_id=url, title="", duration=timedelta(seconds=0), thumbnail="", start=0))
         return "", 403
     pos = songqueue.push_queue(v)
     events.dispatch(songqueue.QueuedSongEvent.new(pos, True, v))
     return str(pos), 200
 
-@sock.route("/api/music/queue/events")
-def api_music_queue_listen(ws:Server):
+@sock.route("/api/music/events")
+def api_music_listen(ws:Server):
     bucket = events.new_bucket()
     try:
         while ws.connected:
+            ws.receive(0)
             for event in bucket.dump():
                 ws.send(event.to_json())
     finally:
@@ -161,27 +168,51 @@ def api_music_queue_skip():
             songqueue.song_done.set()
     return str(skip_count), 200, {"Content-Type": "application/json"}
 
-@app.route("/api/music/song/playerstate", methods=["GET", "POST"])
-def api_music_queue_playerstate():
-    if request.method == "POST":
-        state = request.form["state"]
-        if state == "play":
-            songqueue.vlc_player.play()
-        elif state == "pause":
-            songqueue.vlc_player.pause()
-        else:
-            return "Invalid playerstate.", 422
-    else:
-        state = "play" if songqueue.vlc_player.is_playing() else "pause"
-
+@app.route("/api/music/playerstate", methods=["GET", "POST"])
+def api_music_playerstate():
     if songqueue.current_song is None:
         rtv = "{\"state\": null}"
     else:
+        if request.method == "POST":
+            state = request.form["state"]
+            if state == "play":
+                songqueue.vlc_player.play()
+            elif state == "pause":
+                songqueue.vlc_player.pause()
+            else:
+                return "Invalid playerstate.", 422
+            events.dispatch(events.Event("change_playerstate", {
+                "state": state,
+                "position": songqueue.vlc_player.get_position() * songqueue.vlc_player.get_length()
+            }))
+        else:
+            state = "play" if songqueue.vlc_player.is_playing() else "pause"
         rtv = json.dumps({
             "state": state,
-            "position": songqueue.vlc_player.get_position()
+            "position": songqueue.vlc_player.get_position() * songqueue.vlc_player.get_length()
         })
     return rtv, 200, {"Content-Type": "application/json"}
+
+@app.post("/api/music/seek")
+def api_music_queue_seek():
+    if songqueue.current_song is None:
+        return
+    seconds_s = request.form["seconds"]
+    if not seconds_s.isdigit():
+        return "Invalid seconds", 422
+    seconds = float(seconds_s)
+    if os.path.isfile(songqueue.CURRENT_FILE):
+        song = songqueue.vlc_instance.media_new(songqueue.CURRENT_FILE)
+        song.add_option(f"start-time={seconds}")
+        was_playing = songqueue.vlc_player.is_playing()
+        events.dispatch(events.Event("change_playerstate", {
+            "state": "play" if was_playing else "pause",
+            "position": seconds * 1000
+        }))
+        songqueue.vlc_player.set_media(song)
+        if was_playing:
+            songqueue.vlc_player.play()
+    return "", 200
 
 
 def serve():
