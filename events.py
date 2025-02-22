@@ -28,10 +28,11 @@ class EventBucket:
             self.queue.extend(events)
 
     def dump(self)->Generator[Event, None, None]:
-        with self.lock:
-            for event in self.queue:
-                yield event
-            self.queue.clear()
+        if self.queue:
+            with self.lock:
+                for event in self.queue:
+                    yield event
+                self.queue.clear()
 
     def clear(self):
         with self.lock:
@@ -57,13 +58,13 @@ class EventBucketContainer:
             bucket.push(*events)
     
 
-default_bucket = EventBucketContainer()
+default_container = EventBucketContainer()
 
-def new_bucket(id:UUID|None=None, container:EventBucketContainer=default_bucket):
+def new_bucket(id:UUID|None=None, container:EventBucketContainer=default_container):
     return container.new_bucket(id)
 
-def remove_bucket(x:UUID|EventBucket, container:EventBucketContainer=default_bucket):
+def remove_bucket(x:UUID|EventBucket, container:EventBucketContainer=default_container):
     return container.remove_bucket(x)
 
-def dispatch(*events:Event, container:EventBucketContainer=default_bucket):
+def dispatch(*events:Event, container:EventBucketContainer=default_container):
     return container.dispatch(*events)
