@@ -229,6 +229,8 @@ def song_cycle():
     event_manager = vlc_player.event_manager()
     event_manager.event_attach(vlc.EventType.MediaPlayerEndReached, lambda _: song_done.set())
 
+    if not os.path.isdir(THUMBNAILS_DIR):
+        os.mkdir(THUMBNAILS_DIR)
     if not os.path.isfile(QUEUE_FILE):
         open(QUEUE_FILE, "x").close()
     if os.path.isfile(CURRENT_FILE):
