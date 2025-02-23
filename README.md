@@ -52,4 +52,4 @@ Very creative name.
 
 - To run the music queue and web interface, run `main.py`.
 - To run the twitch bot, run `bot.py`.
-   - If you haven't generated a token yet or the token becomes invalid, run `main.py` first.
+   - If you haven't generated a token yet, make sure you run `main.py` first.
