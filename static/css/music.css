@@ -1,7 +1,10 @@
-
 .body-contents {
     display: flex;
     flex-direction: column;
+}
+
+.queue-controls {
+    margin-bottom: 1rem;
 }
 
 a.title {

@@ -159,10 +159,12 @@ const updateProgressCallback = () => {
     const durationCurrent = currentSong.querySelector(":scope .duration-current");
     const progress = currentSong.querySelector(":scope .progress");
 
+    console.log("starting progress interval");
     return () => {
         const currentSong = document.getElementById("current-song");
         if (currentSong.getAttribute("song-id") !== songId || playerState?.state !== "play") {
             clearInterval(updateProgress);
+            updateProgress = null;
             return;
         }
         
@@ -200,6 +202,7 @@ function populateSongItem(elm, num, data) {
     marker.innerText = num + ".";
     icon.src = "/music/thumbnail/"+data.thumbnail;
     title.href = "https://youtube.com/watch?v=" + data.id;
+    title.target = "_blank";
     title.innerText = data.title;
     duration.innerText = `${formatDuration(data.start)} / ${data.duration}`;
 
@@ -244,6 +247,7 @@ function updateQueueVisuals(state) {
             
             title.classList.add("title");
             title.href = "https://youtube.com/watch?v=" + state.current.id;
+            title.target = "_blank";
             title.innerText = state.current.title;
 
             durationCurrent.classList.add("duration-current");
@@ -262,6 +266,7 @@ function updateQueueVisuals(state) {
             
             progress.addEventListener("mousedown", () => {
                 clearInterval(updateProgress);
+                updateProgress = null;
             });
             
             progress.addEventListener("input", () => {
@@ -273,6 +278,8 @@ function updateQueueVisuals(state) {
             });
             
             currentSong.append(icon, columnGroup, progress);
+            if (updateProgress)
+                clearInterval(updateProgress);
             updateProgress = setInterval(updateProgressCallback(), 100);
         }
     }
@@ -317,6 +324,8 @@ events.addEventListener("message", ev => {
     switch (event.name) {
     case "change_playerstate": {
         playerState = event.data;
+        if (updateProgress)
+            clearInterval(updateProgress);
         updateProgress = setInterval(updateProgressCallback(), 100);
         break;
     }
