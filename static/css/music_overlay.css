@@ -1,0 +1,77 @@
+:root, body {
+    width: 100vw;
+    height: 100vh;
+    margin: 0;
+    padding: 0;
+
+    font-family: "Fragment Mono";
+}
+
+.body-contents {
+    position: fixed;
+    left: 0;
+    bottom: 0;
+    width: 100%;
+}
+
+#toast, #persistent {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    padding: 0.5rem;
+
+    background-color: #000d;
+    color: #fff;
+
+    width: 100%;
+    height: 175px;
+
+    display: flex;
+    flex-direction: column;
+
+    
+    transition: transform 0.5s ease-out;
+    transform: translateY(100%);
+}
+
+#toast.show, #persistent.show {
+    transform:  translateY(0);
+    transition: transform 0.75s ease-out;
+}
+
+#toast.show-top {
+    transform: translateY(-100%);
+    transition: transform 0.75s ease-out;
+}
+
+.row {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+}
+
+.column {
+    display: flex;
+    flex-direction: column;
+    margin-left: 1rem;
+}
+
+#progress-bar-container {
+    margin-top: 0.75rem;
+    background-color: #041f10;
+    width: calc(100% - 1rem);
+    height: 10px;
+}
+
+#progress-bar {
+    background-color: #7f0;
+    height: 100%;
+}
+
+.icon {
+    max-height: 150px;
+}
+
+.title {
+    margin-bottom: 0.5rem;
+}

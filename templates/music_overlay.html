@@ -1,0 +1,34 @@
+{% extends "overlay.html" %}
+
+{% block styles %}
+<link rel="stylesheet" type="text/css" href="/static/css/music_overlay.css">
+{% endblock %}
+{% block scripts %}
+<script src="/static/js/music_overlay.js"></script>
+{% endblock %}
+{% block body %}
+<div id="toast">
+    <span class="action"></span>
+    <div class="row">
+        <img class="icon">
+        <div class="column">
+            <span class="title"></span>
+            <span class="duration"></span>
+        </div>
+    </div>
+</div>
+<div id="persistent">
+    <div class="row">
+        <img class="icon">
+        <div class="column">
+            <span class="title"></span>
+            <span>
+                <span class="current-duration"></span> / <span class="duration"></span>
+            </span>
+        </div>
+    </div>
+    <div id="progress-bar-container">
+        <div id="progress-bar"></div>
+    </div>
+</div>
+{% endblock %}

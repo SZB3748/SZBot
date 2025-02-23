@@ -33,6 +33,10 @@ def index():
 def music_interface():
     return render_template("music.html")
 
+@app.get("/music/overlay")
+def music_overlay():
+    return render_template("music_overlay.html")
+
 @app.get("/music/thumbnail/<name>")
 def music_thumbnail(name:str):
     return send_from_directory(songqueue.THUMBNAILS_DIR, name)
