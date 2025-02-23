@@ -85,7 +85,7 @@ function seekSong(seconds) {
  * @returns {Promise<PlayerState?>}
  */
 function getPlayerState() {
-    return fetch("api/music/playerstate").then(r => {
+    return fetch("/api/music/playerstate").then(r => {
         if (r.ok)
             return r.json();
         else return null;
@@ -151,7 +151,7 @@ function formatDuration(seconds) {
 
 let updateProgress;
 
-const updateProgressCallback = () => {
+function updateProgressCallback() {
     let lastProgressUpdate = Date.now();
     const songId = queueState?.current?.id;
 
@@ -202,6 +202,7 @@ function populateSongItem(elm, num, data) {
     marker.innerText = num + ".";
     icon.src = "/music/thumbnail/"+data.thumbnail;
     title.href = "https://youtube.com/watch?v=" + data.id;
+    title.title = data.id;
     title.target = "_blank";
     title.innerText = data.title;
     duration.innerText = `${formatDuration(data.start)} / ${data.duration}`;
@@ -247,6 +248,7 @@ function updateQueueVisuals(state) {
             
             title.classList.add("title");
             title.href = "https://youtube.com/watch?v=" + state.current.id;
+            title.title = state.current.id;
             title.target = "_blank";
             title.innerText = state.current.title;
 
@@ -262,6 +264,7 @@ function updateQueueVisuals(state) {
             progress.type = "range";
             progress.min = 0;
             progress.max = parseDuration(state.current.duration);
+            progress.step = 0.1;
             progress.value = playerState.position / 1000;
             
             progress.addEventListener("mousedown", () => {
@@ -274,7 +277,7 @@ function updateQueueVisuals(state) {
             });
             
             progress.addEventListener("change", () => {
-                seekSong(progress.value);
+                seekSong(Math.round(progress.value));
             });
             
             currentSong.append(icon, columnGroup, progress);
@@ -335,7 +338,8 @@ events.addEventListener("message", ev => {
             position: event.data.start * 1000
         };
     case "queue_song":
-        refreshState();
+        if (event.data.success !== false)
+            refreshState();
         break;
     }
 });
