@@ -58,16 +58,19 @@ def init_bot():
 
     return Bot(configs, oauth)
 
-async def main():
+async def main(retry:bool=True):
     try:
         await bot.start()
     except twitchio.errors.AuthenticationError as e:
         print(e)
+        if not retry:
+            return
         token = await bot.event_token_expired()
         if token is None:
             print("Failed to refresh token. Make sure Token is removed from config.json and run the main script to generate a new token.")
         else:
-            print("New token generated. Rerun bot script.")
+            print("New token generated. Attempting to start bot again.")
+            await main(retry=False)
     except KeyboardInterrupt:
         pass
 
