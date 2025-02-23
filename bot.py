@@ -79,6 +79,16 @@ def log_command(f:Callable[..., Awaitable[Any]]):
     wrapper.__name__ = f.__name__
     return wrapper
 
+async def link_command(ctx:commands.Context, name:str):
+    configs = config.read()
+    if "Links" not in configs:
+        return
+    links = configs["Links"]
+    if isinstance(links, dict) and name in links:
+        link = links[name]
+        if isinstance(link, str):
+            await ctx.send(link)
+
 if __name__ == "__main__":
     bot = init_bot()
     if bot is None:
@@ -88,6 +98,16 @@ if __name__ == "__main__":
     @bot.event()
     async def event_ready():
         print("bot running")
+
+    @bot.command(name="github")
+    @log_command
+    async def github_link(ctx:commands.Context):
+        await link_command(ctx, "github")
+
+    @bot.command(name="discord")
+    @log_command
+    async def discord_link(ctx:commands.Context):
+        await link_command(ctx, "discord")
 
     @bot.command(name="addsong")
     @log_command
