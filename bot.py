@@ -1,3 +1,4 @@
+import aiohttp
 import asyncio
 import config
 from datetime import datetime
@@ -115,11 +116,13 @@ if __name__ == "__main__":
     @bot.command(name="addsong")
     @log_command
     async def add_song(ctx:commands.Context, url:str):
-        r = requests.post("http://localhost:6742/api/music/queue/push", data={"url": url})
-        if r.ok:
-            print(f"Added song ({r.text})")
-        else:
-            print("Failed to add song")
+        async with aiohttp.ClientSession() as session:
+            async with session.post("http://localhost:6742/api/music/queue/push", data={"url": url}) as r:
+                if r.ok:
+                    text = await r.text()
+                    print(f"Added song ({text})")
+                else:
+                    print("Failed to add song")
     
     @bot.command(name="skipsong")
     @log_command
@@ -130,33 +133,38 @@ if __name__ == "__main__":
         count = int(count)
         if count <= 0:
             return
-        r = requests.post("http://localhost:6742/api/music/queue/skip", data={"count": count})
-        if r.ok:
-            print(f"Skipped", r.text, "songs")
-        else:
-            print("Failed to skip song")
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.post("http://localhost:6742/api/music/queue/skip", data={"count": count}) as r:
+                if r.ok:
+                    text = await r.text()
+                    print(f"Skipped", text, "songs")
+                else:
+                    print("Failed to skip song")
 
     @bot.command(name="pausesong")
     @log_command
     async def pause_song(ctx:commands.Context):
         if not ctx.author.is_mod:
             return
-        r = requests.post("http://localhost:6742/api/music/playerstate", data={"state": "pause"})
-        if r.ok:
-            print("Paused")
-        else:
-            print("Failed to pause")
+        async with aiohttp.ClientSession() as session:
+            async with session.post("http://localhost:6742/api/music/playerstate", data={"state": "pause"}) as r:
+                if r.ok:
+                    print("Paused")
+                else:
+                    print("Failed to pause")
 
     @bot.command(name="playsong")
     @log_command
     async def play_song(ctx:commands.Context):
         if not ctx.author.is_mod:
             return
-        r = requests.post("http://localhost:6742/api/music/playerstate", data={"state": "play"})
-        if r.ok:
-            print("Paused")
-        else:
-            print("Failed to pause")
+        async with aiohttp.ClientSession() as session:
+            async with session.post("http://localhost:6742/api/music/playerstate", data={"state": "play"}) as r:
+                if r.ok:
+                    print("Resumed Play")
+                else:
+                    print("Failed to resume play")
 
 
     @bot.command(name="musicpersist")
@@ -166,7 +174,8 @@ if __name__ == "__main__":
             return
         state = state.strip().lower()
         if state in ("true", "false"):
-            requests.post("http://localhost:6742/api/music/overlay/persistent", data={"value": state})
+            async with aiohttp.ClientSession() as session:
+                await session.post("http://localhost:6742/api/music/overlay/persistent", data={"value": state})
         else:
             print("Invalid music persistent state (true/false)")
 
