@@ -100,8 +100,8 @@ async function updatePersistence(state) {
             return;
         
         playerState = pstate;
-        setCurrentSong(qstate.current);
-        persistentDisplay.classList.add("show");
+        if (qstate.current != null)
+            setCurrentSong(qstate.current);
     } else if (updateProgress) {
         persistentDisplay.classList.remove("show");
         clearInterval(updateProgress);
@@ -113,6 +113,7 @@ async function updatePersistence(state) {
  * @param {QueuedVideo} queued
  */
 function setCurrentSong(queued) {
+    const persistentDisplay = document.getElementById("persistent");
     /** @type {HTMLImageElement} */
     const icon = document.querySelector("#persistent .icon");
     const title = document.querySelector("#persistent .title");
@@ -128,6 +129,8 @@ function setCurrentSong(queued) {
         clearInterval(updateProgress);
     if (playerState.state == "play")
         updateProgress = setInterval(updateProgressCallback(parseDuration(queued.duration) * 1000));
+
+    persistentDisplay.classList.add("show");
 }
 /**
  * @param {string} action
@@ -147,10 +150,19 @@ function runToast(action, queued) {
     duration.innerText = queued.duration ? `${formatDuration(queued.start)} / ${queued.duration}` : "";
 
     const toast = document.getElementById("toast");
-    toast.classList.add(persistent ? "show-top" : "show");
+    toast.classList.add(persistent && playerState?.state != null ? "show-top" : "show");
 
     return new Promise(callback => {
+        const prevUpdateProgress = updateProgress;
+        const checkPlayingSong = setInterval(() => {
+            if (updateProgress !== prevUpdateProgress) {
+                clearInterval(checkPlayingSong);
+                toast.classList.remove("show");
+                toast.classList.add("show-top");
+            }
+        }, 50);
         setTimeout(() => {
+            clearInterval(checkPlayingSong);
             toast.classList.remove("show", "show-top");
             callback();
         }, 7000);
