@@ -34,7 +34,7 @@ def run():
             print("Song cycle stopped")
 
 if __name__ == "__main__":
-    oauth = config.read(path=config.OAUTH_FILE)
+    oauth = config.read(path=config.OAUTH_TWITCH_FILE)
     if not ("Client-Id" in oauth and "Client-Secret" in oauth and "Scopes" in oauth):
         print("You must create an oauth.json file with your twitch application's \"Client-Id\", \"Client-Secret\", and \"Scopes\".")
     elif "Token" not in oauth:

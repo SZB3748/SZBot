@@ -5,7 +5,8 @@ import os
 from typing import Any
 
 CONFIG_FILE = "config.json"
-OAUTH_FILE = "oauth.json"
+OAUTH_TWITCH_FILE = "oauth_twitch.json"
+OAUTH_YOUTUBE_FILE = "oauth_youtube.json"
 
 _cached_contents:dict[str, tuple[datetime, Any]] = {}
 
