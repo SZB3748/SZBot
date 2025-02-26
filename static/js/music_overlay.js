@@ -145,7 +145,7 @@ function runToast(action, queued) {
     const duration = document.querySelector("#toast .duration");
 
     actionSpan.innerText = action + " • • •";
-    icon.src =  queued.thumbnail ? "/music/thumbnail/"+queued.thumbnail : "/static/img/idiot.webp";
+    icon.src =  queued.thumbnail ? "/music/thumbnail/"+queued.thumbnail : "/static/img/dumbass.webp";
     title.innerText = queued.title;
     duration.innerText = queued.duration ? `${formatDuration(queued.start)} / ${queued.duration}` : "";
 
