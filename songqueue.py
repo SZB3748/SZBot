@@ -13,7 +13,7 @@ THUMBNAILS_DIR = "thumbnails"
 CURRENT_FILE = "CURRENT"
 NEXT_FILE = "NEXT"
 QUEUE_FILE = "QUEUE"
-URL_REGEX = re.compile(r"^(?:http(?:s?):\/\/www\.)?youtu(?:be\.com\/watch\?v=|\.be\/)([\w\-\_]*)(&(amp;)?[\w\?=]*)?")
+URL_REGEX = re.compile(r"^(?:http(?:s)?:\/\/(?:www\.)?)?youtu(?:be\.com\/watch\?v=|\.be\/)([\w\-\_]*)(&(amp;)?[\w\?=]*)?")
 T_PARAM_REGEX = re.compile(r"^.*?\?.*?&?t=(?:([0-9]+)h)?(?:([0-9]+)m)(?:([0-9]+)(?:s)?)?(?:&|$)")
 THUMBNAIL_OUTPUT_REGEX = re.compile(r"\[info\] Writing video thumbnail .*? to: .*?[\\/](.*?)(?:\r|\n|$)")
 
@@ -21,6 +21,8 @@ stop_loop = threading.Event()
 song_done = threading.Event()
 queue_populated = threading.Event()
 queue_push_lock = threading.Lock()
+b_track_is_current = False
+b_track_is_next = False
 
 vlc_instance = vlc.Instance("--input-repeat=-1", "--fullscreen", "--file-caching=0")
 vlc_player = vlc_instance.media_player_new()
@@ -81,6 +83,8 @@ class PlaySongEvent(QueueDataEvent):
 
 next_song:QueuedVideo = None
 current_song:QueuedVideo = None
+b_track_playlist:str = None
+b_track_index:int = None
 
 #cite: https://stackoverflow.com/a/73886462
 def get_device(name:str):
@@ -148,6 +152,61 @@ def pop_queue()->QueuedVideo|None:
             f.write(contents)
             raise
 
+def get_next_song()->QueuedVideo|None:
+    global b_track_playlist, b_track_is_next, b_track_index, next_song
+    configs = config.read()
+
+    current_btrack = None
+    current_index = None
+    if "B-Track" in configs:
+        btrack_settings = configs["B-Track"]
+        if isinstance(btrack_settings, dict) and "url" in btrack_settings:
+            current_btrack = btrack_settings["url"]
+            current_index = btrack_settings.get("start", 1)
+            if isinstance(current_index, float):
+                current_index = min(1, int(current_index))
+            elif not (isinstance(current_index, int) and current_index > 0):
+                current_index = 1
+
+    if isinstance(current_btrack, str):
+        if current_btrack != b_track_playlist:
+            b_track_playlist = current_btrack
+            b_track_index = current_index
+        with open(QUEUE_FILE) as f:
+            contents = f.read()
+
+        if any(c not in string.whitespace for c in contents):
+            queue_populated.set()
+            if b_track_is_next:
+                next_song = None
+                if os.path.isfile(NEXT_FILE):
+                    os.remove(NEXT_FILE)
+            b_track_is_next = False
+        else:
+            queue_populated.clear()
+            b_track_is_next = True
+            v = get_playlist_video(b_track_playlist, b_track_index)
+            if v is None:
+                events.dispatch(QueuedSongEvent(-1, False, video_id=f"{b_track_playlist}&index={b_track_index}", title="", duration=timedelta(seconds=0), thumbnail="", start=0))
+            else:
+                events.dispatch(QueuedSongEvent.new(1, True, v))
+            return v
+    else:
+        b_track_playlist = b_track_index = None
+        if b_track_is_next and os.path.isfile(NEXT_FILE):
+            os.remove(NEXT_FILE)
+        b_track_is_next = False
+
+    return pop_queue()
+
+def get_playlist_video(url:str, number:str)->QueuedVideo|None:
+    idP = subprocess.Popen(["yt-dlp", url, "--playlist-start="+str(number), "--playlist-end="+str(number), "--print", "%(id)s"], stdout=subprocess.PIPE)
+    out_id, _ = idP.communicate()
+    if not idP.returncode:
+        return get_video(f"https://youtube.com/watch?v={out_id.decode("utf-8").strip()}")
+    else:
+        print(f"Failed to get video ID for playlist video #{number}")
+
 def get_video(url:str)->QueuedVideo|None:
     m = re.match(URL_REGEX, url)
     id = None if m is None else m[1] or None
@@ -195,16 +254,32 @@ def download_video(url:str, file:str=NEXT_FILE)->subprocess.Popen:
     return subprocess.Popen(["yt-dlp", "--ignore-errors", "-f", "bestaudio", url, "-o", file])
 
 def ready_song():
-    global current_song, next_song
+    global current_song, next_song, b_track_is_next, b_track_index
+
+    if b_track_is_next:
+        with open(QUEUE_FILE) as f:
+            contents = f.read()
+        if any(c not in string.whitespace for c in contents):
+            queue_populated.set()
+            if b_track_is_next:
+                next_song = None
+                if os.path.isfile(NEXT_FILE):
+                    os.remove(NEXT_FILE)
+            b_track_is_next = False
+        else:
+            queue_populated.clear()
+
     if current_song is None:
         if next_song is None:
-            v = pop_queue()
+            v = get_next_song()
             if not v:
                 return
             s = download_video(v.url, file=CURRENT_FILE)
             current_song = v
             if s.wait():
                 current_song = None
+            elif b_track_is_next:
+                b_track_index += 1
         else:
             current_song = next_song
             next_song = None
@@ -212,14 +287,16 @@ def ready_song():
                 os.remove(CURRENT_FILE)
             if os.path.isfile(NEXT_FILE):
                 os.rename(NEXT_FILE, CURRENT_FILE)
+            if b_track_is_next:
+                b_track_index += 1
+        
     if next_song is None:
-        next_song = pop_queue()
-        if next_song is None:
-            return
-        download_video(next_song.url)
+        next_song = get_next_song()
+        if next_song is not None:
+            download_video(next_song.url)
 
 def song_cycle():
-    global current_song
+    global current_song, b_track_is_current, b_track_index
 
     configs = config.read()
     if "Output-Device" in configs:
@@ -246,10 +323,12 @@ def song_cycle():
         if stop_loop.is_set():
             return
         ready_song()
+
         if stop_loop.is_set():
             return
         if current_song and os.path.isfile(CURRENT_FILE):
             cs = current_song #keep a reference to the object in case the global reference is changed
+            b_track_is_current = b_track_is_next
             
             song = vlc_instance.media_new(CURRENT_FILE)
             if current_song.start and current_song.start < current_song.duration.total_seconds():
@@ -273,6 +352,8 @@ def song_cycle():
             vlc_player.set_media(None)
             os.remove(CURRENT_FILE)
             current_song = None
+        else:
+            b_track_is_current = False
         time.sleep(1)
 
 def run_song_cycle():
