@@ -120,12 +120,18 @@ def api_music_set_overlay_persistent():
 @app.post("/api/music/queue/skip")
 def api_music_queue_skip():
     count_s = request.form.get("count", "1")
+    purge_s = request.form.get("purge", "false").strip().lower().replace("false", "")
+    npurge = not purge_s
+
     if not count_s.isdigit():
         return "Invalid count", 422
     count = int(count_s)
     pre_skipped = 0
     if count > 0:
         if songqueue.current_song is not None:
+            songqueue.save_current_to_playlist = False
+            if npurge:
+                songqueue.add_to_playlist(songqueue.current_song.video_id)
             songqueue.current_song = None
             #NOTE: cannot remove CURRENT_FILE here, as it is being used by the vlc player; current file is removed on its own during normal operation
             pre_skipped += 1
@@ -133,6 +139,8 @@ def api_music_queue_skip():
         return "0", 200, {"Content-Type": "application/json"}
     if count > 1:
         if songqueue.next_song is not None:
+            if npurge:
+                songqueue.add_to_playlist(songqueue.next_song.video_id)
             songqueue.next_song = None
             if os.path.isfile(songqueue.NEXT_FILE):
                 os.remove(songqueue.NEXT_FILE)
@@ -149,6 +157,10 @@ def api_music_queue_skip():
             index = content.find("\n", cutoff)
             if index < 0:
                 break
+            if npurge:
+                space_index = content.find(" ", cutoff, index)
+                if space_index > 0:
+                    songqueue.add_to_playlist(content[cutoff:space_index])
             cutoff = index+1
             if all(content[i] in string.whitespace for i in range(cutoff, index)):
                 skip_count += 1

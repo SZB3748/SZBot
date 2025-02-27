@@ -140,7 +140,7 @@ if __name__ == "__main__":
                     print("Failed to add song")
     
     @bot.command(name="skipsong")
-    async def skip_song(ctx:commands.Context, count:int=1):
+    async def skip_song(ctx:commands.Context, count:int=1, purge:str="false"):
         if not ctx.author.is_mod: #also works for broadcaster
             return
         
@@ -149,7 +149,7 @@ if __name__ == "__main__":
             return
         
         async with aiohttp.ClientSession() as session:
-            async with session.post("http://localhost:6742/api/music/queue/skip", data={"count": count}) as r:
+            async with session.post("http://localhost:6742/api/music/queue/skip", data={"count": count, "purge":purge}) as r:
                 if r.ok:
                     text = await r.text()
                     print(f"Skipped", text, "songs")

@@ -2,6 +2,7 @@ import config
 from datetime import timedelta
 import events
 import os
+import playlist
 import re
 import string
 import subprocess
@@ -23,9 +24,12 @@ queue_populated = threading.Event()
 queue_push_lock = threading.Lock()
 b_track_is_current = False
 b_track_is_next = False
+save_current_to_playlist = True
 
 vlc_instance = vlc.Instance("--input-repeat=-1", "--fullscreen", "--file-caching=0")
 vlc_player = vlc_instance.media_player_new()
+
+youtube_api = playlist.get_authenticated_service()
 
 class QueuedVideo:
     def __init__(self, video_id:str, title:str, duration:timedelta, thumbnail:str, start:int=0):
@@ -200,6 +204,11 @@ def get_next_song()->QueuedVideo|None:
 
     return pop_queue()
 
+def add_to_playlist(video_id):
+    configs = config.read()
+    if "Playlist" in configs:
+        return playlist.add_video(youtube_api, configs["Playlist"], video_id)
+
 def get_playlist_video(url:str, number:str)->QueuedVideo|None:
     idP = subprocess.Popen(["yt-dlp", url, "--playlist-start="+str(number), "--playlist-end="+str(number), "--print", "%(id)s"], stdout=subprocess.PIPE)
     out_id, _ = idP.communicate()
@@ -297,7 +306,7 @@ def ready_song():
             download_video(next_song.url)
 
 def song_cycle():
-    global current_song, b_track_is_current, b_track_index
+    global current_song, b_track_is_current, b_track_index, save_current_to_playlist
 
     configs = config.read()
     if "Output-Device" in configs:
@@ -352,6 +361,13 @@ def song_cycle():
             print("Stopped", cs.video_id)
             vlc_player.set_media(None)
             os.remove(CURRENT_FILE)
+
+            if save_current_to_playlist:
+                r = add_to_playlist(cs.video_id)
+                if r:
+                    print(r)
+            else:
+                save_current_to_playlist = True
             current_song = None
         else:
             b_track_is_current = False
