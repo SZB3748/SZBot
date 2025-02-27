@@ -198,7 +198,7 @@ def api_music_playerstate():
     return rtv, 200, {"Content-Type": "application/json"}
 
 @app.post("/api/music/seek")
-def api_music_queue_seek():
+def api_musics_seek():
     if songqueue.current_song is None:
         return
     seconds_s = request.form["seconds"]
@@ -217,6 +217,40 @@ def api_music_queue_seek():
         if was_playing:
             songqueue.vlc_player.play()
     return "", 200
+
+@app.route("/api/music/b-track", methods=["GET", "POST"])
+def api_music_b_track():
+    configs = config.read()
+    current_b_track = configs.get("B-Track", None)
+    index = songqueue.b_track_index
+
+    if request.method == "POST":
+        url = request.form["url"]
+        if "index" in request.form:
+            index_s = request.form["index"]
+            if not index_s.isdigit():
+                return "Invalid index", 422
+            index = int(index_s)
+
+        if isinstance(current_b_track, dict):
+            start = current_b_track.get("start", 1)
+        else:
+            start = 1
+        
+        config.write(config_updates={
+            "B-Track": {"url": url, "start": start} if url else None
+        })
+        songqueue.b_track_playlist = url
+        songqueue.b_track_index = index
+    elif isinstance(current_b_track, dict) and current_b_track:
+        url = current_b_track["url"]
+    else:
+        url = None
+
+    return json.dumps({
+        "url": url,
+        "index": index
+    }), 200, {"Content-Type": "application/json"}
 
 
 def serve():

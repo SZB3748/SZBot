@@ -168,10 +168,11 @@ def get_next_song()->QueuedVideo|None:
             elif not (isinstance(current_index, int) and current_index > 0):
                 current_index = 1
 
-    if isinstance(current_btrack, str):
-        if current_btrack != b_track_playlist:
-            b_track_playlist = current_btrack
-            b_track_index = current_index
+            if b_track_playlist != current_btrack:
+                b_track_playlist = current_btrack
+                b_track_index = current_index
+
+    if isinstance(b_track_playlist, str):
         with open(QUEUE_FILE) as f:
             contents = f.read()
 

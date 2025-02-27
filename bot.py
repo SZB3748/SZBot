@@ -190,5 +190,29 @@ if __name__ == "__main__":
         else:
             print("Invalid music persistent state (true/false)")
 
+    @bot.command(name="btrack")
+    async def music_btrack(ctx:commands.Context, url:str|None=None, index:int|None=None):
+        if not ctx.author.is_mod:
+            return
+        
+        async with aiohttp.ClientSession() as session:
+            if url is None and index is None:
+                async with session.get("http://localhost:6742/api/music/b-track") as r:
+                    j = await r.json()
+                    if isinstance(j, dict):
+                        url = j.get("url", None)
+                        if url is not None:
+                            await ctx.send(url)
+                            return
+                    await ctx.send("No B-Track set")
+            else:
+                d = {}
+                if index is not None:
+                    d["index"] = int(index)
+                if url:
+                    d["url"] = url
+                await session.post("http://localhost:6742/api/music/b-track", data=d)
+        
+
     loop = asyncio.get_event_loop()
     loop.run_until_complete(main())
