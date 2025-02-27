@@ -59,7 +59,7 @@ def oauth():
     config.write(config_updates={"Token": d["access_token"], "Refresh-Token": d["refresh_token"]}, path=config.OAUTH_TWITCH_FILE)
     return "Restart", 200
 
-def _v_to_dict(v:songqueue.QueuedVideo)->dict[str]:
+def _v_to_dict(v:songqueue.QueuedSong)->dict[str]:
     return {
         "id": v.video_id,
         "duration": songqueue.format_duration(v.duration),
@@ -92,7 +92,7 @@ def api_music_queue_get():
 @app.post("/api/music/queue/push")
 def api_music_queue_push():
     url = request.form["url"]
-    v = songqueue.get_video(url)
+    v = songqueue.get_song(url)
     if v is None:
         events.dispatch(songqueue.QueuedSongEvent(-1, False, video_id=url, title="", duration=timedelta(seconds=0), thumbnail="", start=0))
         return "", 403
@@ -152,7 +152,7 @@ def api_music_queue_skip():
     with open(songqueue.QUEUE_FILE, "r+") as f:
         content = f.read()
         cutoff = 0
-        skip_count = pre_skipped #to get to this point, the current and/or next videos may have been skipped
+        skip_count = pre_skipped #to get to this point, the current and/or next songs may have been skipped
         for _ in range(count - pre_skipped):
             index = content.find("\n", cutoff)
             if index < 0:

@@ -76,12 +76,17 @@ Very creative name.
         "url": "https://youtube.com/watch?playlist=PLAYLIST_ID",
         "start": 5 //index in playlist to start at (optional, default=1)
     },
+    "Playlist": "PLAYLIST_ID",
     "Output-Device": "DEVICE NAME"
 }
 ```
 5. Create a `secret.txt` file. Just put a bunch of random keyboard spam in it, or do some research if you want to put a bit more thought into it.
 6. Run `main.py`. It will detect that your `oauth.json` file doesn't contain a token and begin the process of generating one. Link your twitch account when it asks to. If you get redirected to a page that says "Restart", then you can restart the server.
 
+
+### Creating a Playlist
+
+Run the `playlist.py` file and fill out the inputs it asks for. It will create a playlist and display the ID. Put that ID into `config.json` under the `Playlist` field.
 
 ## Running
 

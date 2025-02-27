@@ -15,6 +15,7 @@ class Event:
         })
 
 class EventBucket:
+    """Collects events so that they can later be handled all at once."""
     def __init__(self, id:UUID, queue:list[Event]|None=None):
         self.id = id
         self.queue = [] if queue is None else queue
@@ -24,10 +25,12 @@ class EventBucket:
         return len(self.queue)
 
     def push(self, *events:Event):
+        """Add an event to the bucket."""
         with self.lock:
             self.queue.extend(events)
 
     def dump(self)->Generator[Event, None, None]:
+        """Returns a generator to handle the events with. After iterating over all the events, the bucket is emptied."""
         if self.queue:
             with self.lock:
                 for event in self.queue:
@@ -35,6 +38,7 @@ class EventBucket:
                 self.queue.clear()
 
     def clear(self):
+        """Clears all the events in the bucket without handling them."""
         with self.lock:
             self.queue.clear()
 

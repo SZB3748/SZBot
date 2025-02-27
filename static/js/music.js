@@ -1,26 +1,27 @@
 
 
 /**
- * @typedef QueuedVideo
- * @property {string} id
- * @property {number} start
- * @property {string} duration
- * @property {string} title
- * @property {string} thumbnail
+ * @typedef QueuedSong A song gotten from a youtube video that is/was queued.
+ * @property {string} id The song's ID on youtube.
+ * @property {number} start The number of seconds into the song to begin playing from.
+ * @property {string} duration The song's duration (HH:MM:SS).
+ * @property {string} title The song's title.
+ * @property {string} thumbnail The filename for the song's youtube thumbnail (usually `video_id`.`extension`).
  */
 
 /**
- * @typedef QueueState
- * @property {QueuedVideo?} current
- * @property {QueuedVideo?} next
- * @property {QueuedVideo[]} queue
+ * @typedef QueueState The current state of the queue.
+ * @property {QueuedSong?} current The song that's currently playing.
+ * @property {QueuedSong?} next The song that has been pre-loaded to play next.
+ * @property {QueuedSong[]} queue The songs in the queue.
  */
 
 /**
- * @typedef PlayerState
- * @property {string?} state
- * @property {number} position
+ * @typedef PlayerState The current state of the song player.
+ * @property {"play"|"pause"|null} state If the song player is playing a song or paused. `null` if there is no song playing.
+ * @property {number} position The number of milliseconds that have elapsed for the current song.
  */
+
 
 /** @type {PlayerState?} */
 let playerState = null;
@@ -56,17 +57,16 @@ function skipSong(count) {
  * @param {string} state 
  * @returns {Promise<PlayerState?>}
  */
-function setPlayState(state) {
+async function setPlayState(state) {
     const body = new FormData();
     body.set("state", state);
-    return fetch("/api/music/playerstate", {
+    const r = await fetch("/api/music/playerstate", {
         method: "POST",
         body: body
-    }).then(r => {
-        if (r.ok) {
-            return r.json();
-        } else return null;
     });
+    if (r.ok) {
+        return r.json();
+    } else return null;
 }
 
 /**
@@ -84,23 +84,21 @@ function seekSong(seconds) {
 /**
  * @returns {Promise<PlayerState?>}
  */
-function getPlayerState() {
-    return fetch("/api/music/playerstate").then(r => {
-        if (r.ok)
-            return r.json();
-        else return null;
-    });
+async function getPlayerState() {
+    const r = await fetch("/api/music/playerstate")
+    if (r.ok)
+        return r.json();
+    else return null;
 }
 
 /**
  * @returns {Promise<QueueState?>}
  */
-function getQueueState() {
-    return fetch("/api/music/queue").then(r => {
-        if (r.ok)
+async function getQueueState() {
+    const r = await fetch("/api/music/queue");
+    if (r.ok)
             return r.json();
-        else return null;
-    });
+    else return null;
 }
 
 function updatePausePlayButton() {
@@ -129,8 +127,8 @@ async function refreshState() {
 }
 
 /**
- * @param {string} duration
- * @returns {Number}
+ * @param {string} duration A duration string HH:MM:SS
+ * @returns {Number} Duration in seconds
  */
 function parseDuration(duration) {
     const [hours, minutes, seconds] = duration.split(":");
@@ -150,7 +148,10 @@ function formatDuration(seconds) {
 }
 
 let updateProgress;
-
+/**
+ * Generates a new callback for visually updating the current song's progress. Callback is used in an interval.
+ * @param {number} duration The maximum duration of the song.
+ */
 function updateProgressCallback() {
     let lastProgressUpdate = Date.now();
     const songId = queueState?.current?.id;
@@ -178,10 +179,10 @@ function updateProgressCallback() {
 }
 
 /**
- * 
- * @param {HTMLElement} elm 
- * @param {number} num 
- * @param {QueuedVideo} data 
+ * Populate an element with everything needed to display a song's info.
+ * @param {HTMLElement} elm The destination element.
+ * @param {number} num What number element this is in the queue.
+ * @param {QueuedSong} data
  */
 function populateSongItem(elm, num, data) {
     while (elm.children.length > 0)

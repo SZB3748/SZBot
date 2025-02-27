@@ -31,7 +31,8 @@ vlc_player = vlc_instance.media_player_new()
 
 youtube_api = playlist.get_authenticated_service()
 
-class QueuedVideo:
+class QueuedSong:
+    "A song gotten from a youtube video that is/was queued."
     def __init__(self, video_id:str, title:str, duration:timedelta, thumbnail:str, start:int=0):
         self.video_id = video_id
         self.title = title
@@ -47,11 +48,12 @@ class QueuedVideo:
         return f"{self.video_id} {format_duration(self.duration)} {self.thumbnail} {self.start} {self.title}"
 
 class QueueDataEvent(events.Event):
+    """An event that passes around QueuedSong data."""
 
     event_name:str = None
 
     @classmethod
-    def new(cls, v:QueuedVideo):
+    def new(cls, v:QueuedSong):
         return cls(
             video_id=v.video_id,
             title=v.title,
@@ -74,7 +76,7 @@ class QueuedSongEvent(QueueDataEvent):
     event_name = "queue_song"
 
     @classmethod
-    def new(cls, pos:int, success:bool, v:QueuedVideo):
+    def new(cls, pos:int, success:bool, v:QueuedSong):
         return cls(pos=pos, success=success, video_id=v.video_id, title=v.title, duration=v.duration, thumbnail=v.thumbnail, start=v.start)
 
     def __init__(self, pos:int, success:bool, *args, **kwargs):
@@ -85,8 +87,8 @@ class PlaySongEvent(QueueDataEvent):
     event_name = "play_song"
 
 
-next_song:QueuedVideo = None
-current_song:QueuedVideo = None
+next_song:QueuedSong = None
+current_song:QueuedSong = None
 b_track_playlist:str = None
 b_track_index:int = None
 
@@ -116,7 +118,7 @@ def format_duration(td:timedelta)->str:
     secs = str(int(td.total_seconds()) % 60).rjust(2, "0")
     return ":".join([hours, mins, secs])
 
-def push_queue(*vs:QueuedVideo)->int:
+def push_queue(*vs:QueuedSong)->int:
     with queue_push_lock:
         with open(QUEUE_FILE, "a+") as f:
             for v in vs:
@@ -124,10 +126,10 @@ def push_queue(*vs:QueuedVideo)->int:
             f.seek(0)
             count = f.read().count("\n")
         queue_populated.set()
-    #add to count if NEXT is present to include the preloaded video in the queue, and subtract from count if there is no CURRENT (video will be moving up)
+    #add to count if NEXT is present to include the preloaded song in the queue, and subtract from count if there is no CURRENT (song will be moving up)
     return count + os.path.isfile(NEXT_FILE) - (not os.path.isfile(CURRENT_FILE))
 
-def pop_queue()->QueuedVideo|None:
+def pop_queue()->QueuedSong|None:
     with open(QUEUE_FILE, "r+") as f:
         contents = f.read().strip()
         if not contents:
@@ -151,12 +153,12 @@ def pop_queue()->QueuedVideo|None:
             id, duration_s, thumbnail, start_s, title = old_contents.split(" ", 4)
             duration = parse_duration(duration_s)
             if duration is not None:
-                return QueuedVideo(id, title.strip(), duration, thumbnail, start=int(start_s))
+                return QueuedSong(id, title.strip(), duration, thumbnail, start=int(start_s))
         except:
             f.write(contents)
             raise
 
-def get_next_song()->QueuedVideo|None:
+def get_next_song()->QueuedSong|None:
     global b_track_playlist, b_track_is_next, b_track_index, next_song
     configs = config.read()
 
@@ -190,7 +192,7 @@ def get_next_song()->QueuedVideo|None:
         else:
             queue_populated.clear()
             b_track_is_next = True
-            v = get_playlist_video(b_track_playlist, b_track_index)
+            v = get_playlist_song(b_track_playlist, b_track_index)
             if v is None:
                 events.dispatch(QueuedSongEvent(-1, False, video_id=f"{b_track_playlist}&index={b_track_index}", title="", duration=timedelta(seconds=0), thumbnail="", start=0))
             else:
@@ -204,20 +206,21 @@ def get_next_song()->QueuedVideo|None:
 
     return pop_queue()
 
-def add_to_playlist(video_id):
+def add_to_playlist(video_id:str):
+    """Add to the youtube playlist if one is specified in config.json"""
     configs = config.read()
     if "Playlist" in configs:
         return playlist.add_video(youtube_api, configs["Playlist"], video_id)
 
-def get_playlist_video(url:str, number:str)->QueuedVideo|None:
+def get_playlist_song(url:str, number:str)->QueuedSong|None:
     idP = subprocess.Popen(["yt-dlp", url, "--playlist-start="+str(number), "--playlist-end="+str(number), "--print", "%(id)s"], stdout=subprocess.PIPE)
     out_id, _ = idP.communicate()
     if not idP.returncode:
-        return get_video(f"https://youtube.com/watch?v={out_id.decode("utf-8").strip()}")
+        return get_song(f"https://youtube.com/watch?v={out_id.decode("utf-8").strip()}")
     else:
         print(f"Failed to get video ID for playlist video #{number}")
 
-def get_video(url:str)->QueuedVideo|None:
+def get_song(url:str)->QueuedSong|None:
     m = re.match(URL_REGEX, url)
     id = None if m is None else m[1] or None
     if id is None:
@@ -253,11 +256,11 @@ def get_video(url:str)->QueuedVideo|None:
                     start += int(minutes) * 60
                 if seconds is not None:
                     start += int(seconds)
-            return QueuedVideo(id, title, duration, thumbnail, start=start)
+            return QueuedSong(id, title, duration, thumbnail, start=start)
 
         print("Invalid duration format:", duration_s)
 
-def download_video(url:str, file:str=NEXT_FILE)->subprocess.Popen:
+def download_song(url:str, file:str=NEXT_FILE)->subprocess.Popen:
     print(f"Starting download into {file}: {url}")
     if os.path.isfile(file):
         os.remove(file)
@@ -284,7 +287,7 @@ def ready_song():
             v = get_next_song()
             if not v:
                 return
-            s = download_video(v.url, file=CURRENT_FILE)
+            s = download_song(v.url, file=CURRENT_FILE)
             current_song = v
             if s.wait():
                 current_song = None
@@ -303,7 +306,7 @@ def ready_song():
     if next_song is None:
         next_song = get_next_song()
         if next_song is not None:
-            download_video(next_song.url)
+            download_song(next_song.url)
 
 def song_cycle():
     global current_song, b_track_is_current, b_track_index, save_current_to_playlist

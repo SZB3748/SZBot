@@ -5,8 +5,9 @@ from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import InstalledAppFlow
 import json
 
-# Authorize the request and store authorization credentials.
 def get_authenticated_service():
+    """Authorize the request and store authorization credentials."""
+
     with open(config.OAUTH_YOUTUBE_FILE) as f:
         configs = json.load(f)
     credentials = None
@@ -59,7 +60,7 @@ def create_playlist(youtube, name, description, status):
 if __name__ == "__main__":
     name = input("Enter a playlist name: ")
     description = input("Enter a playlist description: ")
-    status = input("Enter a playlist status [public/unlisted/private] (defaults to unlisted)").strip() or "unlisted"
+    status = input("Enter a playlist status [public/unlisted/private] (defaults to unlisted): ").strip() or "unlisted"
     youtube = get_authenticated_service()
     id = create_playlist(youtube, name, description, status)["id"]
     print("Created playlist with ID:", id)

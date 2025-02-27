@@ -6,10 +6,10 @@ import requests
 import traceback
 import twitchio
 from twitchio.ext import commands
-from typing import Any, Awaitable, Callable
 from urllib.parse import quote
 
 TOKEN_REFRESH_ENDPOINT = "https://id.twitch.tv/oauth2/token"
+API_ENDPOINT = "http://localhost:6742/api"
 
 def get_prefix(bot:commands.Bot, message:twitchio.Message):
     configs = config.read()
@@ -131,8 +131,9 @@ if __name__ == "__main__":
 
     @bot.command(name="addsong")
     async def add_song(ctx:commands.Context, url:str):
+        """Adds a song to the song queue."""
         async with aiohttp.ClientSession() as session:
-            async with session.post("http://localhost:6742/api/music/queue/push", data={"url": url}) as r:
+            async with session.post(f"{API_ENDPOINT}/music/queue/push", data={"url": url}) as r:
                 if r.ok:
                     text = await r.text()
                     print(f"Added song ({text})")
@@ -141,6 +142,7 @@ if __name__ == "__main__":
     
     @bot.command(name="skipsong")
     async def skip_song(ctx:commands.Context, count:int=1, purge:str="false"):
+        """Skips songs in the song queue."""
         if not ctx.author.is_mod: #also works for broadcaster
             return
         
@@ -149,7 +151,7 @@ if __name__ == "__main__":
             return
         
         async with aiohttp.ClientSession() as session:
-            async with session.post("http://localhost:6742/api/music/queue/skip", data={"count": count, "purge":purge}) as r:
+            async with session.post(f"{API_ENDPOINT}/music/queue/skip", data={"count": count, "purge":purge}) as r:
                 if r.ok:
                     text = await r.text()
                     print(f"Skipped", text, "songs")
@@ -158,10 +160,11 @@ if __name__ == "__main__":
 
     @bot.command(name="pausesong")
     async def pause_song(ctx:commands.Context):
+        """Pauses the current song."""
         if not ctx.author.is_mod:
             return
         async with aiohttp.ClientSession() as session:
-            async with session.post("http://localhost:6742/api/music/playerstate", data={"state": "pause"}) as r:
+            async with session.post(f"{API_ENDPOINT}/music/playerstate", data={"state": "pause"}) as r:
                 if r.ok:
                     print("Paused")
                 else:
@@ -169,10 +172,11 @@ if __name__ == "__main__":
 
     @bot.command(name="playsong")
     async def play_song(ctx:commands.Context):
+        """Resumes playing the current song."""
         if not ctx.author.is_mod:
             return
         async with aiohttp.ClientSession() as session:
-            async with session.post("http://localhost:6742/api/music/playerstate", data={"state": "play"}) as r:
+            async with session.post(f"{API_ENDPOINT}/music/playerstate", data={"state": "play"}) as r:
                 if r.ok:
                     print("Resumed Play")
                 else:
@@ -181,23 +185,25 @@ if __name__ == "__main__":
 
     @bot.command(name="musicpersist")
     async def music_persistence(ctx:commands.Context, state:str="true"):
+        """Changes the persistence state of the music overlay."""
         if not ctx.author.is_mod:
             return
         state = state.strip().lower()
         if state in ("true", "false"):
             async with aiohttp.ClientSession() as session:
-                await session.post("http://localhost:6742/api/music/overlay/persistent", data={"value": state})
+                await session.post(f"{API_ENDPOINT}/music/overlay/persistent", data={"value": state})
         else:
             print("Invalid music persistent state (true/false)")
 
     @bot.command(name="btrack")
     async def music_btrack(ctx:commands.Context, url:str|None=None, index:int|None=None):
+        """Controls the queue's B-Track."""
         if not ctx.author.is_mod:
             return
         
         async with aiohttp.ClientSession() as session:
             if url is None and index is None:
-                async with session.get("http://localhost:6742/api/music/b-track") as r:
+                async with session.get(f"{API_ENDPOINT}/music/b-track") as r:
                     j = await r.json()
                     if isinstance(j, dict):
                         url = j.get("url", None)
@@ -211,7 +217,7 @@ if __name__ == "__main__":
                     d["index"] = int(index)
                 if url:
                     d["url"] = url
-                await session.post("http://localhost:6742/api/music/b-track", data=d)
+                await session.post(f"{API_ENDPOINT}/music/b-track", data=d)
         
 
     loop = asyncio.get_event_loop()

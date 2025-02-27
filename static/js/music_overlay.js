@@ -1,10 +1,3 @@
-
-/**
- * @typedef PlayerState
- * @property {string?} state
- * @property {number} position
- */
-
 const events = new WebSocket("/api/music/events");
 /** @type {PlayerState?} */
 let playerState = null;
@@ -12,14 +5,14 @@ let persistent = false;
 let currentDuration = null;
 
 /**
- * @type {{name: string, data: QueuedVideo}[]}
+ * @type {{name: string, data: QueuedSong}[]} Queue of toasts to put onto the screen.
  */
 const toastQueue = [];
 
 
 /**
- * @param {string} duration
- * @returns {Number}
+ * @param {string} duration A duration string HH:MM:SS
+ * @returns {Number} Duration in seconds
  */
 function parseDuration(duration) {
     const [hours, minutes, seconds] = duration.split(":");
@@ -52,17 +45,17 @@ async function getPlayerState() {
  * @returns {Promise<QueueState?>}
  */
 async function getQueueState() {
-    return fetch("/api/music/queue").then(r => {
-        if (r.ok)
+    const r = await fetch("/api/music/queue");
+    if (r.ok)
             return r.json();
-        else return null;
-    });
+    else return null;
 }
 
 let updateProgress;
 
 /**
- * @param {number} duration
+ * Generates a new callback for visually updating the current song's progress. Callback is used in an interval.
+ * @param {number} duration The maximum duration of the song.
  */
 function updateProgressCallback(duration) {
     let lastProgressUpdate = Date.now();
@@ -85,7 +78,8 @@ function updateProgressCallback(duration) {
 
 
 /**
- * @param {boolean} state 
+ * Updates whether or not the current song and its progress remains on screen.
+ * @param {boolean} state
  */
 async function updatePersistence(state) {
     const persistentDisplay = document.getElementById("persistent");
@@ -110,7 +104,7 @@ async function updatePersistence(state) {
 }
 
 /**
- * @param {QueuedVideo} queued
+ * @param {QueuedSong} queued
  */
 function setCurrentSong(queued) {
     const persistentDisplay = document.getElementById("persistent");
@@ -134,7 +128,7 @@ function setCurrentSong(queued) {
 }
 /**
  * @param {string} action
- * @param {QueuedVideo} queued
+ * @param {QueuedSong} queued
  * @return {Promise<void>}
  */
 function runToast(action, queued) {
@@ -218,13 +212,13 @@ events.addEventListener("message", ev => {
 });
 
 window.addEventListener("load", async () => {
-    const toastCheck = async () => {
+    async function toastCheck() {
         if (toastQueue.length < 1)
             setTimeout(toastCheck, 750);
         else {
             const toast = toastQueue.splice(0, 1)[0];
             await runToast(toast.name, toast.data);
-            setTimeout(toastCheck, 0);
+            setTimeout(toastCheck, 500);
         }
     };
     toastCheck();
