@@ -91,6 +91,7 @@ next_song:QueuedSong = None
 current_song:QueuedSong = None
 b_track_playlist:str = None
 b_track_index:int = None
+b_track_length:int = None
 
 #cite: https://stackoverflow.com/a/73886462
 def get_device(name:str):
@@ -159,7 +160,7 @@ def pop_queue()->QueuedSong|None:
             raise
 
 def get_next_song()->QueuedSong|None:
-    global b_track_playlist, b_track_is_next, b_track_index, next_song
+    global b_track_playlist, b_track_is_next, b_track_index, b_track_length, next_song
     configs = config.read()
 
     current_btrack = None
@@ -173,10 +174,18 @@ def get_next_song()->QueuedSong|None:
                 current_index = min(1, int(current_index))
             elif not (isinstance(current_index, int) and current_index > 0):
                 current_index = 1
-
             if b_track_playlist != current_btrack:
-                b_track_playlist = current_btrack
-                b_track_index = current_index
+                p = subprocess.Popen(["yt-dlp", current_btrack, "-I0", "-O", "playlist:playlist_count"], stdout=subprocess.PIPE)
+                out, _ = p.communicate()
+                if p.returncode:
+                    print("Failed to get playlist info")
+                    b_track_playlist = None
+                    b_track_index = None
+                    b_track_length = None
+                else:
+                    b_track_playlist = current_btrack
+                    b_track_index = current_index
+                    b_track_length = int(out)
 
     if isinstance(b_track_playlist, str):
         with open(QUEUE_FILE) as f:
@@ -199,7 +208,7 @@ def get_next_song()->QueuedSong|None:
                 events.dispatch(QueuedSongEvent.new(1, True, v))
             return v
     else:
-        b_track_playlist = b_track_index = None
+        b_track_playlist = b_track_index = b_track_length = None
         if b_track_is_next and os.path.isfile(NEXT_FILE):
             os.remove(NEXT_FILE)
         b_track_is_next = False
@@ -219,6 +228,11 @@ def get_playlist_song(url:str, number:str)->QueuedSong|None:
         return get_song(f"https://youtube.com/watch?v={out_id.decode("utf-8").strip()}")
     else:
         print(f"Failed to get video ID for playlist video #{number}")
+
+def increment_b_track(delta:int=1):
+    global b_track_index
+    b_track_index = (b_track_index + delta - 1) % b_track_length + 1
+    return b_track_index
 
 def get_song(url:str)->QueuedSong|None:
     m = re.match(URL_REGEX, url)
@@ -292,7 +306,7 @@ def ready_song():
             if s.wait():
                 current_song = None
             elif b_track_is_next:
-                b_track_index += 1
+                increment_b_track()
         else:
             current_song = next_song
             next_song = None
@@ -301,7 +315,7 @@ def ready_song():
             if os.path.isfile(NEXT_FILE):
                 os.rename(NEXT_FILE, CURRENT_FILE)
             if b_track_is_next:
-                b_track_index += 1
+                increment_b_track()
         
     if next_song is None:
         next_song = get_next_song()

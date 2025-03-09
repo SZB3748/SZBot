@@ -13,6 +13,7 @@ import os
 import requests
 import songqueue
 import string
+import subprocess
 
 HOST = "127.0.0.1"
 PORT = 6742
@@ -248,12 +249,18 @@ def api_music_b_track():
             start = current_b_track.get("start", 1)
         else:
             start = 1
+
+        p = subprocess.Popen(["yt-dlp", url, "-I0", "-O", "playlist:playlist_count"], stdout=subprocess.PIPE)
+        out, _ = p.communicate()
+        if p.returncode:
+            return "Failed to get playlist info.", 500
         
         config.write(config_updates={
             "B-Track": {"url": url, "start": start} if url else None
         })
         songqueue.b_track_playlist = url
         songqueue.b_track_index = index
+        songqueue.b_track_length = int(out)
     elif isinstance(current_b_track, dict) and current_b_track:
         url = current_b_track["url"]
     else:
