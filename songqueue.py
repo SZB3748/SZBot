@@ -127,6 +127,7 @@ def push_queue(*vs:QueuedSong)->int:
         with open(QUEUE_FILE, "a+") as f:
             for v in vs:
                 f.write(v.to_str())
+                f.write("\n")
             f.seek(0)
             count = f.read().count("\n")
         queue_populated.set()
@@ -282,7 +283,7 @@ def get_song(url:str)->QueuedSong|None:
                     start += int(minutes) * 60
                 if seconds is not None:
                     start += int(seconds)
-            return QueuedSong(id, title, duration, thumbnail, start=start)
+            return QueuedSong(id, title.strip(), duration, thumbnail, start=start)
 
         print("Invalid duration format:", duration_s)
 
