@@ -244,6 +244,8 @@ def api_music_b_track():
             if not index_s.isdigit():
                 return "Invalid index", 422
             index = int(index_s)
+            if index not in songqueue.b_track_order:
+                index = songqueue.b_track_index
 
         if isinstance(current_b_track, dict):
             start = current_b_track.get("start", 1)
@@ -259,7 +261,7 @@ def api_music_b_track():
             "B-Track": {"url": url, "start": start} if url else None
         })
         songqueue.b_track_playlist = url
-        songqueue.b_track_index = index
+        songqueue.b_track_index = songqueue.b_track_order.index(index)
         songqueue.b_track_length = int(out)
     elif isinstance(current_b_track, dict) and current_b_track:
         url = current_b_track["url"]

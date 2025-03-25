@@ -3,11 +3,13 @@ from datetime import timedelta
 import events
 import os
 import playlist
+import random
 import re
 import string
 import subprocess
 import threading
 import time
+from typing import MutableSequence
 import vlc
 
 THUMBNAILS_DIR = "thumbnails"
@@ -92,6 +94,7 @@ current_song:QueuedSong = None
 b_track_playlist:str = None
 b_track_index:int = None
 b_track_length:int = None
+b_track_order:MutableSequence[int] = None
 
 #cite: https://stackoverflow.com/a/73886462
 def get_device(name:str):
@@ -160,7 +163,7 @@ def pop_queue()->QueuedSong|None:
             raise
 
 def get_next_song()->QueuedSong|None:
-    global b_track_playlist, b_track_is_next, b_track_index, b_track_length, next_song
+    global b_track_playlist, b_track_is_next, b_track_index, b_track_length, b_track_order, next_song
     configs = config.read()
 
     current_btrack = None
@@ -169,11 +172,12 @@ def get_next_song()->QueuedSong|None:
         btrack_settings = configs["B-Track"]
         if isinstance(btrack_settings, dict) and "url" in btrack_settings:
             current_btrack = btrack_settings["url"]
-            current_index = btrack_settings.get("start", 1)
-            if isinstance(current_index, float):
-                current_index = min(1, int(current_index))
-            elif not (isinstance(current_index, int) and current_index > 0):
-                current_index = 1
+            current_index = btrack_settings.get("start", None)
+            if current_index is not None:
+                if isinstance(current_index, float):
+                    current_index = min(1, int(current_index))
+                elif not (isinstance(current_index, int) and current_index > 0):
+                    current_index = int(current_index)
             if b_track_playlist != current_btrack:
                 p = subprocess.Popen(["yt-dlp", current_btrack, "-I0", "-O", "playlist:playlist_count"], stdout=subprocess.PIPE)
                 out, _ = p.communicate()
@@ -182,10 +186,17 @@ def get_next_song()->QueuedSong|None:
                     b_track_playlist = None
                     b_track_index = None
                     b_track_length = None
+                    b_track_order = None
                 else:
                     b_track_playlist = current_btrack
-                    b_track_index = current_index
                     b_track_length = int(out)
+                    b_track_order = list(range(1, b_track_length+1))
+                    if btrack_settings.get("random", False):
+                        random.shuffle(b_track_order)
+                    if current_index is not None and current_index in b_track_order:
+                        b_track_index = b_track_order.index(current_index)
+                    else:
+                        b_track_index = 0
 
     if isinstance(b_track_playlist, str):
         with open(QUEUE_FILE) as f:
@@ -201,14 +212,15 @@ def get_next_song()->QueuedSong|None:
         else:
             queue_populated.clear()
             b_track_is_next = True
-            v = get_playlist_song(b_track_playlist, b_track_index)
+            playlist_index = b_track_order[b_track_index]
+            v = get_playlist_song(b_track_playlist, playlist_index)
             if v is None:
-                events.dispatch(QueuedSongEvent(-1, False, video_id=f"{b_track_playlist}&index={b_track_index}", title="", duration=timedelta(seconds=0), thumbnail="", start=0))
+                events.dispatch(QueuedSongEvent(-1, False, video_id=f"{b_track_playlist}&index={playlist_index}", title="", duration=timedelta(seconds=0), thumbnail="", start=0))
             else:
                 events.dispatch(QueuedSongEvent.new(1, True, v))
             return v
     else:
-        b_track_playlist = b_track_index = b_track_length = None
+        b_track_playlist = b_track_index = b_track_length = b_track_order = None
         if b_track_is_next and os.path.isfile(NEXT_FILE):
             os.remove(NEXT_FILE)
         b_track_is_next = False
@@ -231,7 +243,7 @@ def get_playlist_song(url:str, number:str)->QueuedSong|None:
 
 def increment_b_track(delta:int=1):
     global b_track_index
-    b_track_index = (b_track_index + delta - 1) % b_track_length + 1
+    b_track_index = (b_track_index + delta) % b_track_length
     return b_track_index
 
 def get_song(url:str)->QueuedSong|None:
@@ -281,7 +293,7 @@ def download_song(url:str, file:str=NEXT_FILE)->subprocess.Popen:
     return subprocess.Popen(["yt-dlp", "--ignore-errors", "-f", "bestaudio", url, "-o", file])
 
 def ready_song():
-    global current_song, next_song, b_track_is_next, b_track_index
+    global current_song, next_song, b_track_is_next
 
     if b_track_is_next:
         with open(QUEUE_FILE) as f:
@@ -323,7 +335,7 @@ def ready_song():
             download_song(next_song.url)
 
 def song_cycle():
-    global current_song, b_track_is_current, b_track_index, save_current_to_playlist
+    global current_song, b_track_is_current, save_current_to_playlist
 
     configs = config.read()
     if "Output-Device" in configs:
