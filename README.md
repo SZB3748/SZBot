@@ -61,7 +61,7 @@ Very creative name.
     ]
 }
 ```
-4. Create a `config.json` file. It should look something like:
+4. Create a `config.json` file (if copy-pasting, remove the comments). It should look something like:
 ```json
 {
     "Prefix": "YOUR PREFIX (usually '!')",
@@ -77,7 +77,15 @@ Very creative name.
         "start": 5 //index in playlist to start at (optional, default=1)
     },
     "Playlist": "PLAYLIST_ID",
-    "Output-Device": "DEVICE NAME"
+    "Output-Device": "DEVICE NAME",
+    "Style": {
+        "text_color": "css color",
+        "background_color": "css color",
+        "primary_foreground_color": "css color",
+        "secondary_foreground_color": "css color",
+        "fonts": ["css font name"]
+    }
+
 }
 ```
 5. Create a `secret.txt` file. Just put a bunch of random keyboard spam in it, or do some research if you want to put a bit more thought into it.
@@ -93,3 +101,11 @@ Run the `playlist.py` file and fill out the inputs it asks for. It will create a
 - To run the music queue and web interface, run `main.py`.
 - To run the twitch bot, run `bot.py`.
    - If you haven't generated a token yet, make sure you run `main.py` first.
+
+
+### VLC Plugins
+
+If you get a bunch of warnings about dlls when running `main.py`, then run this command:
+
+- Windows (Admin): `"C:\Program Files\VideoLAN\VLC\vlc-cache-gen.exe" "C:\Program Files\VideoLAN\VLC\plugins"`
+- Linux: Haven't tested

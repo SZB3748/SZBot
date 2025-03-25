@@ -9,6 +9,7 @@ from flask import Flask, render_template, request, send_from_directory
 from flask_sock import Server, Sock
 from gevent.pywsgi import WSGIServer
 import json
+from markupsafe import Markup
 import os
 import requests
 import songqueue
@@ -19,7 +20,59 @@ HOST = "127.0.0.1"
 PORT = 6742
 SECRET_FILE = "secret.txt"
 
+DEFAULT_STYLES_FONT = "\"Fragment Mono\""
+DEFAULT_STYLES_BG_COLOR = "#000"
+DEFAULT_STYLES_TEXT_COLOR = "#fff"
+DEFAULT_STYLES_FG_COLOR = "#7f0"
+DEFAULT_STYLES_FG2_COLOR = "#041f00"
+DEFAULT_STYLES = f"""\
+    font-family: {DEFAULT_STYLES_FONT};
+    background-color: {DEFAULT_STYLES_BG_COLOR};
+    color: {DEFAULT_STYLES_TEXT_COLOR};
+    --color-fg: {DEFAULT_STYLES_FG_COLOR};
+    --color-fg2: {DEFAULT_STYLES_FG2_COLOR};"""
+
+def build_styles_from_config()->str:
+    c = config.read()
+    style = c.get("Style", None)
+    if isinstance(style, dict):
+        fonts_r = style.get("fonts", None)
+        if fonts_r is None:
+            fonts = DEFAULT_STYLES_FONT
+        elif isinstance(fonts_r, str):
+            fonts = fonts_r
+        elif isinstance(fonts_r, list):
+            fonts_items = []
+            for item in fonts_r:
+                if isinstance(item, str):
+                    if " " in item and not ("\"" in item or "'" in item):
+                        fonts_items.append(f"\"{item}\"")
+                    else:
+                        fonts_items.append(item)
+            fonts = ", ".join(fonts_items)
+        css_styles = [
+            "font-family", fonts,
+            "background-color", style.get("background_color", DEFAULT_STYLES_BG_COLOR),
+            "color", style.get("text_color", DEFAULT_STYLES_TEXT_COLOR),
+            "--color-fg", style.get("primary_foreground_color", None) or DEFAULT_STYLES_FG_COLOR,
+            "--color-fg2", style.get("secondary_foreground_color", None) or DEFAULT_STYLES_FG2_COLOR,
+        ]
+        return "\n    ".join(f"{css_styles[i]}: {css_styles[i+1]};" for i in range(0, len(css_styles), 2))
+    else:
+        return DEFAULT_STYLES
+    
+
+def load_config_styles_css()->str:
+    loaded = build_styles_from_config()
+    return Markup(f"""\
+<style>
+:root, body {{
+    {loaded}
+}}
+</style>""")
+
 app = Flask(__name__)
+app.jinja_env.globals["load_config_styles"] = load_config_styles_css
 app.url_map.strict_slashes = False
 app.config["TEMPLATES_AUTO_RELOAD"] = True
 with open(SECRET_FILE) as f:

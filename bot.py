@@ -2,6 +2,7 @@ import aiohttp
 import asyncio
 import config
 from datetime import datetime
+import inspect
 import requests
 import traceback
 import twitchio
@@ -14,6 +15,49 @@ API_ENDPOINT = "http://localhost:6742/api"
 def get_prefix(bot:commands.Bot, message:twitchio.Message):
     configs = config.read()
     return configs["Prefix"]
+
+type_names = {
+    "str": "text",
+    "int": "integer",
+    "float": "number",
+    "bool": "true|false"
+}
+
+value_names = {
+    True: "true",
+    False: "false"
+}
+
+def get_command_signature(prefix:str, cmd:commands.Command)->str:
+    cmd_func = cmd._callback
+
+    spec = inspect.signature(cmd_func)
+    usage_hint = [prefix + cmd.name]
+    if "ctx" in spec.parameters:
+        param_items = list(spec.parameters.keys())
+        start_index = param_items.index("ctx") + 1
+    else:
+        start_index = 0
+
+    params = list(spec.parameters.values())
+    for i in range(start_index, len(params)):
+        param = params[i]
+        if param.default is inspect.Parameter.empty:
+            surround = "<>"
+            default_hint = ""
+        else:
+            surround = "[]"
+            default_hint = "" if param.default is None else f" = {value_names.get(param.default, param.default)}"
+        
+        if param.annotation is inspect.Parameter.empty:
+            type_hint = ""
+        else:
+            type_name = str(getattr(param.annotation, "__name__", param.annotation))
+            type_hint = f" :{type_names.get(type_name, type_name)}"
+
+        usage_hint.append(f"{surround[0]}{param.name}{type_hint}{default_hint}{surround[1]}")
+    
+    return " ".join(usage_hint)
 
 class Bot(commands.Bot):
     def __init__(self, configs:dict[str], oauth:dict[str], links_commands:set[str]|None=None):
@@ -123,11 +167,30 @@ async def main(retry:bool=True):
     except KeyboardInterrupt:
         pass
 
-if __name__ == "__main__":
+if True or __name__ == "__main__":
     bot = init_bot()
     if bot is None:
         print("You must run main.py first to make sure your oauth.json file is fine.\nAlso, make sure to make a config.json file with your bot's \"Prefix\".")
         exit(-1)
+
+
+    @bot.command(name="help")
+    async def help_command(ctx:commands.Context, command_name:str=None):
+        """Lists and describes commands."""
+        if command_name is None:
+            await ctx.send("Commands: " + ", ".join(bot.commands.keys()))
+        else:
+            cmd = bot.commands.get(command_name, None)
+            if isinstance(cmd, commands.Command):
+                signature = get_command_signature(ctx.prefix, cmd)
+                r = []
+                doc = cmd._callback.__doc__
+                if doc:
+                    r.append(doc)
+                r.append(f"Usage: {signature}")
+                await ctx.send(" ".join(r))
+            else:
+                await ctx.send(f"Command {command_name} does not exist.")
 
     @bot.command(name="addsong")
     async def add_song(ctx:commands.Context, url:str):
@@ -141,7 +204,7 @@ if __name__ == "__main__":
                     print("Failed to add song")
     
     @bot.command(name="skipsong")
-    async def skip_song(ctx:commands.Context, count:int=1, purge:str="false"):
+    async def skip_song(ctx:commands.Context, count:int=1, purge:bool=False):
         """Skips songs in the song queue."""
         if not ctx.author.is_mod: #also works for broadcaster
             return
@@ -151,10 +214,10 @@ if __name__ == "__main__":
             return
         
         async with aiohttp.ClientSession() as session:
-            async with session.post(f"{API_ENDPOINT}/music/queue/skip", data={"count": count, "purge":purge}) as r:
+            async with session.post(f"{API_ENDPOINT}/music/queue/skip", data={"count": count, "purge":str(purge).lower()}) as r:
                 if r.ok:
                     text = await r.text()
-                    print(f"Skipped", text, "songs")
+                    print(f"Skipped", text, f"songs (purge={purge})")
                 else:
                     print("Failed to skip song")
 
@@ -184,19 +247,18 @@ if __name__ == "__main__":
 
 
     @bot.command(name="musicpersist")
-    async def music_persistence(ctx:commands.Context, state:str="true"):
+    async def music_persistence(ctx:commands.Context, state:bool=True):
         """Changes the persistence state of the music overlay."""
         if not ctx.author.is_mod:
             return
-        state = state.strip().lower()
-        if state in ("true", "false"):
+        if isinstance(state, bool):
             async with aiohttp.ClientSession() as session:
-                await session.post(f"{API_ENDPOINT}/music/overlay/persistent", data={"value": state})
+                await session.post(f"{API_ENDPOINT}/music/overlay/persistent", data={"value": str(state).lower()})
         else:
             print("Invalid music persistent state (true/false)")
 
     @bot.command(name="btrack")
-    async def music_btrack(ctx:commands.Context, url:str|None=None, index:int|None=None):
+    async def music_btrack(ctx:commands.Context, url:str=None, index:int=None):
         """Controls the queue's B-Track."""
         if not ctx.author.is_mod:
             return
