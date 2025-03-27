@@ -14,6 +14,11 @@ a.title {
     border-bottom: 1px dashed var(--color-fg);
 }
 
+#view-queue-file {
+    margin: 0.5rem 0;
+    padding: 0.25rem 0.5rem;
+}
+
 #pauseplay-song, #skip-song {
     background-color: transparent;
     border: none;

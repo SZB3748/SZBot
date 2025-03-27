@@ -356,6 +356,7 @@ events.addEventListener("close", ev => {
 window.addEventListener("load", async () => {
     /** @type {HTMLInputElement} */
     const addSongInput = document.getElementById("add-song");
+    const viewQueueFileButton = document.getElementById("view-queue-file");
     const persistenceEnableButton = document.getElementById("enable-ovpersist-button");
     const persistenceDisableButton = document.getElementById("disable-ovpersist-button");
     const skipSongButton = document.getElementById("skip-song");
@@ -376,6 +377,10 @@ window.addEventListener("load", async () => {
             body: body
         })
         addSongInput.value = "";
+    });
+
+    viewQueueFileButton.addEventListener("click", () => {
+        fetch("/api/music/open-queue");
     });
 
     persistenceEnableButton.addEventListener("click", () => { setOverlayPersistence(true) });
