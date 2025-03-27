@@ -2,6 +2,7 @@ const events = new WebSocket("/api/music/events");
 /** @type {PlayerState?} */
 let playerState = null;
 let persistent = false;
+/** @type {number} */
 let currentDuration = null;
 
 /**
@@ -111,13 +112,14 @@ function setCurrentSong(queued) {
     /** @type {HTMLImageElement} */
     const icon = document.querySelector("#persistent .icon");
     const title = document.querySelector("#persistent .title");
-    const currentDuration = document.querySelector("#persistent .current-duration");
+    const currentDurationLabel = document.querySelector("#persistent .current-duration");
     const duration = document.querySelector("#persistent .duration");
 
     icon.src =  "/music/thumbnail/"+queued.thumbnail;
     title.innerText = queued.title;
-    currentDuration.innerText = formatDuration(playerState.position / 1000);
+    currentDurationLabel.innerText = formatDuration(playerState.position / 1000);
     duration.innerText = queued.duration;
+    currentDuration = parseDuration(queued.duration) * 1000;
 
     if (updateProgress)
         clearInterval(updateProgress);

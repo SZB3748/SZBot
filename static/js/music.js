@@ -391,6 +391,8 @@ window.addEventListener("load", async () => {
             return;
         const count = await r.json();
         if (Number(count) > 0) {
+            clearInterval(updateProgress);
+            updateProgress = null;
             playerState = null;
             refreshState();
         }
