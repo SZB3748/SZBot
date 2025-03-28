@@ -329,7 +329,7 @@ def api_music_b_track():
 @app.get("/api/music/open-queue")
 def api_music_open_queue():
     if os.path.isfile(songqueue.QUEUE_FILE):
-        subprocess.Popen(["notepad", songqueue.QUEUE_FILE])
+        os.startfile(songqueue.QUEUE_FILE)
         return "", 200
     else:
         return "", 404
