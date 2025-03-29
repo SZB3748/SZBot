@@ -12,6 +12,7 @@ import json
 from markupsafe import Markup
 import os
 import random
+import re
 import requests
 import songqueue
 import string
@@ -147,10 +148,22 @@ def api_music_queue_get():
 @app.post("/api/music/queue/push")
 def api_music_queue_push():
     url = request.form["url"]
+    c = config.read()
+    blacklist = c.get("Song-Blacklist", None)
+    if not isinstance(blacklist, list):
+        blacklist = []
+
+    if url in blacklist:
+        return url, 403
+
     v = songqueue.get_song(url)
     if v is None:
         events.dispatch(songqueue.QueuedSongEvent(-1, False, video_id=url, title="", duration=timedelta(seconds=0), thumbnail="", start=0))
-        return "", 403
+        return "", 422
+    
+    if v.video_id in blacklist:
+        return v.video_id, 403
+    
     pos = songqueue.push_queue(v)
     events.dispatch(songqueue.QueuedSongEvent.new(pos, True, v))
     return str(pos), 200
@@ -340,6 +353,26 @@ def api_music_open_queue():
         return "", 200
     else:
         return "", 404
+    
+@app.post("/api/music/blacklist")
+def api_music_blacklist():
+    id = request.form["id"]
+    m = re.match(songqueue.URL_REGEX, id)
+    if m is not None:
+        id = m[1]
+    
+    c = config.read()
+    current_blacklist = c.get("Song-Blacklist", None)
+    if isinstance(current_blacklist, list):
+        if id in current_blacklist:
+            return "", 200
+        else:
+            current_blacklist.append(id)
+    else:
+        current_blacklist = [id]
+    config.write(config_updates={"Song-Blacklist": current_blacklist})
+
+    return "", 201
 
 
 

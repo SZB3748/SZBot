@@ -86,6 +86,7 @@ class Bot(commands.Bot):
                                 link = links[name]
                                 if isinstance(link, str):
                                     await ctx.send(link)
+                        func.__doc__ = "Sends the accociated text in chat."
                         self.add_command(commands.Command(name=name, func=func, aliases=None, instance=None, no_global_checks=False))
                         self.links_commands.add(name)
                     elif name in self.links_commands:
@@ -97,6 +98,7 @@ class Bot(commands.Bot):
 
     async def event_command_error(self, ctx: commands.Context, err: Exception):
         if isinstance(err, (commands.CommandNotFound, commands.MissingRequiredArgument, commands.ArgumentParsingFailed)):
+            await ctx.send("Bad command usage. Use !help <command_name> to view command usage details.")
             print(err)
         else:
             traceback.print_exception(err)
@@ -192,16 +194,37 @@ if True or __name__ == "__main__":
             else:
                 await ctx.send(f"Command {command_name} does not exist.")
 
+    @bot.command(name="currentsong")
+    async def current_song(ctx:commands.Context):
+        """Gets info on the song that's currently playing."""
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{API_ENDPOINT}/music/queue") as r:
+                if r.ok:
+                    data = await r.json()
+                    if isinstance(data, dict):
+                        current = data.get("current", None)
+                        if isinstance(current, dict):
+                            await ctx.send(f"Currently Playing: {current["title"]} ({current["duration"]})  https://youtube.com/watch?v={current["id"]}")
+                            return
+                    await ctx.send("No song is currently playing")
+                else:
+                    await ctx.send("Failed to get song info")
+
     @bot.command(name="addsong")
     async def add_song(ctx:commands.Context, url:str):
-        """Adds a song to the song queue."""
+        """Adds the song at the given youtube link to the song queue."""
         async with aiohttp.ClientSession() as session:
             async with session.post(f"{API_ENDPOINT}/music/queue/push", data={"url": url}) as r:
                 if r.ok:
                     text = await r.text()
-                    print(f"Added song ({text})")
+                    print("added song", text)
+                    await ctx.send(f"Added song (position {text})")
+                elif r.status == 403:
+                    text = await r.text()
+                    print("push request for banned song", text)
+                    return await ctx.send(f"Song is banned")
                 else:
-                    print("Failed to add song")
+                    await ctx.send("Failed to add song")
     
     @bot.command(name="skipsong")
     async def skip_song(ctx:commands.Context, count:int=1, purge:bool=False):
@@ -217,9 +240,10 @@ if True or __name__ == "__main__":
             async with session.post(f"{API_ENDPOINT}/music/queue/skip", data={"count": count, "purge":str(purge).lower()}) as r:
                 if r.ok:
                     text = await r.text()
-                    print(f"Skipped", text, f"songs (purge={purge})")
+                    print(f"skipped {text} songs (purge={purge})")
+                    await ctx.send(f"Skipped {text} songs")
                 else:
-                    print("Failed to skip song")
+                    await ctx.send("Failed to skip song")
 
     @bot.command(name="pausesong")
     async def pause_song(ctx:commands.Context):
@@ -229,9 +253,9 @@ if True or __name__ == "__main__":
         async with aiohttp.ClientSession() as session:
             async with session.post(f"{API_ENDPOINT}/music/playerstate", data={"state": "pause"}) as r:
                 if r.ok:
-                    print("Paused")
+                    await ctx.send("Paused")
                 else:
-                    print("Failed to pause")
+                    await ctx.send("Failed to pause")
 
     @bot.command(name="playsong")
     async def play_song(ctx:commands.Context):
@@ -241,9 +265,9 @@ if True or __name__ == "__main__":
         async with aiohttp.ClientSession() as session:
             async with session.post(f"{API_ENDPOINT}/music/playerstate", data={"state": "play"}) as r:
                 if r.ok:
-                    print("Resumed Play")
+                    await ctx.send("Resumed Play")
                 else:
-                    print("Failed to resume play")
+                    await ctx.send("Failed to resume play")
 
 
     @bot.command(name="musicpersist")
@@ -255,7 +279,7 @@ if True or __name__ == "__main__":
             async with aiohttp.ClientSession() as session:
                 await session.post(f"{API_ENDPOINT}/music/overlay/persistent", data={"value": str(state).lower()})
         else:
-            print("Invalid music persistent state (true/false)")
+            await ctx.send("Invalid music persistent state (true/false)")
 
     @bot.command(name="btrack")
     async def music_btrack(ctx:commands.Context, url:str=None, index:int=None):
@@ -264,23 +288,41 @@ if True or __name__ == "__main__":
             return
         
         async with aiohttp.ClientSession() as session:
-            if url is None and index is None:
+            if url is None:
                 async with session.get(f"{API_ENDPOINT}/music/b-track") as r:
-                    j = await r.json()
-                    if isinstance(j, dict):
-                        url = j.get("url", None)
-                        if url is not None:
-                            await ctx.send(url)
-                            return
-                    await ctx.send("No B-Track set")
+                    if r.ok:
+                        j = await r.json()
+                        if isinstance(j, dict):
+                            url = j.get("url", None)
+                            if url is not None:
+                                await ctx.send(url)
+                                return
+                        await ctx.send("No B-Track set")
+                    else:
+                        await ctx.send("Failed to get B-Track status")
             else:
                 d = {}
                 if index is not None:
                     d["index"] = int(index)
-                if url:
+                if url != "~":
                     d["url"] = url
                 await session.post(f"{API_ENDPOINT}/music/b-track", data=d)
         
+    @bot.command(name="bansong")
+    async def music_ban_song(ctx:commands.Context, id:str):
+        """Ban the given song ID. Also extracts the ID from a youtube link."""
+        if not ctx.author.is_mod:
+            return
+
+        async with aiohttp.ClientSession() as session:
+            async with session.post(f"{API_ENDPOINT}/music/blacklist", data={"id": id}) as r:
+                if r.ok:
+                    await ctx.send("Banned song")
+                else:
+                    await ctx.send("Failed to ban song")
 
     loop = asyncio.get_event_loop()
-    loop.run_until_complete(main())
+    try:
+        loop.run_until_complete(main())
+    except KeyboardInterrupt:
+        print("^C")

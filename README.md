@@ -76,6 +76,10 @@ Very creative name.
         "url": "https://youtube.com/watch?playlist=PLAYLIST_ID",
         "start": 5 //index in playlist to start at (optional, default=1)
     },
+    "Song-Blacklist": [
+        "youtube video link",
+        "youtube video ID"
+    ],
     "Playlist": "PLAYLIST_ID",
     "Output-Device": "DEVICE NAME",
     "Style": {
