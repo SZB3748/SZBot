@@ -35,12 +35,13 @@ youtube_api = playlist.get_authenticated_service()
 
 class QueuedSong:
     "A song gotten from a youtube video that is/was queued."
-    def __init__(self, video_id:str, title:str, duration:timedelta, thumbnail:str, start:int=0):
+    def __init__(self, video_id:str, title:str, duration:timedelta, thumbnail:str, start:int=0, b_track:bool=False):
         self.video_id = video_id
         self.title = title
         self.duration = duration
         self.thumbnail = thumbnail
         self.start = start
+        self.b_track = b_track
 
     @property
     def url(self):
@@ -61,16 +62,18 @@ class QueueDataEvent(events.Event):
             title=v.title,
             duration=v.duration,
             thumbnail=v.thumbnail,
-            start=v.start
+            start=v.start,
+            b_track=v.b_track
         )
 
-    def __init__(self, video_id:str, title:str, duration:timedelta, thumbnail:str, start:int):
+    def __init__(self, video_id:str, title:str, duration:timedelta, thumbnail:str, start:int, b_track:bool):
         super().__init__(self.event_name, {
             "id": video_id,
             "title": title,
             "duration": format_duration(duration),
             "thumbnail": thumbnail,
-            "start": start
+            "start": start,
+            "b_track": b_track
         })
 
 
@@ -79,7 +82,7 @@ class QueuedSongEvent(QueueDataEvent):
 
     @classmethod
     def new(cls, pos:int, success:bool, v:QueuedSong):
-        return cls(pos=pos, success=success, video_id=v.video_id, title=v.title, duration=v.duration, thumbnail=v.thumbnail, start=v.start)
+        return cls(pos=pos, success=success, video_id=v.video_id, title=v.title, duration=v.duration, thumbnail=v.thumbnail, start=v.start, b_track=v.b_track)
 
     def __init__(self, pos:int, success:bool, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -215,10 +218,11 @@ def get_next_song()->QueuedSong|None:
             b_track_is_next = True
             playlist_index = b_track_order[b_track_index]
             v = get_playlist_song(b_track_playlist, playlist_index)
-            # if v is None:
-            #     events.dispatch(QueuedSongEvent(-1, False, video_id=f"{b_track_playlist}&index={playlist_index}", title="", duration=timedelta(seconds=0), thumbnail="", start=0))
-            # else:
-            #     events.dispatch(QueuedSongEvent.new(1, True, v))
+            v.b_track = True
+            if v is None:
+                events.dispatch(QueuedSongEvent(-1, False, video_id=f"{b_track_playlist}&index={playlist_index}", title="", duration=timedelta(seconds=0), thumbnail="", start=0, b_track=True))
+            else:
+                events.dispatch(QueuedSongEvent.new(1, True, v))
             return v
     else:
         b_track_playlist = b_track_index = b_track_length = b_track_order = None
@@ -293,6 +297,12 @@ def download_song(url:str, file:str=NEXT_FILE)->subprocess.Popen:
         os.remove(file)
     return subprocess.Popen(["yt-dlp", "--ignore-errors", "-f", "bestaudio", url, "-o", file])
 
+def load_next_bg():
+    global next_song
+    next_song = get_next_song()
+    if next_song is not None:
+        download_song(next_song.url)
+
 def ready_song():
     global current_song, next_song, b_track_is_next
 
@@ -331,9 +341,7 @@ def ready_song():
                 increment_b_track()
         
     if next_song is None:
-        next_song = get_next_song()
-        if next_song is not None:
-            download_song(next_song.url)
+        threading.Thread(target=load_next_bg).start()
 
 def song_cycle():
     global current_song, b_track_is_current, save_current_to_playlist
@@ -401,7 +409,7 @@ def song_cycle():
             current_song = None
         else:
             b_track_is_current = False
-        time.sleep(1)
+        # time.sleep(1)
 
 def run_song_cycle():
     t = threading.Thread(target=song_cycle)

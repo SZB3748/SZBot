@@ -11,6 +11,7 @@ from gevent.pywsgi import WSGIServer
 import json
 from markupsafe import Markup
 import os
+import random
 import requests
 import songqueue
 import string
@@ -291,31 +292,37 @@ def api_music_b_track():
     index = songqueue.b_track_index
 
     if request.method == "POST":
-        url = request.form["url"]
-        if "index" in request.form:
-            index_s = request.form["index"]
-            if not index_s.isdigit():
-                return "Invalid index", 422
-            index = int(index_s)
-            if index not in songqueue.b_track_order:
-                index = songqueue.b_track_index
+        url = request.form["url"].strip()
+        if url:
+            btrack_config = {**current_b_track, "url": url}
+            if "index" in request.form:
+                index_s = request.form["index"]
+                if not index_s.isdigit():
+                    return "Invalid index", 422
+                index = int(index_s)
+                if index not in songqueue.b_track_order:
+                    index = songqueue.b_track_index
 
-        if isinstance(current_b_track, dict):
-            start = current_b_track.get("start", 1)
-        else:
-            start = 1
-
-        p = subprocess.Popen(["yt-dlp", url, "-I0", "-O", "playlist:playlist_count"], stdout=subprocess.PIPE)
-        out, _ = p.communicate()
-        if p.returncode:
-            return "Failed to get playlist info.", 500
+            p = subprocess.Popen(["yt-dlp", url, "-I0", "-O", "playlist:playlist_count"], stdout=subprocess.PIPE)
+            out, _ = p.communicate()
+            if p.returncode:
+                return "Failed to get playlist info.", 500
         
-        config.write(config_updates={
-            "B-Track": {"url": url, "start": start} if url else None
-        })
-        songqueue.b_track_playlist = url
-        songqueue.b_track_index = songqueue.b_track_order.index(index)
-        songqueue.b_track_length = int(out)
+            config.write(config_updates={
+                "B-Track": btrack_config if url else None
+            })
+            songqueue.b_track_playlist = url
+            songqueue.b_track_index = songqueue.b_track_order.index(index)
+            new_length = int(out)
+            if new_length != songqueue.b_track_length:
+                order = list(range(1, new_length+1))
+            songqueue.b_track_length = new_length
+            if current_b_track.get("random", False):
+                random.shuffle(order)
+            songqueue.b_track_order = order
+        else:
+            config.write(config_updates={"B-Track": None})
+            songqueue.b_track_playlist = songqueue.b_track_index = songqueue.b_track_length = songqueue.b_track_order = None
     elif isinstance(current_b_track, dict) and current_b_track:
         url = current_b_track["url"]
     else:

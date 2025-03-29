@@ -10,6 +10,7 @@ let currentDuration = null;
  */
 const toastQueue = [];
 
+let notifyBTrack = false;
 
 /**
  * @param {string} duration A duration string HH:MM:SS
@@ -204,9 +205,9 @@ events.addEventListener("message", ev => {
                 name: "Failed to Queue",
                 data: {title: event.data.id}
             });
-        else
+        else if (notifyBTrack || event.data.b_track !== true)
             toastQueue.push({
-                name: "Queued",
+                name: notifyBTrack ? "Queued (Background)" : "Queued",
                 data: event.data
             });
         break;
@@ -226,7 +227,9 @@ window.addEventListener("load", async () => {
     toastCheck();
 
     const params = new URLSearchParams(location.search);
-    const persistentParam =  params.get("persistent");
-    if (persistentParam !== null && persistentParam.trim() !== "false")
+    const persistentParam = params.get("persistent");
+    if (persistentParam !== null && persistentParam.trim().toLowerCase() !== "false")
         updatePersistence(true);
+    const notifyBTrackParam = params.get("notify-b-track");
+    notifyBTrack = notifyBTrackParam.trim().toLowerCase() === "true";
 });
