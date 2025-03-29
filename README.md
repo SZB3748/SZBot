@@ -89,7 +89,6 @@ Very creative name.
         "secondary_foreground_color": "css color",
         "fonts": ["css font name"]
     }
-
 }
 ```
 5. Create a `secret.txt` file. Just put a bunch of random keyboard spam in it, or do some research if you want to put a bit more thought into it.

@@ -67,7 +67,7 @@ class Bot(commands.Bot):
             client_secret=oauth["Client-Secret"],
             initial_channels=configs.get("Channels", None) or [],
         )
-        self.links_commands = set() if links_commands is None else set(links_commands)
+        self.links_commands:set[str] = set() if links_commands is None else set(links_commands)
 
     def update_link_commands(self):
         configs = config.read()
@@ -193,6 +193,12 @@ if True or __name__ == "__main__":
                 await ctx.send(" ".join(r))
             else:
                 await ctx.send(f"Command {command_name} does not exist.")
+
+    @bot.command(name="links")
+    async def links_command(ctx:commands.Context):
+        """Lists names of all link commands."""
+        if bot.links_commands:
+            await ctx.send(", ".join(name for name in bot.links_commands))
 
     @bot.command(name="currentsong")
     async def current_song(ctx:commands.Context):
