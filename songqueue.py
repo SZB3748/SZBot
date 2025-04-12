@@ -218,10 +218,10 @@ def get_next_song()->QueuedSong|None:
             b_track_is_next = True
             playlist_index = b_track_order[b_track_index]
             v = get_playlist_song(b_track_playlist, playlist_index)
-            v.b_track = True
             if v is None:
                 events.dispatch(QueuedSongEvent(-1, False, video_id=f"{b_track_playlist}&index={playlist_index}", title="", duration=timedelta(seconds=0), thumbnail="", start=0, b_track=True))
             else:
+                v.b_track = True
                 events.dispatch(QueuedSongEvent.new(1, True, v))
             return v
     else:
