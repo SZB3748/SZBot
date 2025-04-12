@@ -364,13 +364,33 @@ def api_music_blacklist():
     c = config.read()
     current_blacklist = c.get("Song-Blacklist", None)
     if isinstance(current_blacklist, list):
-        if id in current_blacklist:
-            return "", 200
-        else:
+        if id not in current_blacklist:
             current_blacklist.append(id)
+            updated = True
+        else:
+            updated = False
+        
     else:
         current_blacklist = [id]
-    config.write(config_updates={"Song-Blacklist": current_blacklist})
+        updated = True
+    
+    if updated:
+        config.write(config_updates={"Song-Blacklist": current_blacklist})
+
+    if songqueue.current_song.video_id == id:
+        songqueue.current_song = None
+        songqueue.song_done.set()
+    if songqueue.next_song.video_id == id:
+        songqueue.next_song = None
+    with open(songqueue.QUEUE_FILE, "r+") as f:
+        lines = [line for line in f if not line.startswith(id)]
+        f.seek(0)
+        f.truncate()
+        if lines and lines[0].strip():
+            f.write("\n".join(lines))
+            songqueue.queue_populated.set()
+        else:
+            songqueue.queue_populated.clear()
 
     return "", 201
 
