@@ -1,4 +1,5 @@
 config.json
+plugins.json
 oauth_twitch.json
 oauth_youtube.json
 secret.txt
@@ -6,4 +7,9 @@ QUEUE
 CURRENT
 NEXT
 __pycache__/
+.vscode/
 thumbnails/
+
+#Exclude non-builtin plugins
+plugins/*
+!plugins/songqueue/

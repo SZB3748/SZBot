@@ -3,20 +3,12 @@ from gevent import monkey
 monkey.patch_all() #this complains about being called too late, so now it gets called first
 
 import config
-from datetime import timedelta
 import events
-from flask import Flask, render_template, request, send_from_directory
+from flask import Blueprint, Flask, render_template, request
 from flask_sock import Server, Sock
 from gevent.pywsgi import WSGIServer
-import json
 from markupsafe import Markup
-import os
-import random
-import re
 import requests
-import songqueue
-import string
-import subprocess
 
 HOST = "127.0.0.1"
 PORT = 6742
@@ -74,6 +66,7 @@ def load_config_styles_css()->str:
 </style>""")
 
 app = Flask(__name__)
+api = Blueprint("api", __name__, url_prefix="/api")
 app.jinja_env.globals["load_config_styles"] = load_config_styles_css
 app.url_map.strict_slashes = False
 app.config["TEMPLATES_AUTO_RELOAD"] = True
@@ -84,18 +77,6 @@ sock = Sock(app)
 @app.get("/")
 def index():
     return render_template("index.html")
-
-@app.get("/music")
-def music_interface():
-    return render_template("music.html")
-
-@app.get("/music/overlay")
-def music_overlay():
-    return render_template("music_overlay.html")
-
-@app.get("/music/thumbnail/<name>")
-def music_thumbnail(name:str):
-    return send_from_directory(songqueue.THUMBNAILS_DIR, name)
 
 @app.get("/oauth")
 def oauth():
@@ -115,60 +96,8 @@ def oauth():
     config.write(config_updates={"Token": d["access_token"], "Refresh-Token": d["refresh_token"]}, path=config.OAUTH_TWITCH_FILE)
     return "Restart", 200
 
-def _v_to_dict(v:songqueue.QueuedSong)->dict[str]:
-    return {
-        "id": v.video_id,
-        "duration": songqueue.format_duration(v.duration),
-        "start": v.start,
-        "title": v.title,
-        "thumbnail": v.thumbnail
-    }
 
-@app.get("/api/music/queue")
-def api_music_queue_get():
-    queue_list = []
-    with open(songqueue.QUEUE_FILE) as f:
-        for line in f:
-            if all(c in string.whitespace for c in line):
-                continue
-            id, duration_s, thumbnail, start_s, title = (line[:-1] if line.endswith("\n") else line).split(" ", 4)
-            queue_list.append({
-                "id": id,
-                "duration": duration_s,
-                "start": int(start_s),
-                "title": title,
-                "thumbnail": thumbnail
-            })
-    return json.dumps({
-        "current": None if songqueue.current_song is None else _v_to_dict(songqueue.current_song),
-        "next": None if songqueue.next_song is None else _v_to_dict(songqueue.next_song),
-        "queue": queue_list
-    }), 200, {"Content-Type": "application/json"}
-
-@app.post("/api/music/queue/push")
-def api_music_queue_push():
-    url = request.form["url"]
-    c = config.read()
-    blacklist = c.get("Song-Blacklist", None)
-    if not isinstance(blacklist, list):
-        blacklist = []
-
-    if url in blacklist:
-        return url, 403
-
-    v = songqueue.get_song(url)
-    if v is None:
-        events.dispatch(songqueue.QueuedSongEvent(-1, False, video_id=url, title="", duration=timedelta(seconds=0), thumbnail="", start=0))
-        return "", 422
-    
-    if v.video_id in blacklist:
-        return v.video_id, 403
-    
-    pos = songqueue.push_queue(v)
-    events.dispatch(songqueue.QueuedSongEvent.new(pos, True, v))
-    return str(pos), 200
-
-@sock.route("/api/music/events")
+@sock.route("/events", bp=api)
 def api_music_listen(ws:Server):
     bucket = events.new_bucket()
     try:
@@ -179,223 +108,7 @@ def api_music_listen(ws:Server):
     finally:
         events.remove_bucket(bucket)
 
-@app.post("/api/music/overlay/persistent")
-def api_music_set_overlay_persistent():
-    value = request.form.get("value", "false").strip().lower() == "true"
-    events.dispatch(events.Event("overlay_persistence_change", {"value": value}))
-    return "", 200
-
-@app.post("/api/music/queue/skip")
-def api_music_queue_skip():
-    count_s = request.form.get("count", "1")
-    purge_s = request.form.get("purge", "false").strip().lower().replace("false", "")
-    npurge = not purge_s
-
-    if not count_s.isdigit():
-        return "Invalid count", 422
-    count = int(count_s)
-    pre_skipped = 0
-    if count > 0:
-        if songqueue.current_song is not None:
-            songqueue.save_current_to_playlist = False
-            if npurge:
-                songqueue.add_to_playlist(songqueue.current_song.video_id)
-            songqueue.current_song = None
-            #NOTE: cannot remove CURRENT_FILE here, as it is being used by the vlc player; current file is removed on its own during normal operation
-            pre_skipped += 1
-    else:
-        return "0", 200, {"Content-Type": "application/json"}
-    if count > 1:
-        if songqueue.next_song is not None:
-            if npurge:
-                songqueue.add_to_playlist(songqueue.next_song.video_id)
-            songqueue.next_song = None
-            if os.path.isfile(songqueue.NEXT_FILE):
-                os.remove(songqueue.NEXT_FILE)
-            pre_skipped += 1
-    elif pre_skipped: #count == 1 and current was skipped
-        songqueue.song_done.set()
-        return "1", 200, {"Content-Type": "application/json"}
-
-    with open(songqueue.QUEUE_FILE, "r+") as f:
-        content = f.read()
-        cutoff = 0
-        skip_count = pre_skipped #to get to this point, the current and/or next songs may have been skipped
-        for _ in range(count - pre_skipped):
-            index = content.find("\n", cutoff)
-            if index < 0:
-                break
-            if npurge:
-                space_index = content.find(" ", cutoff, index)
-                if space_index > 0:
-                    songqueue.add_to_playlist(content[cutoff:space_index])
-            cutoff = index+1
-            if all(content[i] in string.whitespace for i in range(cutoff, index)):
-                skip_count += 1
-        
-        if cutoff > 0:
-            f.seek(0)
-            f.truncate()
-            try:
-                new_content = content[cutoff:]
-                if any(c not in string.whitespace for c in new_content):
-                    f.write(new_content)
-                    songqueue.queue_populated.set()
-                else:
-                    songqueue.queue_populated.clear()
-            except:
-                f.write(content)
-                raise
-            finally:
-                songqueue.song_done.set()
-        else:
-            songqueue.song_done.set()
-    return str(skip_count), 200, {"Content-Type": "application/json"}
-
-@app.route("/api/music/playerstate", methods=["GET", "POST"])
-def api_music_playerstate():
-    if songqueue.current_song is None:
-        rtv = "{\"state\": null}"
-    else:
-        if request.method == "POST":
-            state = request.form["state"]
-            if state == "play":
-                songqueue.vlc_player.play()
-            elif state == "pause":
-                songqueue.vlc_player.pause()
-            else:
-                return "Invalid playerstate.", 422
-            events.dispatch(events.Event("change_playerstate", {
-                "state": state,
-                "position": songqueue.vlc_player.get_position() * songqueue.vlc_player.get_length()
-            }))
-        else:
-            state = "play" if songqueue.vlc_player.is_playing() else "pause"
-        rtv = json.dumps({
-            "state": state,
-            "position": songqueue.vlc_player.get_position() * songqueue.vlc_player.get_length()
-        })
-    return rtv, 200, {"Content-Type": "application/json"}
-
-@app.post("/api/music/seek")
-def api_musics_seek():
-    if songqueue.current_song is None:
-        return
-    seconds_s = request.form["seconds"]
-    if not seconds_s.isdigit():
-        return "Invalid seconds", 422
-    seconds = float(seconds_s)
-    if os.path.isfile(songqueue.CURRENT_FILE):
-        song = songqueue.vlc_instance.media_new(songqueue.CURRENT_FILE)
-        song.add_option(f"start-time={seconds}")
-        was_playing = songqueue.vlc_player.is_playing()
-        events.dispatch(events.Event("change_playerstate", {
-            "state": "play" if was_playing else "pause",
-            "position": seconds * 1000
-        }))
-        songqueue.vlc_player.set_media(song)
-        if was_playing:
-            songqueue.vlc_player.play()
-    return "", 200
-
-@app.route("/api/music/b-track", methods=["GET", "POST"])
-def api_music_b_track():
-    configs = config.read()
-    current_b_track = configs.get("B-Track", None)
-    index = songqueue.b_track_index
-
-    if request.method == "POST":
-        url = request.form["url"].strip()
-        if url:
-            btrack_config = {**current_b_track, "url": url}
-            if "index" in request.form:
-                index_s = request.form["index"]
-                if not index_s.isdigit():
-                    return "Invalid index", 422
-                index = int(index_s)
-                if index not in songqueue.b_track_order:
-                    index = songqueue.b_track_index
-
-            p = subprocess.Popen(["yt-dlp", url, "-I0", "-O", "playlist:playlist_count"], stdout=subprocess.PIPE)
-            out, _ = p.communicate()
-            if p.returncode:
-                return "Failed to get playlist info.", 500
-        
-            config.write(config_updates={
-                "B-Track": btrack_config if url else None
-            })
-            songqueue.b_track_playlist = url
-            songqueue.b_track_index = songqueue.b_track_order.index(index)
-            new_length = int(out)
-            if new_length != songqueue.b_track_length:
-                order = list(range(1, new_length+1))
-            songqueue.b_track_length = new_length
-            if current_b_track.get("random", False):
-                random.shuffle(order)
-            songqueue.b_track_order = order
-        else:
-            config.write(config_updates={"B-Track": None})
-            songqueue.b_track_playlist = songqueue.b_track_index = songqueue.b_track_length = songqueue.b_track_order = None
-    elif isinstance(current_b_track, dict) and current_b_track:
-        url = current_b_track["url"]
-    else:
-        url = None
-
-    return json.dumps({
-        "url": url,
-        "index": index
-    }), 200, {"Content-Type": "application/json"}
-
-@app.get("/api/music/open-queue")
-def api_music_open_queue():
-    if os.path.isfile(songqueue.QUEUE_FILE):
-        os.startfile(songqueue.QUEUE_FILE)
-        return "", 200
-    else:
-        return "", 404
-    
-@app.post("/api/music/blacklist")
-def api_music_blacklist():
-    id = request.form["id"]
-    m = re.match(songqueue.URL_REGEX, id)
-    if m is not None:
-        id = m[1]
-    
-    c = config.read()
-    current_blacklist = c.get("Song-Blacklist", None)
-    if isinstance(current_blacklist, list):
-        if id not in current_blacklist:
-            current_blacklist.append(id)
-            updated = True
-        else:
-            updated = False
-        
-    else:
-        current_blacklist = [id]
-        updated = True
-    
-    if updated:
-        config.write(config_updates={"Song-Blacklist": current_blacklist})
-
-    if songqueue.current_song.video_id == id:
-        songqueue.current_song = None
-        songqueue.song_done.set()
-    if songqueue.next_song.video_id == id:
-        songqueue.next_song = None
-    with open(songqueue.QUEUE_FILE, "r+") as f:
-        lines = [line for line in f if not line.startswith(id)]
-        f.seek(0)
-        f.truncate()
-        if lines and lines[0].strip():
-            f.write("\n".join(lines))
-            songqueue.queue_populated.set()
-        else:
-            songqueue.queue_populated.clear()
-
-    return "", 201
-
-
-
 def serve():
+    app.register_blueprint(api)
     server = WSGIServer((HOST, PORT), app)
     server.serve_forever()

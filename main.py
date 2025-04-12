@@ -1,7 +1,7 @@
 import web
 
 import config
-import songqueue
+import plugins
 from urllib.parse import quote
 
 OAUTH_ENDPOINT = "https://id.twitch.tv/oauth2/authorize"
@@ -17,27 +17,30 @@ def get_auth_token(oauth:dict[str]):
 
 
 def run():
-    c = config.read()
-    songqueue_enabled = c.get("Song-Queue", True) != False #false or 0 disables, but not null (None)
-    if songqueue_enabled: 
-        print("starting music queue")
-        cycle = songqueue.run_song_cycle()
-        print("bot must be started manually")
+    print("reading plugin list")
+    plugin_list = plugins.read_plugin_data()
+    plugin_enabled_count = sum(1 for plugin in plugin_list.values() if plugin.module is not None)
+    print("read", len(plugin_list), "plugins with", plugin_enabled_count, "enabled plugins")
+    print("loading enabled plugins")
+    for plugin in plugin_list.values():
+        if plugin.module is not None:
+            plugin.load((plugin_list, plugin, True, web.app, web.api, web.sock))
+    print("loaded plugins")
+    print("bot must be started manually")
+    print("starting web server")
+    e = None
     try:
-        print("stating web server")
         web.serve()
     except KeyboardInterrupt:
         pass
-    finally:
-        if songqueue_enabled:
-            songqueue.song_done.set()
-            songqueue.stop_loop.set()
-            print("Waiting for song cycle to stop...")
-            cycle.join(5)
-            if cycle.is_alive():
-                print("Song cycle failed to stop after 5 seconds")
-            else:
-                print("Song cycle stopped")
+    except Exception as _e:
+        e = _e
+    
+    print("unloading enabled plugins")
+    for plugin in plugin_list.values():
+        if plugin.module is not None:
+            plugin.unload((plugin_list, plugin, True, e))
+    print("unloaded plugins")
 
 if __name__ == "__main__":
     oauth = config.read(path=config.OAUTH_TWITCH_FILE)

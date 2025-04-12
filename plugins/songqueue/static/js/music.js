@@ -317,7 +317,7 @@ function updateQueueVisuals(state) {
     }
 }
 
-const events = new WebSocket("/api/music/events");
+const events = new WebSocket("/api/events");
 
 events.addEventListener("open", ev => {
     console.log("Listening for events");
@@ -326,19 +326,19 @@ events.addEventListener("open", ev => {
 events.addEventListener("message", ev => {
     const event = JSON.parse(ev.data);
     switch (event.name) {
-    case "change_playerstate": {
+    case "songqueue:change_playerstate": {
         playerState = event.data;
         if (updateProgress)
             clearInterval(updateProgress);
         updateProgress = setInterval(updateProgressCallback(), 100);
         break;
     }
-    case "play_song":
+    case "songqueue:play_song":
         playerState = {
             state: "play",
             position: event.data.start * 1000
         };
-    case "queue_song":
+    case "songqueue:queue_song":
         if (event.data.success !== false)
             refreshState();
         break;

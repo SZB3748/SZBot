@@ -29,21 +29,21 @@ a.title {
 }
 
 #pauseplay-song.pause img {
-    content: url(/static/img/pause.svg);
+    content: url(/static/music/img/pause.svg);
     width: 32px;
     aspect-ratio: 1/1;
     filter: invert(100%);
 }
 
 #pauseplay-song.play img {
-    content: url(/static/img/play.svg);
+    content: url(/static/music/img/play.svg);
     width: 32px;
     aspect-ratio: 1/1;
     filter: invert(100%);
 }
 
 #skip-song img {
-    content: url(/static/img/forward.svg);
+    content: url(/static/music/img/forward.svg);
     width: 32px;
     aspect-ratio: 1/1;
     filter: invert(100%);

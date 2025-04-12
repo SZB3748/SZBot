@@ -78,7 +78,7 @@ class QueueDataEvent(events.Event):
 
 
 class QueuedSongEvent(QueueDataEvent):
-    event_name = "queue_song"
+    event_name = "songqueue:queue_song"
 
     @classmethod
     def new(cls, pos:int, success:bool, v:QueuedSong):
@@ -89,7 +89,7 @@ class QueuedSongEvent(QueueDataEvent):
         self.data.update(pos=pos, success=success)
 
 class PlaySongEvent(QueueDataEvent):
-    event_name = "play_song"
+    event_name = "songqueue:play_song"
 
 
 next_song:QueuedSong = None
@@ -299,9 +299,12 @@ def download_song(url:str, file:str=NEXT_FILE)->subprocess.Popen:
 
 def load_next_bg():
     global next_song
-    next_song = get_next_song()
-    if next_song is not None:
-        download_song(next_song.url)
+    try:
+        next_song = get_next_song()
+        if next_song is not None:
+            download_song(next_song.url)
+    except KeyboardInterrupt:
+        pass
 
 def ready_song():
     global current_song, next_song, b_track_is_next
@@ -365,51 +368,53 @@ def song_cycle():
 
     print("Handling song queue")
 
-    while not stop_loop.is_set():
-        if queue_populated.wait(3.0):
-            print("Getting next song")
-        if stop_loop.is_set():
-            return
-        ready_song()
+    try:
+        while not stop_loop.is_set():
+            if queue_populated.wait(3.0):
+                print("Getting next song")
+            if stop_loop.is_set():
+                return
+            ready_song()
 
-        if stop_loop.is_set():
-            return
-        if current_song and os.path.isfile(CURRENT_FILE):
-            cs = current_song #keep a reference to the object in case the global reference is changed
-            b_track_is_current = b_track_is_next
-            
-            song = vlc_instance.media_new(CURRENT_FILE)
-            if current_song.start and current_song.start < current_song.duration.total_seconds():
-                song.add_option(f"start-time={current_song.start}")
-            vlc_player.set_media(song)
+            if stop_loop.is_set():
+                return
+            if current_song and os.path.isfile(CURRENT_FILE):
+                cs = current_song #keep a reference to the object in case the global reference is changed
+                b_track_is_current = b_track_is_next
+                
+                song = vlc_instance.media_new(CURRENT_FILE)
+                if current_song.start and current_song.start < current_song.duration.total_seconds():
+                    song.add_option(f"start-time={current_song.start}")
+                vlc_player.set_media(song)
 
-            time.sleep(0.25)
+                time.sleep(0.25)
 
-            song_done.clear()
-            print(f"Playing: [{current_song.video_id}] ({current_song.duration}) {current_song.title}")
-            vlc_player.play()
-            events.dispatch(PlaySongEvent.new(current_song))
+                song_done.clear()
+                print(f"Playing: [{current_song.video_id}] ({current_song.duration}) {current_song.title}")
+                vlc_player.play()
+                events.dispatch(PlaySongEvent.new(current_song))
 
-            song_done.wait()
+                song_done.wait()
 
-            if vlc_player.is_playing():
-                print("Stopping", cs.video_id)
-                vlc_player.pause()
+                if vlc_player.is_playing():
+                    print("Stopping", cs.video_id)
+                    vlc_player.pause()
 
-            print("Stopped", cs.video_id)
-            vlc_player.set_media(None)
-            os.remove(CURRENT_FILE)
+                print("Stopped", cs.video_id)
+                vlc_player.set_media(None)
+                os.remove(CURRENT_FILE)
 
-            if save_current_to_playlist:
-                r = add_to_playlist(cs.video_id)
-                if r:
-                    print(r)
+                if save_current_to_playlist:
+                    r = add_to_playlist(cs.video_id)
+                    if r:
+                        print(r)
+                else:
+                    save_current_to_playlist = True
+                current_song = None
             else:
-                save_current_to_playlist = True
-            current_song = None
-        else:
-            b_track_is_current = False
-        # time.sleep(1)
+                b_track_is_current = False
+    except KeyboardInterrupt:
+        pass
 
 def run_song_cycle():
     t = threading.Thread(target=song_cycle)

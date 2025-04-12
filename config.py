@@ -5,6 +5,7 @@ import os
 from typing import Any
 
 CONFIG_FILE = "config.json"
+PLUGIN_FILE = "plugins.json"
 OAUTH_TWITCH_FILE = "oauth_twitch.json"
 OAUTH_YOUTUBE_FILE = "oauth_youtube.json"
 

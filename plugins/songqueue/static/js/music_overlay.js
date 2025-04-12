@@ -1,4 +1,4 @@
-const events = new WebSocket("/api/music/events");
+const events = new WebSocket("/api/events");
 /** @type {PlayerState?} */
 let playerState = null;
 let persistent = false;
@@ -142,7 +142,7 @@ function runToast(action, queued) {
     const duration = document.querySelector("#toast .duration");
 
     actionSpan.innerText = action + " • • •";
-    icon.src =  queued.thumbnail ? "/music/thumbnail/"+queued.thumbnail : "/static/img/dumbass.webp";
+    icon.src =  queued.thumbnail ? "/music/thumbnail/"+queued.thumbnail : "/static/music/img/dumbass.webp";
     title.innerText = queued.title;
     duration.innerText = queued.duration ? `${formatDuration(queued.start)} / ${queued.duration}` : "";
 
@@ -174,17 +174,17 @@ events.addEventListener("open", ev => {
 events.addEventListener("message", ev => {
     const event = JSON.parse(ev.data);
     switch (event.name) {
-    case "overlay_persistence_change":
+    case "songqueue:overlay_persistence_change":
         updatePersistence(event.data.value);
         break;
-    case "change_playerstate":
+    case "songqueue:change_playerstate":
         playerState = event.data;
         if (updateProgress)
             clearInterval(updateProgress);
         if (playerState.state == "play")
             updateProgress = setInterval(updateProgressCallback(currentDuration));
         break;
-    case "play_song":
+    case "songqueue:play_song":
         currentDuration = parseDuration(event.data.duration) * 1000;
         if (persistent) {
             playerState = {
@@ -199,7 +199,7 @@ events.addEventListener("message", ev => {
                 data: event.data
             });
         break;
-    case "queue_song":
+    case "songqueue:queue_song":
         if (event.data.success === false)
             toastQueue.push({
                 name: "Failed to Queue",
