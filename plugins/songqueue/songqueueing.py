@@ -31,7 +31,7 @@ save_current_to_playlist = True
 vlc_instance = vlc.Instance("--input-repeat=-1", "--fullscreen", "--file-caching=0")
 vlc_player = vlc_instance.media_player_new()
 
-youtube_api = playlist.get_authenticated_service()
+youtube_api = None
 
 class QueuedSong:
     "A song gotten from a youtube video that is/was queued."
@@ -417,6 +417,8 @@ def song_cycle():
         pass
 
 def run_song_cycle():
+    stop_loop.clear()
+    song_done.clear()
     t = threading.Thread(target=song_cycle)
     t.start()
     return t

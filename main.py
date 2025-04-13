@@ -2,6 +2,7 @@ import web
 
 import config
 import plugins
+import twitchbot
 from urllib.parse import quote
 
 OAUTH_ENDPOINT = "https://id.twitch.tv/oauth2/authorize"
@@ -9,7 +10,7 @@ OAUTH_ENDPOINT = "https://id.twitch.tv/oauth2/authorize"
 def get_auth_token(oauth:dict[str]):
     import webbrowser
     redirect = f"http://localhost:6742/oauth"
-    scope = " ".join(oauth["Scopes"])
+    scope = " ".join(twitchbot.OAUTH_SCOPES)
     url = f"{OAUTH_ENDPOINT}?response_type=code&client_id={oauth["Client-Id"]}&redirect_uri={quote(redirect)}&scope={quote(scope)}"
     webbrowser.open(url)
     print("Opening", url, "in your default browser")
@@ -44,8 +45,8 @@ def run():
 
 if __name__ == "__main__":
     oauth = config.read(path=config.OAUTH_TWITCH_FILE)
-    if not ("Client-Id" in oauth and "Client-Secret" in oauth and "Scopes" in oauth):
-        print("You must create an oauth.json file with your twitch application's \"Client-Id\", \"Client-Secret\", and \"Scopes\".")
+    if not ("Client-Id" in oauth and "Client-Secret" in oauth):
+        print("You must create an oauth_twitch.json file with your twitch application's Client-Id and Client-Secret.")
     elif "Token" not in oauth:
         try:
             get_auth_token(oauth)

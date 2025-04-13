@@ -5,11 +5,15 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import InstalledAppFlow
 import json
+import os
+
+DIR = os.path.dirname(__file__)
+OAUTH_YOUTUBE_FILE = os.path.join(DIR, "oauth_youtube.json")
 
 def get_authenticated_service():
     """Authorize the request and store authorization credentials."""
 
-    with open(config.OAUTH_YOUTUBE_FILE) as f:
+    with open(OAUTH_YOUTUBE_FILE) as f:
         configs = json.load(f)
     credentials = None
     if "credentials" in configs:
@@ -32,7 +36,7 @@ def get_authenticated_service():
         
         config.write(config_updates={
             "credentials": json.loads(credentials.to_json())
-        }, path=config.OAUTH_YOUTUBE_FILE)
+        }, path=OAUTH_YOUTUBE_FILE)
     
     return build("youtube", "v3", credentials=credentials)
 

@@ -27,6 +27,15 @@ value_names = {
     False: "false"
 }
 
+OAUTH_SCOPES:set[str] = {
+    "chat:read",
+    "chat:edit",
+    "user:read:chat",
+    "user:write:chat",
+    "user:bot",
+    "channel:bot"
+}
+
 def get_command_signature(prefix:str, cmd:commands.Command)->str:
     cmd_func = cmd._callback
 
@@ -171,7 +180,7 @@ async def main(retry:bool=True):
 if __name__ == "__main__":
     bot = init_bot()
     if bot is None:
-        print("You must run main.py first to make sure your oauth.json file is fine.\nAlso, make sure to make a config.json file with your bot's \"Prefix\".")
+        print("You must run main.py first to make sure your oauth_twitch.json file is fine.\nAlso, make sure to make a config.json file with your bot's \"Prefix\".")
         exit(-1)
 
 
