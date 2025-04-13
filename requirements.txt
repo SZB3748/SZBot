@@ -8,4 +8,5 @@ google-auth-oauthlib
 MarkupSafe
 python-vlc
 requests
+websocket-client
 yt-dlp

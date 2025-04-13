@@ -4,11 +4,16 @@ from datetime import datetime
 import inspect
 import plugins
 import requests
+import threading
 import traceback
 import twitchio
 from twitchio.ext import commands
 from urllib.parse import quote
+import websocket
 
+API_BASE = "localhost:6742/api"
+API_ENDPOINT = f"http://{API_BASE}"
+API_WS_ENDPOINT = f"ws://{API_BASE}"
 TOKEN_REFRESH_ENDPOINT = "https://id.twitch.tv/oauth2/token"
 
 def get_prefix(bot:commands.Bot, message:twitchio.Message):
@@ -159,6 +164,24 @@ def init_bot(old_bot:Bot|None=None):
         newbot._modules.update(old_bot._modules)
     return newbot
 
+def ws_on_open(ws):
+    print("connected to events socket")
+
+def ws_on_message(ws, msg:str|bytes):
+    print("events socket message:", msg)
+
+def ws_on_error(ws, e:Exception):
+    print(f"events socket error ({type(e).__name__}): {e}")
+
+def ws_on_close(ws, status_code, msg:str|bytes):
+    print("disconnected from events socket")
+
+def ws_run():
+    try:
+        ws.run_forever()
+    except KeyboardInterrupt:
+        pass
+
 async def main(retry:bool=True):
     global bot
     try:
@@ -183,6 +206,11 @@ if __name__ == "__main__":
         print("You must run main.py first to make sure your oauth_twitch.json file is fine.\nAlso, make sure to make a config.json file with your bot's \"Prefix\".")
         exit(-1)
 
+    ws = websocket.WebSocketApp(
+        f"{API_WS_ENDPOINT}/events",
+        on_open=ws_on_open, on_message=ws_on_message,
+        on_error=ws_on_error, on_close=ws_on_close
+    )
 
     @bot.command(name="help")
     async def help_command(ctx:commands.Context, command_name:str=None):
@@ -208,7 +236,7 @@ if __name__ == "__main__":
         if bot.links_commands:
             await ctx.send(", ".join(name for name in bot.links_commands))
 
-    
+
     print("reading plugin list")
     plugin_list = plugins.read_plugin_data()
     plugin_enabled_count = sum(1 for plugin in plugin_list.values() if plugin.module is not None)
@@ -218,6 +246,10 @@ if __name__ == "__main__":
         if plugin.module is not None:
             plugin.twitch_bot_load((plugin_list, plugin, True, bot))
     print("loaded plugins")
+
+    print("starting events socket connection")
+    ws_thread = threading.Thread(target=ws_run)
+    ws_thread.start()
 
     loop = asyncio.get_event_loop()
     e = None
@@ -233,3 +265,6 @@ if __name__ == "__main__":
         if plugin.module is not None:
             plugin.twitch_bot_unload((plugin_list, plugin, True, e))
     print("unloaded plugins")
+
+    ws.close()
+    ws_thread.join()

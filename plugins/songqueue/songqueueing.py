@@ -344,7 +344,7 @@ def ready_song():
                 increment_b_track()
         
     if next_song is None:
-        threading.Thread(target=load_next_bg).start()
+        threading.Thread(target=load_next_bg, daemon=True).start()
 
 def song_cycle():
     global current_song, b_track_is_current, save_current_to_playlist
@@ -416,10 +416,10 @@ def song_cycle():
     except KeyboardInterrupt:
         pass
 
-def run_song_cycle():
+def run_song_cycle(daemon:bool=False):
     stop_loop.clear()
     song_done.clear()
-    t = threading.Thread(target=song_cycle)
+    t = threading.Thread(target=song_cycle, daemon=daemon)
     t.start()
     return t
 

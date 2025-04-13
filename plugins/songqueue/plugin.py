@@ -16,7 +16,7 @@ def on_load(ctx:plugins.LoadEvent):
     _, _, is_startup, app, api, _, *_ = ctx
 
     print("starting music queue")
-    cycle = songqueueing.run_song_cycle()
+    cycle = songqueueing.run_song_cycle(daemon=True)
 
     if is_startup:
         webroutes.add_routes(app, api)

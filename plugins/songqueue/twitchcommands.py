@@ -1,7 +1,6 @@
 import aiohttp
 from twitchio.ext import commands
-
-API_ENDPOINT = "http://localhost:6742/api"
+from twitchbot import API_ENDPOINT
 
 async def current_song(ctx:commands.Context):
     """Gets info on the song that's currently playing."""
