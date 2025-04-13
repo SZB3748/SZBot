@@ -1,12 +1,14 @@
+import bot
+import plugins
 import songqueueing
+from threading import Thread
 import twitchcommands
 import webroutes
-from flask import Blueprint, Flask
-from threading import Thread
 
 cycle:Thread = None
+twitch_bot:bot.Bot = None
 
-def on_load(ctx:tuple[dict, object, bool, Flask, Blueprint, object]):
+def on_load(ctx:plugins.LoadEvent):
     global cycle
 
     _, _, is_startup, app, api, _, *_ = ctx
@@ -17,11 +19,12 @@ def on_load(ctx:tuple[dict, object, bool, Flask, Blueprint, object]):
     if is_startup:
         webroutes.add_routes(app, api)
 
-def on_twitch_bot_load():
-    twitchcommands.add_commands(...) #TODO
+def on_twitch_bot_load(ctx:plugins.TwitchBotLoadEvent):
+    global twitch_bot
+    _, _, _, twitch_bot, *_ = ctx
+    twitchcommands.add_commands(twitch_bot)
 
-def on_unload(ctx:tuple[dict, object, bool, Exception|None]):
-
+def on_unload(ctx:plugins.UnloadEvent):
     _, _, _, _, *_ = ctx
 
     songqueueing.song_done.set()
@@ -33,5 +36,8 @@ def on_unload(ctx:tuple[dict, object, bool, Exception|None]):
     else:
         print("Song cycle stopped")
 
-def on_twitch_bot_unload():
-    twitchcommands.remove_commands(...) #TODO
+def on_twitch_bot_unload(ctx:plugins.TwitchBotUnloadEvent):
+    global twitch_bot
+    _, _, _, _, *_ = ctx
+    twitchcommands.remove_commands(twitch_bot)
+    twitch_bot = None

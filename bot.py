@@ -1,8 +1,8 @@
-import aiohttp
 import asyncio
 import config
 from datetime import datetime
 import inspect
+import plugins
 import requests
 import traceback
 import twitchio
@@ -168,7 +168,7 @@ async def main(retry:bool=True):
     except KeyboardInterrupt:
         pass
 
-if True or __name__ == "__main__":
+if __name__ == "__main__":
     bot = init_bot()
     if bot is None:
         print("You must run main.py first to make sure your oauth.json file is fine.\nAlso, make sure to make a config.json file with your bot's \"Prefix\".")
@@ -199,8 +199,28 @@ if True or __name__ == "__main__":
         if bot.links_commands:
             await ctx.send(", ".join(name for name in bot.links_commands))
 
+    
+    print("reading plugin list")
+    plugin_list = plugins.read_plugin_data()
+    plugin_enabled_count = sum(1 for plugin in plugin_list.values() if plugin.module is not None)
+    print("read", len(plugin_list), "plugins with", plugin_enabled_count, "enabled plugins")
+    print("loading enabled plugins")
+    for plugin in plugin_list.values():
+        if plugin.module is not None:
+            plugin.twitch_bot_load((plugin_list, plugin, True, bot))
+    print("loaded plugins")
+
     loop = asyncio.get_event_loop()
+    e = None
     try:
         loop.run_until_complete(main())
     except KeyboardInterrupt:
         print("^C")
+    except Exception as _e:
+        e = _e
+
+    print("unloading enabled plugins")
+    for plugin in plugin_list.values():
+        if plugin.module is not None:
+            plugin.twitch_bot_unload((plugin_list, plugin, True, e))
+    print("unloaded plugins")

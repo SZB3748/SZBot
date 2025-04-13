@@ -5,22 +5,25 @@ import sys
 from types import ModuleType
 from typing import Any, Callable
 
-type MetaFields = dict[str, MetaField]
+from bot import Bot
+from flask import Blueprint, Flask
+from flask_sock import Sock
 
-type MetaTypeInfo = dict[str]
-type MetaTypeAllowed = bool
-type MetaTypeCommand = str
-type MetaTypeExpression = MetaTypeInfo | MetaTypeAllowed | MetaTypeCommand
+MetaTypeInfo = dict[str]
+MetaTypeAllowed = bool
+MetaTypeCommand = str
+MetaTypeExpression = MetaTypeInfo | MetaTypeAllowed | MetaTypeCommand
 
-type RunTarget = tuple[str, Any]
-type EventCallbackContext = tuple
-type EventCallback = Callable[[EventCallbackContext], None]
+RunTarget = tuple[str, Any]
+EventCallbackContext = tuple
+EventCallback = Callable[[EventCallbackContext], None]
 
 
 ExcludedType = type("excluded", (), {})
 excluded = ExcludedType()
 
 PLUGINS_DIR = "plugins"
+
 
 class MetaField:
     def __init__(self, name:str|ExcludedType=excluded, description:str|ExcludedType=excluded,
@@ -32,8 +35,10 @@ class MetaField:
         self.optional = optional
         self.default = default
 
+MetaFieldCollection = dict[str, MetaField]
+
 class Meta:
-    def __init__(self, name:str|ExcludedType=excluded, description:str|ExcludedType=excluded, configs:MetaFields|ExcludedType=excluded):
+    def __init__(self, name:str|ExcludedType=excluded, description:str|ExcludedType=excluded, configs:MetaFieldCollection|ExcludedType=excluded):
         self.name = name
         self.description = description
         self.configs = configs
@@ -84,6 +89,12 @@ class Plugin:
     def twitch_bot_unload(self, ctx:EventCallbackContext):
         if self.is_loaded and self.on_twitch_bot_unload is not None:
             self.on_twitch_bot_unload(ctx)
+
+
+LoadEvent = tuple[dict[str, Plugin], Plugin, bool, Flask, Blueprint, Sock]
+UnloadEvent = tuple[dict[str, Plugin], Plugin, bool, Exception|None]
+TwitchBotLoadEvent = tuple[dict[str, Plugin], Plugin, bool, Bot]
+TwitchBotUnloadEvent = tuple[dict[str, Plugin], Plugin, bool, Exception|None]
 
 
 def import_plugin_file(name:str, path:str)->ModuleType:
