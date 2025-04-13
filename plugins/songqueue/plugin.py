@@ -1,4 +1,4 @@
-import bot
+import twitchbot
 import plugins
 import songqueueing
 from threading import Thread
@@ -6,7 +6,7 @@ import twitchcommands
 import webroutes
 
 cycle:Thread = None
-twitch_bot:bot.Bot = None
+bot:twitchbot.Bot = None
 
 def on_load(ctx:plugins.LoadEvent):
     global cycle
@@ -20,9 +20,9 @@ def on_load(ctx:plugins.LoadEvent):
         webroutes.add_routes(app, api)
 
 def on_twitch_bot_load(ctx:plugins.TwitchBotLoadEvent):
-    global twitch_bot
-    _, _, _, twitch_bot, *_ = ctx
-    twitchcommands.add_commands(twitch_bot)
+    global bot
+    _, _, _, bot, *_ = ctx
+    twitchcommands.add_commands(bot)
 
 def on_unload(ctx:plugins.UnloadEvent):
     _, _, _, _, *_ = ctx
@@ -37,7 +37,5 @@ def on_unload(ctx:plugins.UnloadEvent):
         print("Song cycle stopped")
 
 def on_twitch_bot_unload(ctx:plugins.TwitchBotUnloadEvent):
-    global twitch_bot
     _, _, _, _, *_ = ctx
-    twitchcommands.remove_commands(twitch_bot)
-    twitch_bot = None
+    twitchcommands.remove_commands(bot)

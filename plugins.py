@@ -5,7 +5,7 @@ import sys
 from types import ModuleType
 from typing import Any, Callable
 
-from bot import Bot
+from twitchbot import Bot
 from flask import Blueprint, Flask
 from flask_sock import Sock
 
