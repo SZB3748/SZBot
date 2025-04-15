@@ -64,7 +64,8 @@ def api_music_queue_get():
 @musicapi.post("/queue/push")
 def api_music_queue_push():
     url = request.form["url"]
-    c = config.read()
+    configs_parent = songqueueing.get_configs()
+    c:dict = configs_parent.get("Song-Queue", {})
     blacklist = c.get("Song-Blacklist", None)
     if not isinstance(blacklist, list):
         blacklist = []
@@ -205,14 +206,18 @@ def api_musics_seek():
 
 @musicapi.route("/b-track", methods=["GET", "POST"])
 def api_music_b_track():
-    configs = config.read()
-    current_b_track = configs.get("B-Track", None)
+    configs_parent = songqueueing.get_configs()
+    configs:dict = configs_parent.get("Song-Queue", {})
+    current_b_track:dict = configs.get("B-Track", None)
     index = songqueueing.b_track_index
 
     if request.method == "POST":
         url = request.form["url"].strip()
         if url:
-            btrack_config = {**current_b_track, "url": url}
+            if current_b_track is None:
+                btrack_config = {"url": url}
+            else:
+                btrack_config = {**current_b_track, "url": url}
             if "index" in request.form:
                 index_s = request.form["index"]
                 if not index_s.isdigit():
@@ -226,20 +231,28 @@ def api_music_b_track():
             if p.returncode:
                 return "Failed to get playlist info.", 500
         
+            raw_configs = config.read().get("Song-Queue")
+            raw_configs["B-Track"] = btrack_config if url else None
             config.write(config_updates={
-                "B-Track": btrack_config if url else None
+                "Song-Queue": raw_configs
             })
             songqueueing.b_track_playlist = url
-            songqueueing.b_track_index = songqueueing.b_track_order.index(index)
             new_length = int(out)
             if new_length != songqueueing.b_track_length:
-                order = list(range(1, new_length+1))
+                songqueueing.b_track_order = list(range(1, new_length+1))
             songqueueing.b_track_length = new_length
             if current_b_track.get("random", False):
-                random.shuffle(order)
-            songqueueing.b_track_order = order
+                random.shuffle(songqueueing.b_track_order)
+            if index is None:
+                songqueueing.b_track_index = 0
+            else:
+                songqueueing.b_track_index = songqueueing.b_track_order.index(index)
         else:
-            config.write(config_updates={"B-Track": None})
+            raw_configs = config.read().get("Song-Queue")
+            raw_configs["B-Track"] = None
+            config.write(config_updates={
+                "Song-Queue": raw_configs
+            })
             songqueueing.b_track_playlist = songqueueing.b_track_index = songqueueing.b_track_length = songqueueing.b_track_order = None
     elif isinstance(current_b_track, dict) and current_b_track:
         url = current_b_track["url"]
@@ -266,7 +279,8 @@ def api_music_blacklist():
     if m is not None:
         id = m[1]
     
-    c = config.read()
+    configs_parent = songqueueing.get_configs()
+    c = configs_parent.get("Song-Queue", {})
     current_blacklist = c.get("Song-Blacklist", None)
     if isinstance(current_blacklist, list):
         if id not in current_blacklist:
@@ -280,7 +294,11 @@ def api_music_blacklist():
         updated = True
     
     if updated:
-        config.write(config_updates={"Song-Blacklist": current_blacklist})
+        raw_configs = config.read().get("Song-Queue")
+        raw_configs["Song-Blacklist"] = current_blacklist
+        config.write(config_updates={
+            "Song-Queue": raw_configs
+        })
 
     if songqueueing.current_song.video_id == id:
         songqueueing.current_song = None

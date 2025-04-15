@@ -1,6 +1,7 @@
 import config
 import importlib.util
 import os
+import re
 import sys
 from types import ModuleType
 from typing import Any, Callable
@@ -9,31 +10,133 @@ from twitchbot import Bot
 from flask import Blueprint, Flask
 from flask_sock import Sock
 
-MetaTypeInfo = dict[str]
+MetaTypeOptions = dict[str]
 MetaTypeAllowed = bool
 MetaTypeCommand = str
-MetaTypeExpression = MetaTypeInfo | MetaTypeAllowed | MetaTypeCommand
+MetaTypeExpression = MetaTypeOptions | MetaTypeAllowed | MetaTypeCommand
 
 RunTarget = tuple[str, Any]
 EventCallbackContext = tuple
 EventCallback = Callable[[EventCallbackContext], None]
 
+TYPE_COMMAND_EXCLUDE = "exclude"
+TYPE_NAME_OBJECT = "object"
+TYPE_NAME_LIST = "list"
+TYPE_NAME_STRING = "string"
+TYPE_NAME_INTEGER = "integer"
+TYPE_NAME_FLOAT = "float"
+TYPE_NAME_BOOLEAN = "boolean"
+TYPE_NAME_NULL = "null"
 
-ExcludedType = type("excluded", (), {})
+ExcludedType = type("excluded", (), {"__repr__": lambda _: "excluded"})
 excluded = ExcludedType()
 
 PLUGINS_DIR = "plugins"
 
+class ConfigMetaException(Exception):
+    """Base class for Config Metadata Exceptions."""
+
+class MetaTypeInvalidException(ConfigMetaException):
+    """Type not allowed."""
+
+class ConfigMissingMetaFieldException(ConfigMetaException):
+    """Config is missing field specified by meta data."""
+
+class ConfigRequirementNotMetException(ConfigMetaException):
+    """Config value does not meet all the requirements for its data type specified by the metadata."""
+
+
+class ConfigMetaError(ConfigMetaException):
+    """Base class for errors caused by developers when creating a Plugin's Config Metadata."""
+
+class MetaTypeAssertionError(ConfigMetaError):
+    """Type assertion failed."""
+
+class MetaInvalidTypeCommandError(ConfigMetaError):
+    """Meta data type option command is invalid."""
+
+class MetaTypeInvalidValueError(ConfigMetaError):
+    """Meta data incorrectly specifies type."""
+
+class MetaTypeBadOptionError(ConfigMetaError):
+    """Meta type option is invalid."""
+
+
+
+def _type_assert(value, name:str, *types:type, can_be_none:bool=True):
+    if not ((can_be_none and value is None) or isinstance(value, types)):
+        if can_be_none:
+            if len(types) < 2:
+                tnames = ", ".join(t.__name__ for t in types) + " or None"
+            else:
+                tnames += ", ".join([*(t.__name__ for t in types), "or None"])
+        else:
+            tnames = ", ".join(t.__name__ for t in types)
+        raise MetaTypeAssertionError(f"Expected {name} to be {tnames}, got {type(value).__name__}: {repr(value)}")
+    
+    return excluded if value is None else value
+
+
+def _handle_types(types_data:dict[str]):
+    types:dict[str, MetaTypeExpression] = {}
+    for type_name, type_info in types_data.items():
+        _type_assert(type_info, "type expression", str, bool, dict, can_be_none=False)
+        if type_name == TYPE_NAME_OBJECT:
+            if isinstance(type_info, dict):
+                fields = _type_assert(type_info.get("fields", None), f"{type_name} fields", dict, can_be_none=False)
+                new_fields = {}
+                for field_name, field_info in fields.items():
+                    _type_assert(field_info, f"{type_name} field info", dict)
+                    if field_info is not None:
+                        new_fields[field_name] = MetaField.construct(field_name, field_info)
+                type_info["fields"] = new_fields
+        elif type_name == "list":
+            if isinstance(type_info, dict):
+                list_types = type_info.get("types", None)
+                _type_assert(list_types, f"{type_name} types", dict, can_be_none=False)
+                type_info["types"] = _handle_types(list_types)
+        types[type_name] = type_info
+    return types
+
 
 class MetaField:
-    def __init__(self, name:str|ExcludedType=excluded, description:str|ExcludedType=excluded,
+    @classmethod
+    def construct(cls, key:str, data:dict[str]):
+        name = data.get("name", excluded)
+        description = data.get("description", excluded)
+        types_data = data.get("types", excluded)
+        optional = data.get("optional", excluded)
+        default = data.get("default", excluded)
+
+        name = _type_assert(name, "field name", str, ExcludedType)
+        description = _type_assert(description, "field description", str, ExcludedType)
+        types_data = _type_assert(types_data, "field types", dict, ExcludedType)
+        optional = _type_assert(optional, "field optional status", bool, ExcludedType)
+
+        if types_data is excluded:
+            types = excluded
+        else:
+            types = _handle_types(types_data)
+
+        return cls(key=key, name=name, description=description, types=types, optional=optional, default=default)
+        
+
+    def __init__(self, key:str, name:str|ExcludedType=excluded, description:str|ExcludedType=excluded,
                  types:dict[str, MetaTypeExpression]|ExcludedType=excluded,
                  optional:bool|ExcludedType=excluded, default:Any|ExcludedType=excluded):
+        self.key = key
         self.name = name
         self.description = description
         self.types = types
         self.optional = optional
         self.default = default
+
+    @property
+    def is_optional(self)->bool:
+        if self.default is not excluded:
+            return bool(self.optional is excluded or self.optional)
+        return bool(self.optional is not excluded and self.optional)
+    
 
 MetaFieldCollection = dict[str, MetaField]
 
@@ -107,7 +210,254 @@ def import_plugin_file(name:str, path:str)->ModuleType:
 def parse_plugin_meta(data:dict[str])->Meta:
     name = data.get("name", excluded)
     description = data.get("description", excluded)
-    return Meta(name=name, description=description) #TODO configs
+
+    configs_data = data.get("configs", None)
+    if isinstance(configs_data, dict):
+        configs:MetaFieldCollection = {}
+        for name, config_info in configs_data.items():
+            _type_assert(config_info, "config info", dict)
+            if config_info is not None:
+                configs[name] = MetaField.construct(name, config_info)
+    else:
+        configs = excluded
+
+    return Meta(name=name, description=description, configs=configs)
+
+def _config_apply_meta_list(v:list, field:MetaField):
+    field_t = field.types.get(TYPE_NAME_LIST)
+    if field_t is None:
+        raise MetaTypeInvalidException(f"Type \"{TYPE_NAME_LIST}\" not allowed for field {field.key}.")
+    elif isinstance(field_t, bool):
+        if field_t:
+            return v
+        else:
+            raise MetaTypeInvalidException(f"Type \"{TYPE_NAME_LIST}\" not allowed for field {field.key}.")
+    elif isinstance(field_t, str):
+        if field_t == TYPE_COMMAND_EXCLUDE:
+            if field.default is not excluded:
+                return excluded if isinstance(field.default, list) else _config_apply_type(field.default, field)
+            elif field.optional is excluded or not field.optional:
+                raise ConfigMissingMetaFieldException(f"Missing field {field.key}.")
+        else:
+            raise MetaInvalidTypeCommandError(f"Invalid field type command: {field_t}")
+    elif isinstance(field_t, dict):
+        for option_name in field_t.keys():
+            if option_name != "types":
+                raise MetaTypeBadOptionError(f"Type {TYPE_NAME_LIST} does not have option: {option_name}")
+        fixed_list = []
+        vfield = MetaField(types=field_t["types"])
+        for item in v:
+            applied = _config_apply_type(item, vfield)
+            if applied is not excluded:
+                fixed_list.append(applied)
+        return fixed_list
+    else:
+        raise MetaTypeInvalidValueError(f"Type {TYPE_NAME_LIST} must be specified by {bool.__name__}, {str.__name__}, or {dict.__name__}, got {type(field_t).__name__}: {repr(field_t)}.")
+
+def _config_apply_str(v:str, field:MetaField):
+    field_t = field.types.get("string", None)
+    if field_t is None:
+        raise MetaTypeInvalidException(f"Type \"{TYPE_NAME_STRING}\" not allowed for field {field.key}.")
+    elif isinstance(field_t, bool):
+        if field_t:
+            return v
+        else:
+            raise MetaTypeInvalidException(f"Type \"{TYPE_NAME_STRING}\" not allowed for field {field.key}.")
+    elif isinstance(field_t, str):
+        if field_t == TYPE_COMMAND_EXCLUDE:
+            if field.default is not excluded:
+                return excluded if isinstance(field.default, str) else _config_apply_type(field.default, field)
+            elif field.optional is excluded or not field.optional:
+                raise ConfigMissingMetaFieldException(f"Missing field {field.key}.")
+        else:
+            raise MetaInvalidTypeCommandError(f"Invalid field type command: {field_t}")
+    elif isinstance(field_t, dict):
+        l = len(v)
+        for option_name, option_value in field_t.items():
+            if option_name == ">":
+                if not isinstance(option_value, int):
+                    raise MetaTypeBadOptionError(f"Type {TYPE_NAME_STRING} option \"{option_name}\" must speficy {int.__name__} value, got {type(option_value).__name__}: {repr(option_value)}")
+                elif l <= option_value:
+                    raise ConfigRequirementNotMetException(f"Requirement for {field.key} from option \"{option_name}\" not met: len({repr(v)}) > {option_value}")
+            elif option_name == "<":
+                if not isinstance(option_value, int):
+                    raise MetaTypeBadOptionError(f"Type {TYPE_NAME_STRING} option \"{option_name}\" must speficy {int.__name__} value, got {type(option_value).__name__}: {repr(option_value)}")
+                elif l >= option_value:
+                    raise ConfigRequirementNotMetException(f"Requirement for {field.key} from option \"{option_name}\" not met: len({repr(v)}) < {option_value}")
+            elif option_name == ">=":
+                if not isinstance(option_value, int):
+                    raise MetaTypeBadOptionError(f"Type {TYPE_NAME_STRING} option \"{option_name}\" must speficy {int.__name__} value, got {type(option_value).__name__}: {repr(option_value)}")
+                elif l < option_value:
+                    raise ConfigRequirementNotMetException(f"Requirement for {field.key} from option \"{option_name}\" not met: len({repr(v)}) >= {option_value}")
+            elif option_name == "<=":
+                if not isinstance(option_value, int):
+                    raise MetaTypeBadOptionError(f"Type {TYPE_NAME_STRING} option \"{option_name}\" must speficy {int.__name__} value, got {type(option_value).__name__}: {repr(option_value)}")
+                elif l > option_value:
+                    raise ConfigRequirementNotMetException(f"Requirement for {field.key} from option \"{option_name}\" not met: len({repr(v)}) <= {option_value}")
+            elif option_name == "pattern":
+                if not isinstance(option_value, str):
+                    raise MetaTypeBadOptionError(f"Type {TYPE_NAME_STRING} option \"{option_name}\" must speficy {str.__name__} value, got {type(option_value).__name__}: {repr(option_value)}")
+                elif not re.fullmatch(option_value, v):
+                    raise ConfigRequirementNotMetException(f"Requirement for {field.key} from option \"{option_name}\" not met: {repr(v)} matches {re.sub(r"[\\]*?/", lambda m: f"{m[0][:-1]}\\/" if m[0].count("\\") % 2 == 0 else m[0], option_value).join("//")}")
+            else:
+                raise MetaTypeBadOptionError(f"Type {TYPE_NAME_STRING} does not have option: {option_name}")
+        return v
+    else:
+        raise MetaTypeInvalidValueError(f"Type {TYPE_NAME_STRING} must be specified by {bool.__name__}, {str.__name__}, or {dict.__name__}, got {type(field_t).__name__}: {repr(field_t)}.")
+
+def _config_apply_number(v:int|float, T:type[int|float], tname:str, field:MetaField):
+    field_t = field.types.get(tname, None)
+    if field_t is None:
+        raise MetaTypeInvalidException(f"Type \"{tname}\" not allowed for field {field.key}.")
+    elif isinstance(field_t, bool):
+        if field_t:
+            return v
+        else:
+            raise MetaTypeInvalidException(f"Type \"{tname}\" not allowed for field {field.key}.")
+    elif isinstance(field_t, str):
+        if field_t == TYPE_COMMAND_EXCLUDE:
+            if field.default is not excluded:
+                return excluded if isinstance(v, T) else _config_apply_type(field.default, field)
+            elif field.optional is excluded or not field.optional:
+                raise ConfigMissingMetaFieldException(f"Missing field {field.key}.")
+        else:
+            raise MetaInvalidTypeCommandError(f"Invalid field type command: {field_t}")
+    elif isinstance(field_t, dict):
+        type_set_available = [float, int]
+        type_set = tuple(type_set_available[type_set_available.index(T):])
+        for option_name, option_value in field_t.items():
+            if option_name == ">":
+                if not isinstance(option_value, type_set):
+                    raise MetaTypeBadOptionError(f"Type {tname} option \"{option_name}\" must speficy {" | ".join(t.__name__ for t in type_set)} value, got {type(option_value).__name__}: {repr(option_value)}")
+                elif v <= option_value:
+                    raise ConfigRequirementNotMetException(f"Requirement for {field.key} from option \"{option_name}\" not met: {v} > {option_value}")
+            elif option_name == "<":
+                if not isinstance(option_value, type_set):
+                    raise MetaTypeBadOptionError(f"Type {tname} option \"{option_name}\" must speficy {" | ".join(t.__name__ for t in type_set)} value, got {type(option_value).__name__}: {repr(option_value)}")
+                elif v >= option_value:
+                    raise ConfigRequirementNotMetException(f"Requirement for {field.key} from option \"{option_name}\" not met: {v} < {option_value}")
+            elif option_name == ">=":
+                if not isinstance(option_value, type_set):
+                    raise MetaTypeBadOptionError(f"Type {tname} option \"{option_name}\" must speficy {" | ".join(t.__name__ for t in type_set)} value, got {type(option_value).__name__}: {repr(option_value)}")
+                elif v < option_value:
+                    raise ConfigRequirementNotMetException(f"Requirement for {field.key} from option \"{option_name}\" not met: {v} >= {option_value}")
+            elif option_name == "<=":
+                if not isinstance(option_value, type_set):
+                    raise MetaTypeBadOptionError(f"Type {tname} option \"{option_name}\" must speficy {" | ".join(t.__name__ for t in type_set)} value, got {type(option_value).__name__}: {repr(option_value)}")
+                elif v > option_value:
+                    raise ConfigRequirementNotMetException(f"Requirement for {field.key} from option \"{option_name}\" not met: {v} <= {option_value}")
+            else:
+                raise MetaTypeBadOptionError(f"Type {tname} does not have option: {option_name}")
+        return v
+    else:
+        raise MetaTypeInvalidValueError(f"Type {tname} must be specified by {bool.__name__}, {str.__name__}, or {dict.__name__}, got {type(field_t).__name__}: {repr(field_t)}.")
+
+def _config_apply_type(v, field:MetaField):
+    if field.types is excluded:
+        return v
+    else:
+        if v is None:
+            field_t = field.types.get(TYPE_NAME_NULL, None)
+            if field_t is None:
+                raise MetaTypeInvalidException(f"Type \"{TYPE_NAME_NULL}\" not allowed for field {field.key}.")
+            elif isinstance(field_t, bool):
+                if field_t:
+                    return v
+                else:
+                    raise MetaTypeInvalidException(f"Type \"{TYPE_NAME_NULL}\" not allowed for field {field.key}.")
+            elif isinstance(field_t, str):
+                if field_t == TYPE_COMMAND_EXCLUDE:
+                    if field.default is not excluded:
+                        return excluded if field.default is None else _config_apply_type(field.default, field)
+                    elif field.optional is excluded or not field.optional:
+                        raise ConfigMissingMetaFieldException(f"Missing field {field.key}.")
+                else:
+                    raise MetaInvalidTypeCommandError(f"Invalid field type command: {field_t}")
+            elif isinstance(field_t, dict):
+                raise MetaTypeBadOptionError(f"Type {TYPE_NAME_NULL} does not have options.")
+            else:
+                raise MetaTypeInvalidValueError(f"Type {TYPE_NAME_NULL} must be specified by {bool.__name__}, {str.__name__}, or {dict.__name__}, got {type(field_t).__name__}: {repr(field_t)}.")
+        elif isinstance(v, str):
+            return _config_apply_str(v, field)
+        elif isinstance(v, bool):
+            field_t = field.types.get(TYPE_NAME_BOOLEAN, None)
+            if field_t is None:
+                raise MetaTypeInvalidException(f"Type \"{TYPE_NAME_BOOLEAN}\" not allowed for field {field.key}.")
+            elif isinstance(field_t, bool):
+                if field_t:
+                    return v
+                else:
+                    raise MetaTypeInvalidException(f"Type \"{TYPE_NAME_BOOLEAN}\" not allowed for field {field.key}.")
+            elif isinstance(field_t, str):
+                if field_t == TYPE_COMMAND_EXCLUDE:
+                    if field.default is not excluded:
+                        return excluded if isinstance(field.default, bool) else _config_apply_type(field.default, field)
+                    elif field.optional is excluded or not field.optional:
+                        raise ConfigMissingMetaFieldException(f"Missing field {field.key}.")
+                else:
+                    raise MetaInvalidTypeCommandError(f"Invalid field type command: {field_t}")
+            elif isinstance(field_t, dict):
+                raise MetaTypeBadOptionError(f"Type {TYPE_NAME_BOOLEAN} does not have options.")
+            else:
+                raise MetaTypeInvalidValueError(f"Type {TYPE_NAME_BOOLEAN} must be specified by {bool.__name__}, {str.__name__}, or {dict.__name__}, got {type(field_t).__name__}: {repr(field_t)}.")
+        elif isinstance(v, int):
+            return _config_apply_number(v, int, TYPE_NAME_INTEGER, field)
+        elif isinstance(v, float):
+            return _config_apply_number(v, float, TYPE_NAME_FLOAT, field)
+        elif isinstance(v, dict):
+            field_t = field.types.get(TYPE_NAME_OBJECT, None)
+            if field_t is None:
+                raise MetaTypeInvalidException(f"Type \"{TYPE_NAME_BOOLEAN}\" not allowed for field {field.key}.")
+            elif isinstance(field_t, bool):
+                if field_t:
+                    return v
+                else:
+                    raise MetaTypeInvalidException(f"Type \"{TYPE_NAME_BOOLEAN}\" not allowed for field {field.key}.")
+            elif isinstance(field_t, str):
+                if field_t == TYPE_COMMAND_EXCLUDE:
+                    if field.default is not excluded:
+                        return excluded if isinstance(field.default, dict) else _config_apply_type(field.default, field)
+                    elif field.optional is excluded or not field.optional:
+                        raise ConfigMissingMetaFieldException(f"Missing field {field.key}.")
+                else:
+                    raise MetaInvalidTypeCommandError(f"Invalid field type command: {field_t}")
+            elif isinstance(field_t, dict):
+                for option_name in field_t.keys():
+                    if option_name != "fields":
+                        raise MetaTypeBadOptionError(f"Type {TYPE_NAME_OBJECT} does not have option: {option_name}")
+                return config_apply_meta(v, field_t["fields"])
+            else:
+                raise MetaTypeInvalidValueError(f"Type {TYPE_NAME_OBJECT} must be specified by {bool.__name__}, {str.__name__}, or {dict.__name__}, got {type(field_t).__name__}: {repr(field_t)}.")
+        elif isinstance(v, list):
+            return _config_apply_meta_list(v, field)
+        else:
+            raise ConfigMetaException(f"Value of unsupported type {type(v).__name__}: {v}")
+
+
+def config_apply_meta(c:dict[str], fields:MetaFieldCollection)->dict[str]:
+    fixed_c = {}
+    for name, field in fields.items():
+        if name in c:
+            v = c[name]
+            applied = _config_apply_type(v, field)
+            if applied is not excluded:
+                fixed_c[name] = applied
+        elif field.default is not excluded:
+            fixed_c[name] = field.default
+        elif field.optional is excluded or not field.optional:
+            raise ConfigMissingMetaFieldException(f"Missing field {field.key}.")
+
+    #add names from config file that aren't in meta
+    for name in (set(c.keys()) - set(fields.keys())):
+        fixed_c[name] = c[name]
+
+    return fixed_c
+
+def read_configs(path:str, meta:Meta):
+    c = config.read(path)
+    if meta.configs is not excluded:
+        return config_apply_meta(c, meta.configs)
+    return c
 
 def read_plugin_meta(path:str)->Meta:
     data = config.read(path)

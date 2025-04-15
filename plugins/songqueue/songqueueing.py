@@ -3,6 +3,7 @@ from datetime import timedelta
 import events
 import os
 import playlist
+import plugins
 import random
 import re
 import string
@@ -32,6 +33,12 @@ vlc_instance = vlc.Instance("--input-repeat=-1", "--fullscreen", "--file-caching
 vlc_player = vlc_instance.media_player_new()
 
 youtube_api = None
+meta:plugins.Meta = None
+
+def get_configs():
+    if meta is None:
+        return config.read(path=config.CONFIG_FILE)
+    return plugins.read_configs(path=config.CONFIG_FILE, meta=meta)
 
 class QueuedSong:
     "A song gotten from a youtube video that is/was queued."
@@ -168,7 +175,8 @@ def pop_queue()->QueuedSong|None:
 
 def get_next_song()->QueuedSong|None:
     global b_track_playlist, b_track_is_next, b_track_index, b_track_length, b_track_order, next_song
-    configs = config.read()
+    configs_parent = get_configs()
+    configs:dict = configs_parent.get("Song-Queue", {})
 
     current_btrack = None
     current_index = None
@@ -179,9 +187,9 @@ def get_next_song()->QueuedSong|None:
             current_index = btrack_settings.get("start", None)
             if current_index is not None:
                 if isinstance(current_index, float):
-                    current_index = min(1, int(current_index))
-                elif not (isinstance(current_index, int) and current_index > 0):
                     current_index = int(current_index)
+                if current_index < 1:
+                    current_index = 1
             if b_track_playlist != current_btrack:
                 p = subprocess.Popen(["yt-dlp", current_btrack, "-I0", "-O", "playlist:playlist_count"], stdout=subprocess.PIPE)
                 out, _ = p.communicate()
@@ -234,7 +242,8 @@ def get_next_song()->QueuedSong|None:
 
 def add_to_playlist(video_id:str):
     """Add to the youtube playlist if one is specified in config.json"""
-    configs = config.read()
+    configs_parent = get_configs()
+    configs:dict = configs_parent.get("Song-Queue", {})
     if "Playlist" in configs:
         return playlist.add_video(youtube_api, configs["Playlist"], video_id)
 
@@ -349,7 +358,8 @@ def ready_song():
 def song_cycle():
     global current_song, b_track_is_current, save_current_to_playlist
 
-    configs = config.read()
+    configs_parent = get_configs()
+    configs:dict = configs_parent.get("Song-Queue", {})
     if "Output-Device" in configs:
         device, _ = get_device(configs["Output-Device"])
         vlc.libvlc_audio_output_device_set(vlc_player, None, device)

@@ -13,7 +13,9 @@ bot:twitchbot.Bot = None
 def on_load(ctx:plugins.LoadEvent):
     global cycle
 
-    _, _, is_startup, app, api, _, *_ = ctx
+    _, plugin, is_startup, app, api, _, *_ = ctx
+
+    songqueueing.meta = plugin.meta
 
     print("starting music queue")
     cycle = songqueueing.run_song_cycle(daemon=True)
