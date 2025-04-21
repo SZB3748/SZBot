@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block styles %}
+<link rel="stylesheet" type="text/css" href="/static/css/configs.css">
+{% endblock %}
+{% block scripts %}
+<script src="/static/js/configs.js"></script>
+{% endblock %}
+{% block body %}
+<h1>Configuration Editor</h1>
+<div>
+    <button id="interface-pretty-button">Pretty</button><button id="interface-raw-button">Raw</button>
+</div>
+<main>
+    <div>
+        <section id="interface-pretty" class="interface show">
+            
+        </section>
+        <section id="interface-raw" class="interface">
+            <textarea id="raw-editor"></textarea>
+        </section>
+    </div>
+    <div id="controls">
+        <button id="save-button">Save</button><button id="cancel-button">Cancel</button>
+    </div>
+</main>
+{% endblock %}

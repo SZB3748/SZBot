@@ -27,6 +27,7 @@ def run():
         if plugin.module is not None:
             plugin.load((plugin_list, plugin, True, web.app, web.api, web.sock))
     print("loaded plugins")
+    plugins.shared_plugins_list = plugin_list
     print("bot must be started manually")
     print("starting web server")
     e = None

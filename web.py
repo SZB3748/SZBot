@@ -4,10 +4,12 @@ monkey.patch_all() #this complains about being called too late, so now it gets c
 
 import config
 import events
-from flask import Blueprint, Flask, render_template, request
+from flask import Blueprint, Flask, render_template, request, send_file
 from flask_sock import Server, Sock
 from gevent.pywsgi import WSGIServer
+import json
 from markupsafe import Markup
+import plugins
 import requests
 
 HOST = "127.0.0.1"
@@ -69,6 +71,7 @@ app = Flask(__name__)
 api = Blueprint("api", __name__, url_prefix="/api")
 app.jinja_env.globals["load_config_styles"] = load_config_styles_css
 app.url_map.strict_slashes = False
+app.jinja_env.auto_reload = True
 app.config["TEMPLATES_AUTO_RELOAD"] = True
 with open(SECRET_FILE) as f:
     app.secret_key = f.read()
@@ -96,9 +99,12 @@ def oauth():
     config.write(config_updates={"Token": d["access_token"], "Refresh-Token": d["refresh_token"]}, path=config.OAUTH_TWITCH_FILE)
     return "Restart", 200
 
+@app.get("/configs")
+def configs_page():
+    return render_template("configs.html")
 
 @sock.route("/events", bp=api)
-def api_music_listen(ws:Server):
+def api_events(ws:Server):
     bucket = events.new_bucket()
     try:
         while ws.connected:
@@ -107,6 +113,34 @@ def api_music_listen(ws:Server):
                 ws.send(event.to_json())
     finally:
         events.remove_bucket(bucket)
+
+@api.route("/configs", methods=["GET", "PUT"])
+def api_configs():
+    if request.method == "PUT":
+        data = request.get_json()
+        config.write(data, path=config.CONFIG_FILE)
+        return "", 200
+    else:
+        return send_file(config.CONFIG_FILE)
+
+@api.get("/configs/meta")
+def api_configs_meta():
+    if plugins.shared_plugins_list is None:
+        ... #TODO
+
+    combined = {}
+    for name, plugin in plugins.shared_plugins_list.items():
+        if plugin.module is not None: #is enabled
+            meta_type, meta_value = plugin.meta_target
+            if meta_type == "path":
+                with open(meta_value) as f:
+                    combined[name] = json.load(f)
+            elif meta_type == "inline":
+                combined[name] = meta_value
+    
+    return combined
+    
+
 
 def serve():
     app.register_blueprint(api)

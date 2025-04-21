@@ -15,7 +15,7 @@ MetaTypeAllowed = bool
 MetaTypeCommand = str
 MetaTypeExpression = MetaTypeOptions | MetaTypeAllowed | MetaTypeCommand
 
-RunTarget = tuple[str, Any]
+DataTarget = tuple[str, Any]
 EventCallbackContext = tuple
 EventCallback = Callable[[EventCallbackContext], None]
 
@@ -147,10 +147,20 @@ class Meta:
         self.configs = configs
 
 class Plugin:
-    def __init__(self, name:str, run_target:RunTarget, meta:Meta, module:ModuleType|None=None, on_load:EventCallback|None=None, on_unload:EventCallback|None=None, on_twitch_bot_load:EventCallback|None=None, on_twitch_bot_unload:EventCallback|None=None):
+    def __init__(self, name:str, run_target:DataTarget, meta_target:DataTarget, meta:Meta|None=None, module:ModuleType|None=None, on_load:EventCallback|None=None, on_unload:EventCallback|None=None, on_twitch_bot_load:EventCallback|None=None, on_twitch_bot_unload:EventCallback|None=None):
         self.name = name
         self.run_target = run_target
-        self.meta = meta
+        self.meta_target = meta_target
+        if meta is None:
+            mtype, mvalue = meta_target
+            if mtype == "path":
+                self.meta = read_plugin_meta(mvalue)
+            elif mtype == "inline":
+                self.meta = parse_plugin_meta(mvalue)
+            else:
+                self.meta = Meta()
+        else:
+            self.meta = meta
         self.module = module
         self.on_load = on_load
         self.on_unload = on_unload
@@ -199,6 +209,8 @@ UnloadEvent = tuple[dict[str, Plugin], Plugin, bool, Exception|None]
 TwitchBotLoadEvent = tuple[dict[str, Plugin], Plugin, bool, Bot]
 TwitchBotUnloadEvent = tuple[dict[str, Plugin], Plugin, bool, Exception|None]
 
+
+shared_plugins_list:dict[str, Plugin] = None
 
 def import_plugin_file(name:str, path:str)->ModuleType:
     spec = importlib.util.spec_from_file_location(name, path)
@@ -475,8 +487,7 @@ def read_plugin_data(path=config.PLUGIN_FILE)->dict[str, Plugin]:
         if isinstance(info, bool):
             run_file = os.path.join(PLUGINS_DIR, name, "plugin.py")
             meta_file = os.path.join(PLUGINS_DIR, name, "plugin.json")
-            meta = read_plugin_meta(meta_file)
-            plugin = plugins[name] = Plugin(name, ("path", run_file), meta)
+            plugin = plugins[name] = Plugin(name, ("path", run_file), ("path", meta_file))
             if info:
                 plugin.enable()
         elif info and isinstance(info, dict):
@@ -489,18 +500,12 @@ def read_plugin_data(path=config.PLUGIN_FILE)->dict[str, Plugin]:
                 run_target = "path", os.path.join(PLUGINS_DIR, name, "plugin.py")
             
             if metainfo and isinstance(metainfo, dict):
-                metainfo_type = metainfo["type"]
-                if metainfo_type == "path":
-                    meta = read_plugin_meta(metainfo["value"])
-                elif metainfo_type == "inline":
-                    meta = parse_plugin_meta(metainfo["value"])
-                else:
-                    meta = Meta()
+                meta_target = metainfo["type"], metainfo["value"]
             else:
                 meta_file = os.path.join(PLUGINS_DIR, name, "plugin.json")
-                meta = read_plugin_meta(meta_file)
+                meta_target = "path", meta_file
 
-            plugin = plugins[name] = Plugin(name, run_target, meta)
+            plugin = plugins[name] = Plugin(name, run_target, meta_target)
 
             enabled = info.get("enabled", True)
             if enabled:

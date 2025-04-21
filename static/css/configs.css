@@ -1,0 +1,8 @@
+main section.interface:not(.show) {
+    display: none;
+}
+
+#raw-editor {
+    width: max(50vw, 400px);
+    height: max(50vh, 300px);
+}
