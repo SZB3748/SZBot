@@ -17,12 +17,12 @@ def on_load(ctx:plugins.LoadEvent):
 
     songqueueing.meta = plugin.meta
 
-    print("starting music queue")
-    cycle = songqueueing.run_song_cycle(daemon=True)
-
     if is_startup:
         webroutes.add_routes(app, api)
         songqueueing.youtube_api = playlist.get_authenticated_service()
+
+    print("starting music queue")
+    cycle = songqueueing.run_song_cycle(daemon=True)
 
 def on_twitch_bot_load(ctx:plugins.TwitchBotLoadEvent):
     global bot
