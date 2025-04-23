@@ -21,7 +21,7 @@ def on_load(ctx:plugins.LoadEvent):
         webroutes.add_routes(app, api)
         songqueueing.youtube_api = playlist.get_authenticated_service()
 
-    print("starting music queue")
+    print("Starting music queue")
     cycle = songqueueing.run_song_cycle(daemon=True)
 
 def on_twitch_bot_load(ctx:plugins.TwitchBotLoadEvent):

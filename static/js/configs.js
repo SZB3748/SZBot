@@ -24,7 +24,7 @@
  */
 
 /**
- * @typedef {'null'|'boolean'|'string'|'integer'|'float'|'object'|'list'} MetaTypeNames
+ * @typedef {'null'|'boolean'|'string'|'integer'|'float'|'object'|'list'} MetaTypeName
  */
 
 /**
@@ -127,7 +127,50 @@ function groupMetaFields(metas) {
             }
         }
     }
-    return grouping, backmap;
+    return [grouping, backmap];
+}
+
+function addNullInput() {
+
+}
+
+/**
+ * 
+ * @param {any} configs 
+ * @param {MetaFieldGrouping} grouping 
+ * @param {Map<string, string>} backmap 
+ * @param {HTMLElement} dest 
+ * @param {string} fieldname 
+ * @param {MetaField|undefined} meta
+ */
+function addAllTypes(configs, grouping, backmap, dest, fieldname, meta) {
+    
+}
+
+/**
+ * 
+ * @param {any} configs 
+ * @param {MetaFieldGrouping} grouping 
+ * @param {Map<string, string>} backmap 
+ * @param {HTMLElement} dest 
+ * @param {string} fieldname 
+ * @param {MetaField} meta
+ */
+function addMetaTypes(configs, grouping, backmap, dest, fieldname, meta) {
+    /** @type {MetaTypeName} */
+    let typename;
+    for (typename in meta.types) {
+        const typeExpr = meta.types[typename];
+        let options = {};
+        if (typeExpr === false) {
+            continue; //skip
+        } else if (typeof typeExpr === "object") {
+            options = typeExpr;
+        } else {
+            //TODO error bad type
+        }
+
+    }
 }
 
 /**
@@ -137,7 +180,95 @@ function groupMetaFields(metas) {
  * @param {HTMLElement} dest
  */
 function createConfigDisplay(configs, grouping, backmap, dest) {
-    //TODO
+    const keys = new Set(grouping.keys());
+    for (const name in configs) {
+        keys.add(name);
+    }
+
+    keys.forEach(fieldname => {
+        const fieldParent = document.createElement("div");
+        const nameElm = document.createElement("span");
+        const descriptionElm = document.createElement("p");
+        const inputElm = document.createElement("input");
+        const inputParent = document.createElement("div");
+        const typeSelect = document.createElement("select");
+
+        const meta = grouping.get(fieldname);
+        if (meta === undefined) {
+            nameElm.innerText = fieldname;
+            for (const typename of ["null", "boolean", "string", "integer", "float", "object", "list"]) {
+                const typeOption = document.createElement("option");
+                typeOption.value = typename;
+                typeOption.innerText = typename;
+                typeSelect.appendChild(typeOption);
+            }
+            addAllTypes(configs, grouping, backmap, inputParent, fieldname, meta);
+        } else {
+            nameElm.innerText = meta.name == undefined ? fieldname : meta.name;
+            if (meta.description != null) {
+                descriptionElm.innerText = meta.description;
+            }
+            /** @type {MetaTypeName} */
+            let typename;
+            for (typename in meta.types) {
+                const typeExpr = meta.types[typename];
+                if (typeExpr === false) {
+                    continue; //type explicitly not allowed
+                }
+                const typeOption = document.createElement("option");
+                typeOption.value = typename;
+                typeOption.innerText = typename;
+                typeSelect.appendChild(typeOption);
+            }
+            addMetaTypes(configs, grouping, backmap, dest, fieldname, meta);
+        }
+
+        typeSelect.addEventListener("change", () => {
+            inputParent.querySelectorAll(":scope > .show").forEach(elm => {
+                elm.classList.remove("show");
+            });
+            inputParent.querySelectorAll(`:scope > .input-type-${typeSelect.value}`).forEach(elm => {
+                elm.classList.add("show");
+            });
+        });
+
+        const value = fieldname in configs ? configs[fieldname] : meta?.default;
+        if (value != undefined) {
+            inputElm.value = JSON.stringify(configs[fieldname]);
+            const vtype = typeof value;
+            switch(vtype) {
+                case "string":
+                case "boolean":
+                    typeSelect.value = vtype;
+                    break;
+                case "number":
+                    if (!Number.isInteger(value)) {
+                        typeSelect.value = "float";
+                        break;
+                    }
+                    //fallthrough
+                case "bigint":
+                    typeSelect.value = "integer";
+                    break;
+                case "object":
+                    if (Array.isArray(value)) {
+                        typeSelect.value = "list";
+                    } else {
+                        typeSelect.value = "object";
+                    }
+                    break;
+                default:
+                    console.error("Bad type", vtype, "for field", fieldname);
+                    break;
+            }
+
+            inputParent.querySelectorAll(`:scope > .input-type-${typeSelect.value}`).forEach(elm => {
+                elm.classList.add("show");
+            });
+        }
+        fieldParent.append(nameElm, descriptionElm, inputElm, typeSelect);
+        dest.appendChild(fieldParent);
+    });
 }
 
 /**
