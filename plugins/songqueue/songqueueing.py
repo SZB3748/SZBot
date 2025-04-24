@@ -398,9 +398,11 @@ def song_cycle():
                 vlc_player.set_media(song)
 
                 time.sleep(0.25)
+                if stop_loop.is_set():
+                    return
 
                 song_done.clear()
-                print(f"Playing: [{current_song.video_id}] ({current_song.duration}) {current_song.title}")
+                print(f"Playing Song: [{current_song.video_id}] ({current_song.duration}) {current_song.title}")
                 vlc_player.play()
                 events.dispatch(PlaySongEvent.new(current_song))
 
