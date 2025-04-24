@@ -9,7 +9,9 @@ NEXT
 __pycache__/
 .vscode/
 thumbnails/
+sounds/
 
 #Exclude non-builtin plugins
 plugins/*
 !plugins/songqueue/
+!plugins/soundreq/

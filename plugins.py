@@ -83,13 +83,21 @@ def _handle_types(types_data:dict[str]):
         _type_assert(type_info, "type expression", str, bool, dict, can_be_none=False)
         if type_name == TYPE_NAME_OBJECT:
             if isinstance(type_info, dict):
-                fields = _type_assert(type_info.get("fields", None), f"{type_name} fields", dict, can_be_none=False)
-                new_fields = {}
-                for field_name, field_info in fields.items():
-                    _type_assert(field_info, f"{type_name} field info", dict)
-                    if field_info is not None:
-                        new_fields[field_name] = MetaField.construct(field_name, field_info)
-                type_info["fields"] = new_fields
+                hasfields = "fields" in type_info
+                if not (hasfields ^ ("anyfield" in type_info)):
+                    ... #TODO error either/or
+                    raise Exception("TODO")
+                elif hasfields:
+                    fields = _type_assert(type_info.get("fields", None), f"{type_name} fields", dict, can_be_none=False)
+                    new_fields = {}
+                    for field_name, field_info in fields.items():
+                        _type_assert(field_info, f"{type_name} field info", dict)
+                        if field_info is not None:
+                            new_fields[field_name] = MetaField.construct(field_name, field_info)
+                    type_info["fields"] = new_fields
+                else: #has anyfield
+                    anyfield = _type_assert(type_info.get("anyfield", None), f"{type_name} anyfield", dict, can_be_none=False)
+                    type_info["anyfield"] = _handle_types(anyfield)
         elif type_name == "list":
             if isinstance(type_info, dict):
                 list_types = type_info.get("types", None)
@@ -257,7 +265,7 @@ def _config_apply_meta_list(v:list, field:MetaField):
             if option_name != "types":
                 raise MetaTypeBadOptionError(f"Type {TYPE_NAME_LIST} does not have option: {option_name}")
         fixed_list = []
-        vfield = MetaField(types=field_t["types"])
+        vfield = MetaField("", types=field_t["types"])
         for item in v:
             applied = _config_apply_type(item, vfield)
             if applied is not excluded:
@@ -434,10 +442,24 @@ def _config_apply_type(v, field:MetaField):
                 else:
                     raise MetaInvalidTypeCommandError(f"Invalid field type command: {field_t}")
             elif isinstance(field_t, dict):
+                has = 0
                 for option_name in field_t.keys():
-                    if option_name != "fields":
+                    if option_name != "fields" and option_name != "anyfield":
                         raise MetaTypeBadOptionError(f"Type {TYPE_NAME_OBJECT} does not have option: {option_name}")
-                return config_apply_meta(v, field_t["fields"])
+                    else:
+                        has += 1
+                if has > 1:
+                    raise MetaTypeBadOptionError(f"Type {TYPE_NAME_OBJECT} cannot specify both options: fields and anyfield")
+                elif "fields" in field_t:
+                    return config_apply_meta(v, field_t["fields"])
+                else: #"anyfield" in field_t
+                    fixed_object= {}
+                    vfield = MetaField("", types=field_t["anyfield"])
+                    for k,item in v.items():
+                        applied = _config_apply_type(item, vfield)
+                        if applied is not excluded:
+                            fixed_object[k] = applied
+                    return fixed_object
             else:
                 raise MetaTypeInvalidValueError(f"Type {TYPE_NAME_OBJECT} must be specified by {bool.__name__}, {str.__name__}, or {dict.__name__}, got {type(field_t).__name__}: {repr(field_t)}.")
         elif isinstance(v, list):
