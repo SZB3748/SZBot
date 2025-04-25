@@ -1,6 +1,6 @@
 import json
 import threading
-from typing import Generator
+from typing import Callable, Generator
 from uuid import UUID, uuid4
 
 class Event:
@@ -60,9 +60,49 @@ class EventBucketContainer:
     def dispatch(self, *events:Event):
         for bucket in self.buckets.values():
             bucket.push(*events)
+
+EventListenerCallback = Callable[[Event], None]
+
+class EventListener:
+    def __init__(self, callback:EventListenerCallback, once:bool=False):
+        self.callback = callback
+        self.once = once
+
+class EventListenerCollection:
+    def __init__(self, listeners:dict[str, list[EventListener]]|None=None):
+        self.listeners = {} if listeners is None else listeners
+
+    def add_listener(self, name:str, x:EventListener|EventListenerCallback):
+        if not isinstance(x, EventListener):
+            x = EventListener(x)
+        if name in self.listeners:
+            self.listeners[name].append(x)
+        else:
+            self.listeners[name] = [x]
+
+    def listener(self, name:str):
+        def decor(f:EventListenerCallback):
+            self.add_listener(name, f)
+            return f
+        return decor
+
+    def handle_event(self, event:Event):
+        if event.name in self.listeners:
+            i = 0
+            listeners = self.listeners[event.name]
+            while i < len(listeners):
+                listener = listeners[i]
+                listener.callback(event)
+                if listener.once:
+                    listeners.pop(i)
+                else:
+                    i += 1
+            if not listeners:
+                self.listeners.pop(event.name)
     
 
 default_container = EventBucketContainer()
+default_listeners = EventListenerCollection()
 
 def new_bucket(id:UUID|None=None, container:EventBucketContainer=default_container):
     return container.new_bucket(id)
@@ -72,3 +112,12 @@ def remove_bucket(x:UUID|EventBucket, container:EventBucketContainer=default_con
 
 def dispatch(*events:Event, container:EventBucketContainer=default_container):
     return container.dispatch(*events)
+
+def add_listener(name:str, x:EventListener|EventListenerCallback, collection:EventListenerCollection=default_listeners):
+    return collection.add_listener(name, x)
+
+def listener(name:str, collection:EventListenerCollection=default_listeners):
+    return collection.listener(name)
+
+def handle_event(event:Event, collection:EventListenerCollection=default_listeners):
+    return collection.handle_event(event)

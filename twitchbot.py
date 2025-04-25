@@ -1,11 +1,14 @@
 import asyncio
 import config
-from datetime import datetime
+from datetime import datetime, timedelta
+import events
 import inspect
+import json
 import plugins
 import requests
 import threading
 import traceback
+from typing import Awaitable, Callable
 import twitchio
 from twitchio.ext import commands
 from urllib.parse import quote
@@ -19,6 +22,39 @@ TOKEN_REFRESH_ENDPOINT = "https://id.twitch.tv/oauth2/token"
 def get_prefix(bot:commands.Bot, message:twitchio.Message):
     configs = config.read()
     return configs["Prefix"]
+
+def ratelimit(max_times:int, duration:timedelta, limited_callback:Callable[[commands.Context, datetime], Awaitable[None]]|None=None):
+    users:dict[twitchio.PartialChatter|twitchio.Chatter, list[datetime]] = {}
+
+    def decor(f:Callable[..., Awaitable]):
+        async def wrapper(ctx:commands.Context, *args, **kwargs):
+            if True or not ctx.author.is_mod:
+                now = datetime.now()
+                if ctx.author in users:
+                    times = users[ctx.author]
+                    i = 0
+                    for t in times:
+                        if now - t >= duration:
+                            i += 1
+                    if i > 0:
+                        times = users[ctx.author] = times[i:]
+                else:
+                    times = users[ctx.author] = []
+
+                if len(times) >= max_times:
+                    await limited_callback(ctx, times[0])
+                    return
+                else:
+                    times.append(now)
+                
+            await f(ctx, *args, **kwargs)
+                
+                
+        wrapper.__name__ = f.__name__
+        wrapper.__doc__ = f.__doc__
+        return wrapper
+    
+    return decor
 
 type_names = {
     "str": "text",
@@ -169,6 +205,9 @@ def ws_on_open(ws):
 
 def ws_on_message(ws, msg:str|bytes):
     print("events socket message:", msg)
+    data = json.loads(msg)
+    event = events.Event(**data)
+    events.handle_event(event)
 
 def ws_on_error(ws, e:Exception):
     print(f"events socket error ({type(e).__name__}): {e}")
