@@ -15,10 +15,22 @@ def get_sound(key:str):
         return "", 404
     return send_file(info["file"])
 
+@soundreqapi.get("/list")
+def get_sound_list():
+    config_parent = soundrequesting.get_configs()
+    configs:dict = config_parent.get("Sound-Request", {})
+    if "Sounds" in configs:
+        sounds = configs["Sounds"]
+        if isinstance(sounds, dict):
+            return sounds
+    return {}
+
 @soundreqapi.post("request")
 def request_sound():
     key = request.form["key"]
-    soundrequesting.add_queue(key)
+    user = request.form.get("user", None)
+    channel = request.form.get("channel", None)
+    soundrequesting.add_queue(key, user, channel)
     soundrequesting.invoke_handler()
     return "", 201
 

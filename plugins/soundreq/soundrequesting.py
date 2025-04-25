@@ -6,10 +6,8 @@ import threading
 import time
 import vlc
 
-SOUNDS_DIR = "sounds"
-
 queue_lock = threading.Lock()
-queue:list[str] = []
+queue:list[tuple[str, str|None, str|None]] = []
 queue_handler:threading.Thread = None
 sound_done = threading.Event()
 
@@ -44,11 +42,11 @@ def get_sound(key:str)->dict[str]|None:
         sounds:dict[str] = configs["Sounds"]
         return sounds.get(key, None)
 
-def add_queue(key:str):
+def add_queue(key:str, user:str|None=None, channel:str|None=None):
     with queue_lock:
-        queue.append(key)
+        queue.append((key, user, channel))
 
-def popall_queue()->list[str]|None:
+def popall_queue():
     with queue_lock:
         if not queue:
             return None
@@ -66,22 +64,30 @@ def init():
     event_manager = vlc_player.event_manager()
     event_manager.event_attach(vlc.EventType.MediaPlayerEndReached, lambda _: sound_done.set())
 
+def _format_request_origin(user:str|None, channel:str|None):
+    if channel:
+        return f" from {user}@{channel}"
+    elif user:
+        return f" from {user}"
+    else:
+        return ""
 
-def handler_target(sound_keys:list[str]=None):
+def handler_target(sound_keys:list[tuple[str, str|None, str|None]]=None):
     global queue_handler
 
     if not sound_keys:
         sound_keys = popall_queue()
 
     while queue_handler and sound_keys:
-        for key in sound_keys:
+        for key, user, channel in sound_keys:
+            print(f"Sound Request{_format_request_origin(user, channel)}: {key} ")
             info = get_sound(key)
             if info is None:
-                print("Sound does not exist:", key)
+                print("Sound does not exist")
                 continue
             filepath = info["file"]
             if not os.path.isfile(filepath):
-                print("Sound has no file:", key)
+                print("Sound has no file")
                 continue
             sound = vlc_instance.media_new(filepath)
             vlc_player.set_media(sound)
@@ -91,9 +97,9 @@ def handler_target(sound_keys:list[str]=None):
                 return
             
             sound_done.clear()
-            print("Playing Sound:", key)
+            print("Playing Sound", key)
             vlc_player.play()
-            events.dispatch(events.Event("soundreq:play_sound", {"success": True, "sound": info}))
+            events.dispatch(events.Event("soundreq:play_sound", {"success": True, "key":key, "sound": info}))
 
             sound_done.wait()
 
