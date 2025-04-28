@@ -1,10 +1,11 @@
 import config
 import importlib.util
+import math
 import os
 import re
 import sys
 from types import ModuleType
-from typing import Any, Callable
+from typing import Any, Callable, Self
 
 from twitchbot import Bot
 from flask import Blueprint, Flask
@@ -33,8 +34,15 @@ excluded = ExcludedType()
 
 PLUGINS_DIR = "plugins"
 
+class PluginException(Exception):
+    """Base class for Plugin Exceptions."""
+
+class PluginLoadException(Exception):
+    """Failed to load the plugin."""
+
+
 class ConfigMetaException(Exception):
-    """Base class for Config Metadata Exceptions."""
+    """Base class for Plugin Config Metadata Exceptions."""
 
 class MetaTypeInvalidException(ConfigMetaException):
     """Type not allowed."""
@@ -60,8 +68,6 @@ class MetaTypeInvalidValueError(ConfigMetaError):
 
 class MetaTypeBadOptionError(ConfigMetaError):
     """Meta type option is invalid."""
-
-
 
 def _type_assert(value, name:str, *types:type, can_be_none:bool=True):
     if not ((can_be_none and value is None) or isinstance(value, types)):
@@ -155,7 +161,9 @@ class Meta:
         self.configs = configs
 
 class Plugin:
-    def __init__(self, name:str, run_target:DataTarget, meta_target:DataTarget, meta:Meta|None=None, module:ModuleType|None=None, on_load:EventCallback|None=None, on_unload:EventCallback|None=None, on_twitch_bot_load:EventCallback|None=None, on_twitch_bot_unload:EventCallback|None=None):
+    def __init__(self, name:str, run_target:DataTarget, meta_target:DataTarget, meta:Meta|None=None, module:ModuleType|None=None,
+                 run_next:list[str]|None=None, depends_on:list[str]|None=None, on_load:EventCallback|None=None, on_unload:EventCallback|None=None,
+                 on_twitch_bot_load:EventCallback|None=None, on_twitch_bot_unload:EventCallback|None=None):
         self.name = name
         self.run_target = run_target
         self.meta_target = meta_target
@@ -170,6 +178,8 @@ class Plugin:
         else:
             self.meta = meta
         self.module = module
+        self.run_next = [] if run_next is None else run_next #run this plugin before these plugins
+        self.depends_on = [] if depends_on is None else depends_on #run this plugin after these plugins
         self.on_load = on_load
         self.on_unload = on_unload
         self.on_twitch_bot_load = on_twitch_bot_load
@@ -515,6 +525,8 @@ def read_plugin_data(path=config.PLUGIN_FILE)->dict[str, Plugin]:
         elif info and isinstance(info, dict):
             runinfo = info.get("run", None)
             metainfo = info.get("meta", None)
+            runnext = info.get("run_next", None)
+            dependson = info.get("depends_on", None)
 
             if runinfo and isinstance(runinfo, dict):
                 run_target = runinfo["type"], runinfo["value"]
@@ -527,10 +539,84 @@ def read_plugin_data(path=config.PLUGIN_FILE)->dict[str, Plugin]:
                 meta_file = os.path.join(PLUGINS_DIR, name, "plugin.json")
                 meta_target = "path", meta_file
 
-            plugin = plugins[name] = Plugin(name, run_target, meta_target)
+            if isinstance(runnext, list):
+                run_next = [name for name in runnext if isinstance(name, str)]
+            else:
+                run_next = None
+            
+            if isinstance(dependson, list):
+                depends_on = [name for name in dependson if isinstance(name, str)]
+            else:
+                depends_on = None
+
+            plugin = plugins[name] = Plugin(name, run_target, meta_target, run_next=run_next, depends_on=depends_on)
 
             enabled = info.get("enabled", True)
             if enabled:
                 plugin.enable()
             
     return plugins
+
+# def _generate_order_rec(plugin:Plugin|None, plugin_list:dict[str, Plugin], order:list[str], visited:set[str]):
+#     if plugin is None:
+#         for n, p in plugin_list.items():
+#             if n not in order:
+#                 _generate_order_rec(p, plugin_list, order, visited)
+#     elif plugin.module is not None: #must be enabled
+#         for n in plugin.depends_on:
+#             if n not in visited:
+#                 visited.add(n)
+#                 _generate_order_rec(plugin_list[n], plugin_list, order, visited)
+#         if plugin.name not in order:
+#             order.append(plugin.name)
+#             visited.add(plugin.name)
+#         for n in plugin.run_next:
+#             if n not in visited:
+#                 _generate_order_rec(plugin_list[n], plugin_list, order, visited, is_next=True)
+
+
+def _generate_order_queuesim(plugin_list:dict[str, Plugin]):
+    queue = list(plugin_list.values())
+    loaded:set[str] = set()
+    disabled:set[str] = set()
+    order = []
+    #make sure all disabled plugins are marked as such first
+    for plugin in list(queue):
+        if plugin.module is None:
+            queue.remove(plugin)
+            disabled.add(plugin.name)
+    while queue:
+        for plugin in list(queue):
+            all_loaded = True
+            for dn in plugin.depends_on:
+                if dn in disabled: #if any are disabled
+                    queue = [p for p in queue if p != plugin]
+                    all_loaded = False
+                    break
+                elif all_loaded and dn not in loaded:
+                    all_loaded = False
+            if all_loaded:
+                loaded.add(plugin.name)
+                order.append(plugin.name)
+                index = queue.index(plugin)
+                queue.pop(index)
+                if plugin.run_next:
+                    i = 0
+                    for nn in plugin.run_next:
+                        if nn in disabled:
+                            continue
+                        pn = plugin_list[nn]
+                        ii = index + i
+                        if queue.index(pn) > ii:
+                            queue = [p for i,p in enumerate(list(queue)) if i <= ii or p != pn]
+                        queue.insert(ii, pn)
+    return order
+    
+
+def generate_load_order(plugin_list:dict[str, Plugin])->list[str]:
+    # if not plugin_list:
+    #     return []
+    # order = []
+    # _generate_order_rec(None, plugin_list, order, set())
+    # return order
+    return _generate_order_queuesim(plugin_list)

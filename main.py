@@ -22,11 +22,17 @@ def run():
     plugin_list = plugins.read_plugin_data()
     plugin_enabled_count = sum(1 for plugin in plugin_list.values() if plugin.module is not None)
     print("read", len(plugin_list), "plugins with", plugin_enabled_count, "enabled plugins")
-    print("loading enabled plugins")
-    for plugin in plugin_list.values():
-        if plugin.module is not None:
-            plugin.load((plugin_list, plugin, True, web.app, web.api, web.sock))
-    print("loaded plugins")
+    print("generating plugin load order")
+    load_order = plugins.generate_load_order(plugin_list)
+    if load_order:
+        print("loading enabled plugins")
+        for plugin_name in load_order:
+            plugin = plugin_list[plugin_name]
+            if plugin.module is not None:
+                plugin.load((plugin_list, plugin, True, web.app, web.api, web.sock))
+        print("loaded plugins")
+    else:
+        print("no plugins made it into the load order\nmake sure that any dependenant plugins are enabled")
     plugins.shared_plugins_list = plugin_list
     print("bot must be started manually")
     print("starting web server")

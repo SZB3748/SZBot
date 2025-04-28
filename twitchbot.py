@@ -280,8 +280,11 @@ if __name__ == "__main__":
     plugin_list = plugins.read_plugin_data()
     plugin_enabled_count = sum(1 for plugin in plugin_list.values() if plugin.module is not None)
     print("read", len(plugin_list), "plugins with", plugin_enabled_count, "enabled plugins")
+    print("generating plugin load order")
+    load_order = plugins.generate_load_order(plugin_list)
     print("loading enabled plugins")
-    for plugin in plugin_list.values():
+    for plugin_name in load_order:
+        plugin = plugin_list[plugin_name]
         if plugin.module is not None:
             plugin.twitch_bot_load((plugin_list, plugin, True, bot))
     print("loaded plugins")
