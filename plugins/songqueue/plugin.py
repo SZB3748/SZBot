@@ -1,11 +1,8 @@
+from . import playlist, songqueueing, twitchcommands, webroutes
 import config
-import playlist
 import plugins
-import songqueueing
 from threading import Thread
 import twitchbot
-import twitchcommands
-import webroutes
 
 cycle:Thread = None
 bot:twitchbot.Bot = None

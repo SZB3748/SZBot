@@ -1,8 +1,8 @@
+from . import playlist
 import config
 from datetime import timedelta
 import events
 import os
-import playlist
 import plugins
 import random
 import re
@@ -419,7 +419,7 @@ def song_cycle():
                 if save_current_to_playlist:
                     r = add_to_playlist(cs.video_id)
                     if r:
-                        print(r)
+                        print(r) #youtube data api response
                 else:
                     save_current_to_playlist = True
                 current_song = None

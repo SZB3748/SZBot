@@ -208,10 +208,12 @@ class Plugin:
     def load(self, ctx:EventCallbackContext):
         if not self.is_loaded and self.on_load is not None:
             self.on_load(ctx)
+            self.is_loaded = True
     
     def unload(self, ctx:EventCallbackContext):
         if self.is_loaded and self.on_unload is not None:
             self.on_unload(ctx)
+            self.is_loaded = False
     
     def twitch_bot_load(self, ctx:EventCallbackContext):
         if not self.is_loaded and self.on_twitch_bot_load is not None:
@@ -222,16 +224,16 @@ class Plugin:
             self.on_twitch_bot_unload(ctx)
 
 
-LoadEvent = tuple[dict[str, Plugin], Plugin, bool, Flask, Blueprint, Sock]
-UnloadEvent = tuple[dict[str, Plugin], Plugin, bool, Exception|None]
-TwitchBotLoadEvent = tuple[dict[str, Plugin], Plugin, bool, Bot]
-TwitchBotUnloadEvent = tuple[dict[str, Plugin], Plugin, bool, Exception|None]
+LoadEvent = tuple[dict[str, Plugin], Plugin, bool, Flask, Blueprint, Sock]      #plugin_list, plugin, is_start, app, api, websock
+UnloadEvent = tuple[dict[str, Plugin], Plugin, bool, Exception|None]            #plugin_list, plugin, is_end, exception
+TwitchBotLoadEvent = tuple[dict[str, Plugin], Plugin, bool, Bot]                #plugin_list, plugin, is_start, bot
+TwitchBotUnloadEvent = tuple[dict[str, Plugin], Plugin, bool, Exception|None]   #plugin_list, plugin, is_end, exception
 
 
 shared_plugins_list:dict[str, Plugin] = None
 
 def import_plugin_file(name:str, path:str)->ModuleType:
-    spec = importlib.util.spec_from_file_location(name, path)
+    spec = importlib.util.spec_from_file_location(name, path, submodule_search_locations=[os.path.dirname(path)])
     module = importlib.util.module_from_spec(spec)
     sys.modules[name] = module
     spec.loader.exec_module(module)

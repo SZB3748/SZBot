@@ -1,3 +1,4 @@
+from . import songqueueing
 import config
 from datetime import timedelta
 import events
@@ -6,7 +7,6 @@ import json
 import os
 import random
 import re
-import songqueueing
 import string
 import subprocess
 

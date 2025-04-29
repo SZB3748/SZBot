@@ -1,9 +1,6 @@
-import config
+from . import soundrequesting, twitchcommands, webroutes
 import plugins
-import soundrequesting
 import twitchbot
-import twitchcommands
-import webroutes
 
 bot:twitchbot.Bot = None
 

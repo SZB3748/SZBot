@@ -1,6 +1,6 @@
+from . import soundrequesting
 from flask import Blueprint, Flask, request, send_file
 import os
-import soundrequesting
 
 DIR = os.path.dirname(__file__)
 STATIC_DIR = os.path.join(DIR, "static")
