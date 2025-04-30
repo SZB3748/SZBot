@@ -24,7 +24,7 @@ def get_auth_token(oauth:dict[str]):
 def run():
     print("reading plugin list")
     plugin_list = plugins.read_plugin_data()
-    plugin_enabled_count = sum(1 for plugin in plugin_list.values() if plugin.module is not None)
+    plugin_enabled_count = sum(1 for plugin in plugin_list.values() if plugin.module is not None and plugin.startup_load)
     print("read", len(plugin_list), "plugins with", plugin_enabled_count, f"enabled plugin{"s" * (not plugin_enabled_count)}")
     print("generating plugin load order")
     load_order = plugins.generate_load_order(plugin_list)
@@ -32,7 +32,7 @@ def run():
         print("loading enabled plugins")
         for plugin_name in load_order:
             plugin = plugin_list[plugin_name]
-            if plugin.module is not None:
+            if plugin.module is not None and plugin.startup_load:
                 plugin.load((plugin_list, plugin, True, web.app, web.api, web.sock))
         print("loaded plugins")
     else:

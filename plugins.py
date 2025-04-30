@@ -163,7 +163,7 @@ class Meta:
 class Plugin:
     def __init__(self, name:str, run_target:DataTarget, meta_target:DataTarget, meta:Meta|None=None, module:ModuleType|None=None,
                  run_next:list[str]|None=None, depends_on:list[str]|None=None, on_load:EventCallback|None=None, on_unload:EventCallback|None=None,
-                 on_twitch_bot_load:EventCallback|None=None, on_twitch_bot_unload:EventCallback|None=None):
+                 on_twitch_bot_load:EventCallback|None=None, on_twitch_bot_unload:EventCallback|None=None, startup_load:bool=True):
         self.name = name
         self.run_target = run_target
         self.meta_target = meta_target
@@ -185,6 +185,7 @@ class Plugin:
         self.on_twitch_bot_load = on_twitch_bot_load
         self.on_twitch_bot_unload = on_twitch_bot_unload
         self.is_loaded = False
+        self.startup_load = startup_load
 
     def enable(self):
         if self.module is None:
@@ -218,10 +219,12 @@ class Plugin:
     def twitch_bot_load(self, ctx:EventCallbackContext):
         if not self.is_loaded and self.on_twitch_bot_load is not None:
             self.on_twitch_bot_load(ctx)
+            self.is_loaded = True
     
     def twitch_bot_unload(self, ctx:EventCallbackContext):
         if self.is_loaded and self.on_twitch_bot_unload is not None:
             self.on_twitch_bot_unload(ctx)
+            self.is_loaded = False
 
 
 LoadEvent = tuple[dict[str, Plugin], Plugin, bool]                              #plugin_list, plugin, is_start
@@ -551,7 +554,7 @@ def read_plugin_data(path=config.PLUGIN_FILE)->dict[str, Plugin]:
             else:
                 depends_on = None
 
-            plugin = plugins[name] = Plugin(name, run_target, meta_target, run_next=run_next, depends_on=depends_on)
+            plugin = plugins[name] = Plugin(name, run_target, meta_target, run_next=run_next, depends_on=depends_on, startup_load=bool(info.get("loaded", True)))
 
             enabled = info.get("enabled", True)
             if enabled:

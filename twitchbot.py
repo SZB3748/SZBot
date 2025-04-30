@@ -1,3 +1,4 @@
+import aiohttp
 import asyncio
 import config
 from datetime import datetime, timedelta
@@ -5,7 +6,6 @@ import events
 import inspect
 import json
 import plugins
-import requests
 import threading
 import traceback
 from typing import Awaitable, Callable
@@ -148,29 +148,30 @@ class Bot(commands.Bot):
     async def event_command_error(self, ctx: commands.Context, err: Exception):
         if isinstance(err, (commands.CommandNotFound, commands.MissingRequiredArgument, commands.ArgumentParsingFailed)):
             await ctx.send("Bad command usage. Use !help <command_name> to view command usage details.")
-            print(err)
+            print(type(err).__name__, err)
         else:
             traceback.print_exception(err)
 
     async def event_token_expired(self):
         oauth = config.read(path=config.OAUTH_TWITCH_FILE)
-        r = requests.post(f"{TOKEN_REFRESH_ENDPOINT}?client_id={oauth["Client-Id"]}&client_secret={oauth["Client-Secret"]}&grant_type=refresh_token&refresh_token={quote(oauth["Refresh-Token"])}")
-        if r.ok:
-            j = r.json()
-            token:str = j["access_token"]
-            config.write(config_updates={
-                "Token": token,
-                "Refresh-Token": j["refresh_token"]
-            }, path=config.OAUTH_TWITCH_FILE)
-            return token
-        else:
-            print(r.text)
-            if "Token" in oauth:
-                del oauth["Token"]
-            del oauth["Refresh-Token"]
-            config.write(new_configs=oauth, path=config.OAUTH_TWITCH_FILE)
-            return None
-        
+        async with aiohttp.ClientSession() as session:
+            async with session.post(f"{TOKEN_REFRESH_ENDPOINT}?client_id={oauth["Client-Id"]}&client_secret={oauth["Client-Secret"]}&grant_type=refresh_token&refresh_token={quote(oauth["Refresh-Token"])}") as r:
+                if r.ok:
+                    j = await r.json()
+                    token:str = j["access_token"]
+                    config.write(config_updates={
+                        "Token": token,
+                        "Refresh-Token": j["refresh_token"]
+                    }, path=config.OAUTH_TWITCH_FILE)
+                    return token
+                else:
+                    print(await r.text())
+                    if "Token" in oauth:
+                        del oauth["Token"]
+                    del oauth["Refresh-Token"]
+                    config.write(new_configs=oauth, path=config.OAUTH_TWITCH_FILE)
+                    return None
+                
     async def event_ready(self):
         print("bot running")
 
@@ -182,6 +183,11 @@ class Bot(commands.Bot):
         self.update_link_commands()
         await self.handle_commands(message)
 
+
+async def pload_request(action:str, name:str):
+    async with aiohttp.ClientSession() as session:
+        async with session.post(f"{API_ENDPOINT}/plugins/{action}", data={"name": name}) as r:
+            return r
 
 #set up the bot
 def init_bot(old_bot:Bot|None=None):
@@ -226,7 +232,7 @@ async def main(retry:bool=True):
     try:
         await bot.start()
     except twitchio.errors.AuthenticationError as e:
-        print(e)
+        print(type(e).__name__, e)
         if not retry:
             return
         token = await bot.event_token_expired()
@@ -275,6 +281,45 @@ if __name__ == "__main__":
         if bot.links_commands:
             await ctx.send(", ".join(name for name in bot.links_commands))
 
+    @bot.command(name="pload")
+    async def plugin_load(ctx:commands.Context, name:str):
+        """Loads a plugin with the give name."""
+        if not ctx.author.is_mod:
+            return
+        
+        plugin = plugins.shared_plugins_list.get(name, None)
+        if plugin is not None:
+            if plugin.module is None:
+                await ctx.send(f"Plugin {name} is disabled")
+                return
+            plugin.twitch_bot_load((plugins.shared_plugins_list, plugin, False, bot))
+            r = await pload_request("load", name)
+            if r.ok:
+                await ctx.send(f"Loaded plugin {name}")
+                return
+            else:
+                print(f"[fail] /api/plugins/load name={name} ({r.status})")
+        await ctx.send(f"Failed to load plugin {name}")
+
+    @bot.command(name="punload")
+    async def plugin_unload(ctx:commands.Context, name:str):
+        """Unloads a plugin with the given name."""
+        if not ctx.author.is_mod:
+            return
+        
+        plugin = plugins.shared_plugins_list.get(name, None)
+        if plugin is not None:
+            if plugin.module is None:
+                await ctx.send(f"Plugin {name} is disabled")
+                return
+            plugin.twitch_bot_unload((plugins.shared_plugins_list, plugin, False, None))
+            r = await pload_request("unload", name)
+            if r.ok:
+                await ctx.send(f"Unloaded plugin {name}")
+                return
+            else:
+                print(f"[fail] /api/plugins/unload name={name} ({r.status})")
+        await ctx.send(f"Failed to unload plugin {name}")
 
     print("reading plugin list")
     plugin_list = plugins.read_plugin_data()
@@ -285,9 +330,10 @@ if __name__ == "__main__":
     print("loading enabled plugins")
     for plugin_name in load_order:
         plugin = plugin_list[plugin_name]
-        if plugin.module is not None:
+        if plugin.module is not None and plugin.startup_load:
             plugin.twitch_bot_load((plugin_list, plugin, True, bot))
     print("loaded plugins")
+    plugins.shared_plugins_list = plugin_list
 
     print("starting events socket connection")
     ws_thread = threading.Thread(target=ws_run)
@@ -300,6 +346,7 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("^C")
     except Exception as _e:
+        traceback.print_exception(_e)
         e = _e
 
     print("unloading enabled plugins")

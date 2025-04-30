@@ -1,7 +1,3 @@
-from gevent import monkey
-
-monkey.patch_all() #this complains about being called too late, so now it gets called first
-
 import config
 import events
 from flask import abort, Blueprint, Flask, render_template, request, send_file
@@ -140,11 +136,8 @@ def api_configs():
 
 @api.get("/configs/meta")
 def api_configs_meta():
-    if plugins.shared_plugins_list is None:
-        ... #TODO
-
     combined = {}
-    for name, plugin in plugins.shared_plugins_list.items():
+    for name, plugin in plugins.shared_plugins_list.items(): #if plugins.shared_plugins_list is None, raises an AttributeError and results in a 500
         if plugin.module is not None: #is enabled
             meta_type, meta_value = plugin.meta_target
             if meta_type == "path":
@@ -154,7 +147,25 @@ def api_configs_meta():
                 combined[name] = meta_value
     
     return combined
-    
+
+
+@api.post("/plugins/load")
+def api_load_plugin():
+    name = request.form["name"]
+    plugin = plugins.shared_plugins_list.get(name, None)
+    if plugin is None:
+        return "", 404
+    plugin.load((plugins.shared_plugins_list, plugin, False, app, api, sock))
+    return "", 200
+
+@api.post("/plugins/unload")
+def api_unload_plugin():
+    name = request.form["name"]
+    plugin = plugins.shared_plugins_list.get(name, None)
+    if plugin is None:
+        return "", 404
+    plugin.unload((plugins.shared_plugins_list, plugin, False, None))
+    return "", 200
 
 
 def serve():
