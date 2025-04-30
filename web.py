@@ -4,13 +4,14 @@ monkey.patch_all() #this complains about being called too late, so now it gets c
 
 import config
 import events
-from flask import Blueprint, Flask, render_template, request, send_file
+from flask import abort, Blueprint, Flask, render_template, request, send_file
 from flask_sock import Server, Sock
 from gevent.pywsgi import WSGIServer
 import json
 from markupsafe import Markup
 import plugins
 import requests
+from typing import Callable
 
 HOST = "127.0.0.1"
 PORT = 6742
@@ -66,6 +67,20 @@ def load_config_styles_css()->str:
     {loaded}
 }}
 </style>""")
+
+
+def serve_when_loaded(loaded_callback:Callable[[], bool], unloaded_error_code:int=404):
+    def decor(f:Callable):
+        def wrapper(*args, **kwargs):
+            if loaded_callback():
+                return f(*args, **kwargs)
+            else:
+                abort(unloaded_error_code)
+        wrapper.__name__ = f.__name__
+        wrapper.__doc__ = f.__doc__
+        return wrapper
+    return decor
+
 
 app = Flask(__name__)
 api = Blueprint("api", __name__, url_prefix="/api")

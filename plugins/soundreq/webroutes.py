@@ -1,14 +1,19 @@
 from . import soundrequesting
 from flask import Blueprint, Flask, request, send_file
 import os
+from web import serve_when_loaded
 
 DIR = os.path.dirname(__file__)
 STATIC_DIR = os.path.join(DIR, "static")
 TEMPATES_DIR = os.path.join(DIR, "templates")
 
+web_loaded = False
+web_loaded_callback = lambda: web_loaded
+
 soundreqapi = Blueprint("soundreqapi", __name__, url_prefix="/soundreq")
 
 @soundreqapi.get("/sound/<key>")
+@serve_when_loaded(web_loaded_callback)
 def get_sound(key:str):
     info = soundrequesting.get_sound(key)
     if info is None:
@@ -16,6 +21,7 @@ def get_sound(key:str):
     return send_file(info["file"])
 
 @soundreqapi.get("/list")
+@serve_when_loaded(web_loaded_callback)
 def get_sound_list():
     config_parent = soundrequesting.get_configs()
     configs:dict = config_parent.get("Sound-Request", {})
@@ -26,6 +32,7 @@ def get_sound_list():
     return {}
 
 @soundreqapi.post("request")
+@serve_when_loaded(web_loaded_callback)
 def request_sound():
     key = request.form["key"]
     user = request.form.get("user", None)
@@ -34,5 +41,18 @@ def request_sound():
     soundrequesting.invoke_handler()
     return "", 201
 
+def _add_if_no_bp(t:Flask|Blueprint, bp:Blueprint):
+    if isinstance(t, Flask):
+        it = t.blueprints.values()
+    else:
+        it = (b for b, _ in t._blueprints)
+
+    for b in it:
+        if b == bp:
+            return False
+    t.register_blueprint(bp)
+    return True
+
+
 def add_routes(app:Flask, api:Blueprint):
-    api.register_blueprint(soundreqapi)
+    _add_if_no_bp(api, soundreqapi)

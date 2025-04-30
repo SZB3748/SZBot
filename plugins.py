@@ -224,7 +224,7 @@ class Plugin:
             self.on_twitch_bot_unload(ctx)
 
 
-LoadEvent = tuple[dict[str, Plugin], Plugin, bool, Flask, Blueprint, Sock]      #plugin_list, plugin, is_start, app, api, websock
+LoadEvent = tuple[dict[str, Plugin], Plugin, bool]                              #plugin_list, plugin, is_start
 UnloadEvent = tuple[dict[str, Plugin], Plugin, bool, Exception|None]            #plugin_list, plugin, is_end, exception
 TwitchBotLoadEvent = tuple[dict[str, Plugin], Plugin, bool, Bot]                #plugin_list, plugin, is_start, bot
 TwitchBotUnloadEvent = tuple[dict[str, Plugin], Plugin, bool, Exception|None]   #plugin_list, plugin, is_end, exception

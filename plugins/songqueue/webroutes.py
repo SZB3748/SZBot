@@ -9,25 +9,32 @@ import random
 import re
 import string
 import subprocess
+from web import serve_when_loaded
 
 
 DIR = os.path.dirname(__file__)
 STATIC_DIR = os.path.join(DIR, "static")
 TEMPATES_DIR = os.path.join(DIR, "templates")
 
+web_loaded = False
+web_loaded_callback = lambda: web_loaded
+
 musicpages_parent = Blueprint("musicparent", __name__, static_folder=STATIC_DIR, static_url_path="/static/music")
 musicpages = Blueprint("music", __name__, url_prefix="/music", template_folder=TEMPATES_DIR)
 musicapi = Blueprint("musicapi", __name__, url_prefix="/music")
 
 @musicpages.get("/")
+@serve_when_loaded(web_loaded_callback)
 def music_interface():
     return render_template("music.html")
 
 @musicpages.get("/overlay")
+@serve_when_loaded(web_loaded_callback)
 def music_overlay():
     return render_template("music_overlay.html")
 
 @musicpages.get("/thumbnail/<name>")
+@serve_when_loaded(web_loaded_callback)
 def music_thumbnail(name:str):
     return send_from_directory(songqueueing.THUMBNAILS_DIR, name)
 
@@ -41,6 +48,7 @@ def _v_to_dict(v:songqueueing.QueuedSong)->dict[str]:
     }
 
 @musicapi.get("/queue")
+@serve_when_loaded(web_loaded_callback)
 def api_music_queue_get():
     queue_list = []
     with open(songqueueing.QUEUE_FILE) as f:
@@ -62,6 +70,7 @@ def api_music_queue_get():
     }), 200, {"Content-Type": "application/json"}
 
 @musicapi.post("/queue/push")
+@serve_when_loaded(web_loaded_callback)
 def api_music_queue_push():
     url = request.form["url"]
     configs_parent = songqueueing.get_configs()
@@ -86,12 +95,14 @@ def api_music_queue_push():
     return str(pos), 200
 
 @musicapi.post("/overlay/persistent")
+@serve_when_loaded(web_loaded_callback)
 def api_music_set_overlay_persistent():
     value = request.form.get("value", "false").strip().lower() == "true"
     events.dispatch(events.Event("songqueue:overlay_persistence_change", {"value": value}))
     return "", 200
 
 @musicapi.post("/queue/skip")
+@serve_when_loaded(web_loaded_callback)
 def api_music_queue_skip():
     count_s = request.form.get("count", "1")
     purge_s = request.form.get("purge", "false").strip().lower().replace("false", "")
@@ -159,6 +170,7 @@ def api_music_queue_skip():
     return str(skip_count), 200, {"Content-Type": "application/json"}
 
 @musicapi.route("/playerstate", methods=["GET", "POST"])
+@serve_when_loaded(web_loaded_callback)
 def api_music_playerstate():
     if songqueueing.current_song is None:
         rtv = "{\"state\": null}"
@@ -184,6 +196,7 @@ def api_music_playerstate():
     return rtv, 200, {"Content-Type": "application/json"}
 
 @musicapi.post("/seek")
+@serve_when_loaded(web_loaded_callback)
 def api_musics_seek():
     if songqueueing.current_song is None:
         return
@@ -205,6 +218,7 @@ def api_musics_seek():
     return "", 200
 
 @musicapi.route("/b-track", methods=["GET", "POST"])
+@serve_when_loaded(web_loaded_callback)
 def api_music_b_track():
     configs_parent = songqueueing.get_configs()
     configs:dict = configs_parent.get("Song-Queue", {})
@@ -265,6 +279,7 @@ def api_music_b_track():
     }), 200, {"Content-Type": "application/json"}
 
 @musicapi.get("/open-queue")
+@serve_when_loaded(web_loaded_callback)
 def api_music_open_queue():
     if os.path.isfile(songqueueing.QUEUE_FILE):
         os.startfile(songqueueing.QUEUE_FILE)
@@ -273,6 +288,7 @@ def api_music_open_queue():
         return "", 404
     
 @musicapi.post("/blacklist")
+@serve_when_loaded(web_loaded_callback)
 def api_music_blacklist():
     id = request.form["id"]
     m = re.match(songqueueing.URL_REGEX, id)
@@ -317,8 +333,19 @@ def api_music_blacklist():
 
     return "", 201
 
+def _add_if_no_bp(t:Flask|Blueprint, bp:Blueprint):
+    if isinstance(t, Flask):
+        it = t.blueprints.values()
+    else:
+        it = (b for b, _ in t._blueprints)
+
+    for b in it:
+        if b == bp:
+            return False
+    t.register_blueprint(bp)
+    return True
 
 def add_routes(app:Flask, api:Blueprint):
-    musicpages_parent.register_blueprint(musicpages)
-    app.register_blueprint(musicpages_parent)
-    api.register_blueprint(musicapi)
+    _add_if_no_bp(musicpages_parent, musicpages)
+    _add_if_no_bp(app, musicpages_parent)
+    _add_if_no_bp(api, musicapi)

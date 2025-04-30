@@ -1,9 +1,13 @@
-import web
+from gevent import monkey
+
+monkey.patch_all() #must be called first
 
 import config
 import plugins
+import traceback
 import twitchbot
 from urllib.parse import quote
+import web
 
 OAUTH_ENDPOINT = "https://id.twitch.tv/oauth2/authorize"
 
@@ -21,7 +25,7 @@ def run():
     print("reading plugin list")
     plugin_list = plugins.read_plugin_data()
     plugin_enabled_count = sum(1 for plugin in plugin_list.values() if plugin.module is not None)
-    print("read", len(plugin_list), "plugins with", plugin_enabled_count, "enabled plugins")
+    print("read", len(plugin_list), "plugins with", plugin_enabled_count, f"enabled plugin{"s" * (not plugin_enabled_count)}")
     print("generating plugin load order")
     load_order = plugins.generate_load_order(plugin_list)
     if load_order:
@@ -42,6 +46,7 @@ def run():
     except KeyboardInterrupt:
         pass
     except Exception as _e:
+        traceback.print_exception(_e)
         e = _e
     
     print("unloading enabled plugins")

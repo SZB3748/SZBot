@@ -1,18 +1,16 @@
 from . import soundrequesting, twitchcommands, webroutes
 import plugins
 import twitchbot
+import web
 
 bot:twitchbot.Bot = None
 
 def on_load(ctx:plugins.LoadEvent):
-
-    _, plugin, is_startup, app, api, _, *_ = ctx
-
+    _, plugin, _, *_ = ctx
+    
     soundrequesting.meta = plugin.meta
-
-    if is_startup:
-        soundrequesting.init()
-        webroutes.add_routes(app, api)
+    webroutes.web_loaded = True
+    soundrequesting.init()
 
 def on_twitch_bot_load(ctx:plugins.TwitchBotLoadEvent):
     global bot
@@ -22,6 +20,8 @@ def on_twitch_bot_load(ctx:plugins.TwitchBotLoadEvent):
 def on_unload(ctx:plugins.UnloadEvent):
     _, _, _, _, *_ = ctx
     
+    webroutes.web_loaded = False
+
     if soundrequesting.queue_handler is not None:
         old = soundrequesting.queue_handler
         soundrequesting.queue_handler = None
@@ -37,3 +37,6 @@ def on_unload(ctx:plugins.UnloadEvent):
 def on_twitch_bot_unload(ctx:plugins.TwitchBotUnloadEvent):
     _, _, _, _, *_ = ctx
     twitchcommands.remove_commands(bot)
+
+
+webroutes.add_routes(web.app, web.api)
