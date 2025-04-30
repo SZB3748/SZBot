@@ -19,8 +19,10 @@ def on_load(ctx:plugins.LoadEvent):
     if songqueueing.youtube_api is None:
         songqueueing.youtube_api = playlist.get_authenticated_service()
 
+    queue = songqueueing.main_queue = songqueueing.SongQueue()
+
     print("Starting music queue")
-    cycle = songqueueing.run_song_cycle(daemon=True)
+    cycle = songqueueing.run_song_cycle(queue, daemon=True)
 
 def on_twitch_bot_load(ctx:plugins.TwitchBotLoadEvent):
     global bot
@@ -32,14 +34,15 @@ def on_unload(ctx:plugins.UnloadEvent):
     _, _, _, _, *_ = ctx
 
     webroutes.web_loaded = False
-    songqueueing.song_done.set()
-    songqueueing.stop_loop.set()
+    songqueueing.main_queue.song_done.set()
+    songqueueing.main_queue.stop_loop.set()
     print("Waiting for song cycle to stop...")
     cycle.join(5)
     if cycle.is_alive():
         print("Song cycle failed to stop after 5 seconds")
     else:
         print("Song cycle stopped")
+    songqueueing.main_queue = None
 
 def on_twitch_bot_unload(ctx:plugins.TwitchBotUnloadEvent):
     _, _, _, _, *_ = ctx
