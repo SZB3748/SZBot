@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block styles %}
+<link rel="stylesheet" type="text/css" href="/static/pngbinds/css/states.css">
+{% endblock %}
+{% block scripts %}
+<script src="/static/pngbinds/js/mediautil.js"></script>
+<script src="/static/pngbinds/js/statesutil.js"></script>
+<script src="/static/pngbinds/js/states.js"></script>
+{% endblock %}
+{% block body %}
+<h1>PNGBinds State Map Editor</h1>
+<h2>States</h2>
+<div id="states-container">
+</div>
+<button id="add-state-button">Add State</button>
+<h2>Transitions</h2>
+<div id="transitions-container">
+    <div><span>State</span><select></select></div>
+    <div><span>Keybind</span><input></div>
+    <div><span>Mode</span><select></select></div>
+    <div><span>Destination</span><select></select></div>
+    <!-- only visible when mode == "hold" -->
+    <div><span>Release Destination</span><select></select></div>
+</div>
+<button id="add-transition-button">Add Transition</button>
+<div id="save-container">
+    <button id="save-button">Save</button>
+</div>
+{% endblock %}

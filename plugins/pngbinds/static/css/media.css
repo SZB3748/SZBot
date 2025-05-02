@@ -1,0 +1,30 @@
+.media-image {
+    max-height: 150px;
+    max-width: 150px;
+}
+
+.media-item {
+    display: flex;
+    align-items: center;
+}
+
+.media-item > * {
+    margin: 0 0.5rem;
+}
+
+.media-item > :first-child {
+    width: 100px;
+    margin-right: 1rem;
+}
+
+.media-item > :last-child {
+    margin-left: auto;
+}
+
+#media-upload > * {
+    margin: 0.5rem 0;
+}
+
+#upload-name {
+    margin-left: 1rem;
+}

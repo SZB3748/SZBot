@@ -1,0 +1,28 @@
+{
+    "name": "PNG Bindings",
+    "description": "TODO",
+    "configs": {
+        "PNG-Bindings": {
+            "name": "PNG Bindings Configs",
+            "description": "TODO",
+            "types": {
+                "object": {
+                    "fields": {
+                        "Default-State": {
+                            "name": "Default State Name",
+                            "description": "Name of the default state in the state map.",
+                            "types": {
+                                "string": {
+                                    ">=": 1
+                                },
+                                "null": "exclude"
+                            },
+                            "optional": true
+                        }
+                    }
+                }
+            },
+            "optional": true
+        }
+    }
+}

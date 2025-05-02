@@ -8,6 +8,7 @@ import time
 from typing import Callable, Self
 import weakref
 
+STATEMAP_FILE = "png_binds.json"
 
 class TransitionMode(Enum):
     HOLD = 1
@@ -16,28 +17,48 @@ class TransitionMode(Enum):
 
 TimeoutChange = tuple[str, timedelta] #change to the specified state after the given timeout
 
-class State:
-    def __init__(self, name:str, media_path:str, change:TimeoutChange=None):
-        self.name = name
-        self.media_path = media_path
-        self.change = change
+class MediaReference:
+    def __init__(self, content_name:str, border_name:str):
+        self.content_name = content_name
+        self.border_name = border_name
 
     def __getstate__(self):
-        rtv:dict[str] = {"media_path": self.media_path}
+        return self.__dict__.copy()
+    
+    def __setstate__(self, d:dict[str]):
+        self.__init__(**d)
+
+class State:
+    def __init__(self, name:str, media:MediaReference, change:TimeoutChange=None):
+        self.name = name
+        self.media = media
+        self.change = change
+
+    def __eq__(self, other):
+        if isinstance(other, State):
+            return self is other or self.name == other.name
+        return super().__eq__(other)
+    
+    def __hash__(self):
+        return hash(str(id(type(self))) + self.name)
+
+    def __getstate__(self):
+        rtv:dict[str] = {"media": self.media.__getstate__()}
         if self.change is not None:
             rtv["change"] = {
                 "destination": self.change[0],
-                "timeout": self.change[1]
+                "timeout": self.change[1].total_seconds()
             }
         return rtv
 
     def __setstate__(self, d:dict[str]):
         if "name" in d:
-            self.name = d["name"]
-        self.media_path = d["media_path"]
+            self.name:str = d["name"]
+        self.media = MediaReference.__new__(MediaReference)
+        self.media.__setstate__(d["media"])
         dchange = d.get("change", None)
         if isinstance(dchange, dict):
-            self.change = dchange["desitnation"], dchange["timeout"]
+            self.change:TimeoutChange = dchange["destination"], timedelta(seconds=dchange["timeout"])
         else:
             self.change = None
 
@@ -100,7 +121,7 @@ class StateMap:
         transitions = {}
 
         dstates:dict[str, dict] = d.get("states", None)
-        dtransitions:dict[str, dict] = d.get("transitions", None)
+        dtransitions:dict[str, list] = d.get("transitions", None)
 
         if isinstance(dstates, dict):
             for name, info in dstates.items():
@@ -110,9 +131,12 @@ class StateMap:
                 states[name] = state
         if isinstance(dtransitions, dict):
             for name, info in dtransitions.items():
-                transition = Transition.__new__(Transition)
-                transition.__setstate__(info)
-                transitions[name] = transition
+                ts = []
+                for t in info:
+                    transition = Transition.__new__(Transition)
+                    transition.__setstate__(t)
+                    ts.append(transition)
+                transitions[name] = ts
         self.__init__(states, transitions)
 
 
@@ -141,9 +165,12 @@ class NavigatorStackFrame:
     def state(self, value:State):
         self._state = weakref.ref(value)
 
+OnPushCallback = Callable[[NavigatorStackFrame|None, NavigatorStackFrame], None]
+OnPopCallback = Callable[[NavigatorStackFrame, NavigatorStackFrame|None], None]
+OnChangeCallback = Callable[[NavigatorStackFrame, NavigatorStackFrame], None]
 
 class StateMapNavigator:
-    def __init__(self, statemap:StateMap, default_state:str, on_push:Callable[[NavigatorStackFrame|None, NavigatorStackFrame], None]=None, on_pop:Callable[[NavigatorStackFrame, NavigatorStackFrame|None], None]=None, on_change:Callable[[NavigatorStackFrame, NavigatorStackFrame], None]=None):
+    def __init__(self, statemap:StateMap, default_state:str=None, on_push:OnPushCallback=None, on_pop:OnPopCallback=None, on_change:OnChangeCallback=None):
         self.statemap = statemap
         self.default_state = default_state
         self.stack:NavigatorStackFrame = None
@@ -210,7 +237,7 @@ class StateMapNavigator:
         return self.stack
 
     def init_default(self):
-        if self.stack is None:
+        if self.stack is None and self.default_state is not None:
             self.push(self.default_state)
 
     def hook_mode_hold(self, frame:NavigatorStackFrame, t:Transition):

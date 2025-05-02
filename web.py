@@ -70,8 +70,10 @@ def serve_when_loaded(loaded_callback:Callable[[], bool], unloaded_error_code:in
         def wrapper(*args, **kwargs):
             if loaded_callback():
                 return f(*args, **kwargs)
-            else:
+            elif unloaded_error_code:
                 abort(unloaded_error_code)
+            else: # ==0
+                return "", 200
         wrapper.__name__ = f.__name__
         wrapper.__doc__ = f.__doc__
         return wrapper

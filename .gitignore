@@ -11,6 +11,11 @@ __pycache__/
 thumbnails/
 sounds/
 
+png_binds.json
+pngbinds-media/
+pngbinds.media
+
+
 #Exclude non-builtin plugins
 plugins/*
 !plugins/songqueue/

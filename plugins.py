@@ -1,15 +1,12 @@
 import config
 import importlib.util
-import math
 import os
 import re
 import sys
 from types import ModuleType
-from typing import Any, Callable, Self
+from typing import Any, Callable
 
 from twitchbot import Bot
-from flask import Blueprint, Flask
-from flask_sock import Sock
 
 MetaTypeOptions = dict[str]
 MetaTypeAllowed = bool
@@ -91,8 +88,7 @@ def _handle_types(types_data:dict[str]):
             if isinstance(type_info, dict):
                 hasfields = "fields" in type_info
                 if not (hasfields ^ ("anyfield" in type_info)):
-                    ... #TODO error either/or
-                    raise Exception("TODO")
+                    raise MetaTypeBadOptionError(f"Either fields or anyfield option must be specified: {"both were" if hasfields else "neither was"} specified")
                 elif hasfields:
                     fields = _type_assert(type_info.get("fields", None), f"{type_name} fields", dict, can_be_none=False)
                     new_fields = {}
