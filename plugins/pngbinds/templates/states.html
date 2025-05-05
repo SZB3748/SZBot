@@ -9,20 +9,26 @@
 {% endblock %}
 {% block body %}
 <h1>PNGBinds State Map Editor</h1>
-<h2>States</h2>
-<div id="states-container">
-</div>
-<button id="add-state-button">Add State</button>
-<h2>Transitions</h2>
-<div id="transitions-container">
-    <div><span>State</span><select></select></div>
-    <div><span>Keybind</span><input></div>
-    <div><span>Mode</span><select></select></div>
-    <div><span>Destination</span><select></select></div>
-    <!-- only visible when mode == "hold" -->
-    <div><span>Release Destination</span><select></select></div>
-</div>
-<button id="add-transition-button">Add Transition</button>
+<main>
+    <section>
+        <h2>States</h2>
+        <div id="states-container">
+        </div>
+        <button id="add-state-button">Add State</button>
+    </section>
+    <section>
+        <h2>Transitions</h2>
+        <div id="transitions-container">
+            <div><span>State</span><select></select></div>
+            <div><span>Keybind</span><input></div>
+            <div><span>Mode</span><select></select></div>
+            <div><span>Destination</span><select></select></div>
+            <!-- only visible when mode == "hold" -->
+            <div><span>Release Destination</span><select></select></div>
+        </div>
+        <button id="add-transition-button">Add Transition</button>
+    </section>
+</main>
 <div id="save-container">
     <button id="save-button">Save</button>
 </div>

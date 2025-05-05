@@ -13,7 +13,7 @@ sounds/
 
 png_binds.json
 pngbinds-media/
-pngbinds.media
+pngbinds_media.json
 
 
 #Exclude non-builtin plugins

@@ -2,7 +2,7 @@
     "name": "PNG Bindings",
     "description": "TODO",
     "configs": {
-        "PNG-Bindings": {
+        "PNG-Binds": {
             "name": "PNG Bindings Configs",
             "description": "TODO",
             "types": {

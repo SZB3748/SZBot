@@ -2,9 +2,7 @@ from datetime import timedelta
 from enum import Enum
 import io
 import json
-import keyboard
 import threading
-import time
 from typing import Callable, Self
 import weakref
 
@@ -63,7 +61,7 @@ class State:
             self.change = None
 
 class Transition:
-    def __init__(self, keybind:str, mode:TransitionMode, destination:str, pop_destination:str=None):
+    def __init__(self, keybind:str, mode:TransitionMode, destination:str, pop_destination:str|None=None):
         self.keybind = keybind
         self.mode = mode
         self.destination = destination
@@ -170,7 +168,7 @@ OnPopCallback = Callable[[NavigatorStackFrame, NavigatorStackFrame|None], None]
 OnChangeCallback = Callable[[NavigatorStackFrame, NavigatorStackFrame], None]
 
 class StateMapNavigator:
-    def __init__(self, statemap:StateMap, default_state:str=None, on_push:OnPushCallback=None, on_pop:OnPopCallback=None, on_change:OnChangeCallback=None):
+    def __init__(self, statemap:StateMap, default_state:str|None=None, on_push:OnPushCallback=None, on_pop:OnPopCallback=None, on_change:OnChangeCallback=None):
         self.statemap = statemap
         self.default_state = default_state
         self.stack:NavigatorStackFrame = None
@@ -179,6 +177,8 @@ class StateMapNavigator:
         self.on_push = on_push
         self.on_pop = on_pop
         self.on_change = on_change
+
+        self.lock = threading.Lock()
 
     def __len__(self):
         return self._stack_length
@@ -202,135 +202,52 @@ class StateMapNavigator:
         frame.keybinds.clear()
 
     def push(self, state_name:str):
-        state = self.statemap.states[state_name]
-        transitions = self.statemap.transitions.get(state_name, [])
-        prev = self.stack
-        self.stack = NavigatorStackFrame(state, transitions, prev=prev)
-        self._stack_length += 1
-        if prev is not None:
-            self.unbind_frame(prev)
-        self.bind_frame(self.stack)
-        if self.on_push is not None:
-            self.on_push(self.stack.prev, self.stack)
-        return self.stack
+        with self.lock:
+            state = self.statemap.states[state_name]
+            transitions = self.statemap.transitions.get(state_name, [])
+            prev = self.stack
+            self.stack = NavigatorStackFrame(state, transitions, prev=prev)
+            self._stack_length += 1
+            if prev is not None:
+                self.unbind_frame(prev)
+            self.bind_frame(self.stack)
+            if self.on_push is not None:
+                self.on_push(self.stack.prev, self.stack)
+            return self.stack
 
     def pop(self):
-        old = self.stack
-        self.unbind_frame(old)
-        self.stack = self.stack.prev
-        self._stack_length -= 1
-        if self.stack is not None:
-            self.bind_frame(self.stack)
-        if self.on_pop is not None:
-            self.on_pop(old, self.stack)
-        return self.stack
+        with self.lock:
+            old = self.stack
+            self.unbind_frame(old)
+            self.stack = self.stack.prev
+            self._stack_length -= 1
+            if self.stack is not None:
+                self.bind_frame(self.stack)
+            if self.on_pop is not None:
+                self.on_pop(old, self.stack)
+            return self.stack
 
     def change(self, state_name:str):
-        state = self.statemap.states[state_name]
-        transitions = self.statemap.transitions.get(state_name, [])
-        self.unbind_frame(self.stack)
-        old = self.stack
-        self.stack = NavigatorStackFrame(state, transitions, prev=self.stack.prev)
-        self.bind_frame(self.stack)
-        if self.on_change is not None:
-            self.on_change(old, self.stack)
-        return self.stack
+        with self.lock:
+            state = self.statemap.states[state_name]
+            transitions = self.statemap.transitions.get(state_name, [])
+            self.unbind_frame(self.stack)
+            old = self.stack
+            self.stack = NavigatorStackFrame(state, transitions, prev=self.stack.prev)
+            self.bind_frame(self.stack)
+            if self.on_change is not None:
+                self.on_change(old, self.stack)
+            return self.stack
 
     def init_default(self):
         if self.stack is None and self.default_state is not None:
             self.push(self.default_state)
 
-    def hook_mode_hold(self, frame:NavigatorStackFrame, t:Transition):
-        flag = threading.Event()
-        do_popstate = False
-
-        def on_up():
-            while not flag.is_set():
-                if keyboard.is_pressed(t.keybind):
-                    flag.wait(0.05)
-                else:
-                    flag.set()
-            
-            navthread.join()
-
-            self.pop()
-            if do_popstate and t.pop_destination is not None:
-                frame = self.stack
-                state = self.statemap.states[t.pop_destination]
-                while state.change is not None and self.stack == frame:
-                    name, duration = state.change
-                    if self.stack.state != state:
-                        frame = self.change(state.name)
-                    time.sleep(duration.total_seconds())
-                    state = self.statemap.states[name]
-                if self.stack == frame and state != self.stack.state:
-                    self.change(state.name)
-
-        def navigate_state_changes():
-            nonlocal do_popstate
-            frame = self.stack
-            state = self.statemap.states[t.destination]
-            while not flag.is_set() and state.change is not None and self.stack == frame:
-                name, duration = state.change
-                if self.stack.state != state:
-                    frame = self.change(state.name)
-                if flag.wait(duration.total_seconds()):
-                    break
-                else:
-                    state = self.statemap.states[name]
-            
-            if not flag.is_set() and self.stack == frame:
-                if state != self.stack.state:
-                    frame = self.change(state.name)
-                do_popstate = True
-
-
-        upthread = threading.Thread(target=on_up, daemon=True)
-        navthread = threading.Thread(target=navigate_state_changes, daemon=True)
-
-        def on_down():
-            self.push(t.destination) #on_down hotkey is removed
-            navthread.start()
-            upthread.start()
-
-        return keyboard.add_hotkey(t.keybind, on_down)
-
-    def hook_mode_down(self, frame:NavigatorStackFrame, t:Transition):
-        def navigate_state_changes():
-            frame = self.stack
-            state = self.statemap.states[t.destination]
-            while state.change is not None and self.stack == frame:
-                name, duration = state.change
-                if self.stack.state != state:
-                    frame = self.change(state.name)
-                time.sleep(duration.total_seconds())
-                state = self.statemap.states[name]
-            if self.stack == frame and state != self.stack.state:
-                self.change(state.name)
-
-        downthread = threading.Thread(target=navigate_state_changes, daemon=True)
-
-        def on_down():
-            downthread.start()
-
-        return keyboard.add_hotkey(t.keybind, on_down)
-
-    def hook_mode_up(self, frame:NavigatorStackFrame, t:Transition):
-        def navigate_state_changes():
-            frame = self.stack
-            state = self.statemap.states[t.destination]
-            while state.change is not None and self.stack == frame:
-                name, duration = state.change
-                if self.stack.state != state:
-                    frame = self.change(state.name)
-                time.sleep(duration.total_seconds())
-                state = self.statemap.states[name]
-            if self.stack == frame and state != self.stack.state:
-                self.change(t.destination)
-
-        upthread = threading.Thread(target=navigate_state_changes, daemon=True)
-
-        def on_up():
-            upthread.start()
-
-        return keyboard.add_hotkey(t.keybind, on_up, trigger_on_release=True)
+    def hook_mode_hold(frame:NavigatorStackFrame, t:Transition):
+        raise NotImplementedError
+    
+    def hook_mode_down(frame:NavigatorStackFrame, t:Transition):
+        raise NotImplementedError
+    
+    def hook_mode_up(frame:NavigatorStackFrame, t:Transition):
+        raise NotImplementedError

@@ -2,6 +2,18 @@
  * @typedef {string[]} PngBindsMediaList
  */
 
+/**
+ * @typedef MediaBounds
+ * @property {number} top
+ * @property {number} right
+ * @property {number} bottom
+ * @property {number} left
+ */
+
+/**
+ * @typedef {Object<string, MediaBounds?>} MediaListBounds
+ */
+
 
 /** @type {Map<string, string>} */
 const mediaCache = new Map();
@@ -12,6 +24,16 @@ const mediaCache = new Map();
  */
 async function getMediaList() {
     const r = await fetch("/api/pngbinds/media/list");
+    if (r.ok)
+        return r.json();
+    return null;
+}
+
+/**
+ * @returns {Promise<MediaListBounds|null>}
+ */
+async function getMediaListBounds() {
+    const r = await fetch("/api/pngbinds/media/list/bounds");
     if (r.ok)
         return r.json();
     return null;
@@ -66,4 +88,39 @@ async function deleteMedia(name) {
     return r.ok;
 }
 
+/**
+ * @param {string} name
+ * @param {number?} top
+ * @param {number?} right
+ * @param {number?} bottom
+ * @param {number?} left
+ * @returns {Promise<boolean>}
+ */
+async function setMediaBounds(name, top, right, bottom, left) {
+    const body = new FormData();
+    if (top != null && top != "")
+        body.set("top", Number(top));
+    if (right != null && right != "")
+        body.set("right", Number(right));
+    if (bottom != null && bottom != "")
+        body.set("bottom", Number(bottom));
+    if (left != null && left != "")
+        body.set("left", Number(left));
 
+    const r = await fetch(`/api/pngbinds/media/file/${name}/bounds`, {
+        method: "POST",
+        body: body
+    });
+    return r.ok;
+}
+
+/**
+ * @param {string} name
+ * @returns {Promise<boolean>}
+ */
+async function deleteMediaBounds(name) {
+    const r = await fetch(`/api/pngbinds/media/file/${name}/bounds`, {
+        method: "DELETE"
+    });
+    return r.ok;
+}

@@ -1,3 +1,25 @@
 #states-container > .state {
     margin: 1rem;
 }
+
+#states-container > .state div input, #states-container > .state div select, #states-container > .state div span {
+    margin-right: 1rem;
+}
+
+#transitions-container > .transition {
+    margin: 1rem;
+}
+
+#transitions-container > .transition div input, #transitions-container > .transition div select, #transitions-container > .transition div span {
+    margin-right: 1rem;
+}
+
+#save-container {
+    margin-top: 1rem;
+}
+
+main {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+}
