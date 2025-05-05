@@ -24,13 +24,15 @@ statemap:statemapping.StateMap = None
 keyevents = events.EventBucketContainer()
 keylisteners = events.EventListenerCollection()
 
-def dispatch_state_change_event():
-    if nav_stack is not None:
-        state = nav_stack.state
+def _get_state_data(frame:statemapping.NavigatorStackFrame|None)->dict[str]:
+    if frame is not None:
+        state = frame.state
         if state is not None:
-            events.dispatch(events.Event("pngbinds:state_change", {"name": state.name, "media": state.media.__getstate__()}))
-            return
-    events.dispatch(events.Event("pngbinds:state_change", {"name": None, "media": None}))
+            return {"name": state.name, "media": state.media.__getstate__()}
+    return {"name": None, "media": None}
+
+def dispatch_state_change_event():
+    events.dispatch(events.Event("pngbinds:state_change", _get_state_data(nav_stack)))
 
 def get_config_default_state(meta:plugins.Meta)->str|None:
     config_parent = plugins.read_configs(config.CONFIG_FILE, meta)
@@ -185,10 +187,20 @@ def keybinds_events(ws:Server):
     finally:
         keyevents.remove_bucket(bucket)
 
+@pngbindsapi.get("/state/current")
+@serve_when_loaded(web_loaded_callback)
+def get_current_state():
+    return _get_state_data(nav_stack)
+
 @pngbindspages.get("/")
 @serve_when_loaded(web_loaded_callback)
 def statemap_interface():
     return render_template("states.html")
+
+@pngbindspages.get("/overlay")
+@serve_when_loaded(web_loaded_callback)
+def get_overlay():
+    return render_template("pngbinds_overlay.html")
 
 @pngbindspages.get("/media")
 @serve_when_loaded(web_loaded_callback)
