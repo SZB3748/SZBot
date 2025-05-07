@@ -1,5 +1,6 @@
 from . import medialist, statemapping
 import config
+from datetime import datetime, timedelta
 import events
 from flask import Blueprint, Flask, render_template, request, send_file
 from flask_sock import Server
@@ -14,21 +15,21 @@ from werkzeug.security import safe_join
 DIR = os.path.dirname(__file__)
 STATIC_DIR = os.path.join(DIR, "static")
 TEMPATES_DIR = os.path.join(DIR, "templates")
+STATEMAP_SEND_COOLDOWN = timedelta(seconds=2.5)
 
 web_loaded = False
 web_loaded_callback = lambda: web_loaded
 
 meta:plugins.Meta = None
 nav_stack:statemapping.NavigatorStackFrame = None
-statemap:statemapping.StateMap = None
 keyevents = events.EventBucketContainer()
 keylisteners = events.EventListenerCollection()
+last_statemap_send = datetime.now()
 
 def _get_state_data(frame:statemapping.NavigatorStackFrame|None)->dict[str]:
     if frame is not None:
         state = frame.state
-        if state is not None:
-            return {"name": state.name, "media": state.media.__getstate__()}
+        return {"name": state.name, "media": state.media.__getstate__()}
     return {"name": None, "media": None}
 
 def dispatch_state_change_event():
@@ -47,16 +48,28 @@ def load_statemap():
             return statemapping.StateMap.load(f)
     return statemapping.StateMap()
 
+def send_statemap(statemap:statemapping.StateMapNavigator=None):
+    global last_statemap_send
+    now = datetime.now()
+    if (now - last_statemap_send) <= STATEMAP_SEND_COOLDOWN:
+        return
+    last_statemap_send = now
+    if statemap is None:
+        statemap = load_statemap()
+    keyevents.dispatch(events.Event("statemap_update", {"statemap": statemap.__getstate__()}))
+
 @keylisteners.listener("stack_update")
 def event_stack_update(event:events.Event):
     global nav_stack
     frames = event.data["stack"]
-    stack = None
+    statemap = load_statemap()
+    send_statemap(statemap)
+    stack:statemapping.NavigatorStackFrame = None
     for statename in reversed(frames):
         state = statemap.states.get(statename, None)
         transitions = statemap.transitions.get(statename, [])
         stack = statemapping.NavigatorStackFrame(state, transitions, stack)
-    changed = (not(stack is None and nav_stack is None)) or stack.state != nav_stack.state
+    changed = ((stack is None) ^ (nav_stack is None)) or stack.state != nav_stack.state
     nav_stack = stack
     if changed:
         dispatch_state_change_event()

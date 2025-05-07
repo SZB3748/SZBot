@@ -21,6 +21,10 @@
     height: 100%;
 }
 
+#border-image {
+    position: relative;
+}
+
 #whole-container {
     position: fixed;
 }

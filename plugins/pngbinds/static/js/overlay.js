@@ -12,6 +12,8 @@ let mlist;
 let statemap;
 let currentState = null;
 
+let displayChangeBuffer = null;
+
 /**
  * @param {StateInfo} info
  */
@@ -60,6 +62,19 @@ function preloadAssets() {
     }
 }
 
+/**
+ * @param {StateInfo} info
+ */
+function bufferedDisplayState(info) {
+    if (displayChangeBuffer != null)
+        clearTimeout(displayChangeBuffer);
+    displayChangeBuffer = setTimeout(() => {
+        displayState(info);
+        displayChangeBuffer = null;
+    }, 100);
+}
+
+
 window.addEventListener("load", async () => {
     [mlist, statemap] = await Promise.all([getMediaListBounds(), getStatemap()]);
     preloadAssets(); //allows for media to be changed ASAP
@@ -76,7 +91,7 @@ window.addEventListener("load", async () => {
         const event = JSON.parse(ev.data);
         switch (event.name) {
             case "pngbinds:state_change": {
-                displayState(event.data);
+                bufferedDisplayState(event.data);
                 break;
             }
         }

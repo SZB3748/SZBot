@@ -116,8 +116,20 @@ function createStateElement(name, state, dest) {
                 return;
             }
         }
-        delete statemap.states[oldname]
-        statemap.states[newname] = state;
+        if (oldname != null) {
+            delete statemap.states[oldname];
+            statemap.states[newname] = state;
+            if (oldname in statemap.transitions) {
+                const transitions = statemap.transitions[oldname];
+                delete statemap.transitions[oldname];
+                if (newname in statemap.transitions) {
+                    //i dont think this should be possible, but whatever
+                    statemap.transitions[newname].push(...transitions)
+                } else {
+                    statemap.transitions[newname] = transitions;
+                }
+            }
+        }
         nameInput.setAttribute("old-name", newname);
 
         document.querySelectorAll("select.uses-state-name").forEach(/** @param {HTMLSelectElement} elm */ elm => {
@@ -262,12 +274,12 @@ function createTransitionElement(statename, transition, dest) {
         popdestInput.required = false;
     }
     keybindInput.value = transition.keybind;
-    modeInput.value = transition.mode;
     for (const mode of TRANSITION_MODES) {
         const modeOption = document.createElement("option");
         modeOption.text = modeOption.value = mode;
         modeInput.appendChild(modeOption);
     }
+    modeInput.value = transition.mode;
 
     //event listeners
 
@@ -298,7 +310,7 @@ function createTransitionElement(statename, transition, dest) {
     modeInput.addEventListener("change", () => {
         transition.mode = modeInput.value;
         if (transition.mode == "HOLD") {
-            popdestContainer.style.display = ""
+            popdestContainer.style.display = "";
             popdestInput.required = true;
             transition.pop_destination = popdestInput.value;
         } else {

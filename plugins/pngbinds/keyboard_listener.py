@@ -129,23 +129,13 @@ def handle_socket_event(name:str, data:dict[str]):
         if nav.stack is not None:
             nav.unbind_frame(nav.stack)
             frame = nav.stack
-            while frame.state is None:
-                nav.stack = frame = frame.prev
-                if frame is None:
-                    break
-            prev:statemapping.NavigatorStackFrame = None
             while frame is not None:
-                if frame.state is None:
-                    #i know this seems like it makes no sense, but just act like .prev is .next and it works
-                    prev.prev = frame.prev
-                    frame = frame.prev
-                else:
-                    frame.state = statemap.states[frame.state.name]
-                    frame.transitions = statemap.transitions.get(frame.state.name, [])
-                    prev = frame
-                    frame = frame.prev
+                frame.state = statemap.states[frame.state.name]
+                frame.transitions = statemap.transitions.get(frame.state.name, [])
+                frame = frame.prev
             nav.bind_frame(nav.stack)
         nav.statemap = statemap
+        print(nav.statemap)
     elif name == "default_state_update":
         name:str|None = data.get("name", None)
         if name is None or isinstance(name, str):
@@ -174,11 +164,7 @@ def on_message(ws:websocket.WebSocket, msg):
 def stack_to_data(stack:statemapping.NavigatorStackFrame|None)->list[str|None]:
     frames = []
     while stack is not None:
-        if stack.state is None:
-            state = None
-        else:
-            state = stack.state.name
-        frames.append(state)
+        frames.append(stack.state.name)
         stack = stack.prev
     return frames
 
@@ -201,30 +187,20 @@ def send_stack(name:str="stack_update"):
 
 def on_push(old:statemapping.NavigatorStackFrame|None, new:statemapping.NavigatorStackFrame):
     send_stack()
-    oldname = None
-    if old is not None and old.state is not None:
-        oldname = old.state.name
-    newname = None if new.state is None else new.state.name
-    print(f"pngbinds:\t{oldname} >> {newname}")
+    print(f"pngbinds:\t{None if old is None else old.state.name} >> {new.state.name}")
     for t in new.transitions:
         print(f"pngbinds:\t{t.keybind} {t.mode.name} --> {repr(t.destination)}{"" if t.pop_destination is None else ".."+repr(t.pop_destination)}")
 
 def on_pop(old:statemapping.NavigatorStackFrame, new:statemapping.NavigatorStackFrame|None):
     send_stack()
-    oldname = None if old.state is None else old.state.name
-    newname = None
-    if new is not None and new.state is not None:
-        newname = new.state.name
-    print(f"pngbinds:\t{newname} << {oldname}")
+    print(f"pngbinds:\t{None if new is None else new.state.name} << {old.state.name}")
     if new is not None:
         for t in new.transitions:
             print(f"pngbinds:\t{t.keybind} {t.mode.name} --> {repr(t.destination)}{"" if t.pop_destination is None else ".."+repr(t.pop_destination)}")
 
 def on_change(old:statemapping.NavigatorStackFrame, new:statemapping.NavigatorStackFrame):
     send_stack()
-    oldname = None if old.state is None else old.state.name
-    newname = None if new.state is None else new.state.name
-    print(f"pngbinds:\t{oldname} -> {newname}")
+    print(f"pngbinds:\t{old.state.name} -> {new.state.name}")
     for t in new.transitions:
         print(f"pngbinds:\t{t.keybind} {t.mode.name} --> {repr(t.destination)}{"" if t.pop_destination is None else ".."+repr(t.pop_destination)}")
 

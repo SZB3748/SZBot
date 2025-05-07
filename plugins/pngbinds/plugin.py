@@ -12,6 +12,9 @@ KEYBOARD_LISTENER_FILE = os.path.join(DIR, "keyboard_listener.py")
 
 keyboard_listener_proc:subprocess.Popen = None
 
+def run_keyboard_listener():
+    return subprocess.Popen([sys.executable, KEYBOARD_LISTENER_FILE, "ws://localhost:6742/api/pngbinds/events"])
+
 #can be overriden
 def create_navigator(statemap:statemapping.StateMap, default_state:str,
                      on_push:statemapping.OnPushCallback, on_pop:statemapping.OnPopCallback, on_change:statemapping.OnChangeCallback):
@@ -28,7 +31,7 @@ def on_load(ctx:plugins.LoadEvent):
     webroutes.meta = plugin.meta
     webroutes.web_loaded = True
 
-    keyboard_listener_proc = subprocess.Popen([sys.executable, KEYBOARD_LISTENER_FILE, "ws://localhost:6742/api/pngbinds/events"])
+    keyboard_listener_proc = run_keyboard_listener()
 
 def on_unload(ctx:plugins.UnloadEvent):
     webroutes.keyevents.dispatch(events.Event("cleanup"))

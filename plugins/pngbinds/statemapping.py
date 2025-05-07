@@ -147,21 +147,13 @@ class StateMap:
 
 class NavigatorStackFrame:
 
-    __slots__ = "_state", "transitions", "prev", "keybinds"
+    __slots__ = "state", "transitions", "prev", "keybinds"
 
     def __init__(self, state:State, transitions:list[Transition], prev:Self=None):
         self.state = state
         self.transitions = transitions
         self.prev = prev
         self.keybinds:set[Callable[[], None]] = set()
-
-    @property
-    def state(self):
-        return self._state()
-
-    @state.setter
-    def state(self, value:State):
-        self._state = weakref.ref(value)
 
 OnPushCallback = Callable[[NavigatorStackFrame|None, NavigatorStackFrame], None]
 OnPopCallback = Callable[[NavigatorStackFrame, NavigatorStackFrame|None], None]
