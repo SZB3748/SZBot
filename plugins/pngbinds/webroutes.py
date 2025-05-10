@@ -116,7 +116,7 @@ def get_media_file(name:str):
             shutil.copyfileobj(file, f)
         mlist = medialist.load_media_list()
         mlist[name] = {
-            "path": path #TODO set bounds if available
+            "path": path
         }
         medialist.save_media_list(mlist)
         return "", 200

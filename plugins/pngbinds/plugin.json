@@ -1,10 +1,10 @@
 {
-    "name": "PNG Bindings",
-    "description": "TODO",
+    "name": "PNG Binds",
+    "description": "Creates an overlay which displays different images, and allows for transitions between these images when set keybinds are pressed.",
     "configs": {
         "PNG-Binds": {
-            "name": "PNG Bindings Configs",
-            "description": "TODO",
+            "name": "PNG Binds Configs",
+            "description": "Collection of configurations for the PNG Binds plugin.",
             "types": {
                 "object": {
                     "fields": {
