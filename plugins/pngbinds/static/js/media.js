@@ -48,7 +48,8 @@ function displayMedia(mlist, dest) {
             img.alt = `media ${name}`;
             img.src = bUrl;
             img.classList.add("media-image");
-            deleteButton.innerText = "Delete"; //TODO replace with trash icon
+            deleteButton.classList.add("delete-button");
+            deleteButton.title = "Delete Media";
             deleteButton.addEventListener("click", () => {
                 deleteMedia(name).then(ok => {
                     if (ok) {
@@ -58,6 +59,8 @@ function displayMedia(mlist, dest) {
                     }
                 });
             });
+            const delIcon = document.createElement("img");
+            deleteButton.appendChild(delIcon);
 
             boundsSpan.innerText = "Bounds";
             boundsSpan.title = "Bounds will be used as padding (inner spacing) when the media is selected as a border, and margins (outer spacing) when the media is selected as content.";

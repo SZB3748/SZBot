@@ -30,7 +30,8 @@ function createStateElement(name, state, dest) {
     const changeTimeoutInput = document.createElement("input");
 
     const deleteButton = document.createElement("button");
-    deleteButton.innerText = "Delete"; //TODO replace with trash icon
+    deleteButton.classList.add("delete-button");
+    deleteButton.title = "Delete State";
     deleteButton.addEventListener("click", () => {
         const currentName = nameInput.getAttribute("old-name");
         document.querySelectorAll("select.uses-state-name").forEach(/** @param {HTMLSelectElement} elm */ elm => {
@@ -43,6 +44,8 @@ function createStateElement(name, state, dest) {
         delete statemap.states[currentName];
         dest.remove();
     });
+    const delIcon = document.createElement("img");
+    deleteButton.appendChild(delIcon);
 
     nameSpan.innerText = "Name"
     contentSpan.innerText = "Content Name";
@@ -214,13 +217,16 @@ function createTransitionElement(statename, transition, dest) {
     };
 
     const deleteButton = document.createElement("button");
-    deleteButton.innerText = "Delete"; //TODO replace with trash icon
+    deleteButton.classList.add("delete-button");
+    deleteButton.title = "Delete Transition";
     deleteButton.addEventListener("click", () => {
         if (stateInput.value in statemap.transitions) {
             delTransition(stateInput.value);
         }
         dest.remove();
     });
+    const delIcon = document.createElement("img");
+    deleteButton.appendChild(delIcon);
 
     stateSpan.innerText = "State";
     keybindSpan.innerText = "Keybind";
