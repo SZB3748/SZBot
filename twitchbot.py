@@ -1,4 +1,5 @@
 import aiohttp
+import argparse
 import asyncio
 import config
 from datetime import datetime, timedelta
@@ -12,12 +13,49 @@ from typing import Awaitable, Callable
 import twitchio
 from twitchio.ext import commands
 from urllib.parse import quote
+import web
 import websocket
 
-API_BASE = "localhost:6742/api"
-API_ENDPOINT = f"http://{API_BASE}"
-API_WS_ENDPOINT = f"ws://{API_BASE}"
+API_BASE = ""
+API_ENDPOINT = ""
+API_WS_ENDPOINT = f""
 TOKEN_REFRESH_ENDPOINT = "https://id.twitch.tv/oauth2/token"
+
+def define_endpoints(host:str, port:int):
+    global API_BASE, API_ENDPOINT, API_WS_ENDPOINT
+    is_80 = port == 80
+    is_443 = port == 443
+    if is_80 or is_443:
+        API_BASE = f"{host}/api"
+    else:
+        API_BASE = f"{host}:{port}/api"
+    s = "s" * is_443
+    API_ENDPOINT = f"http{s}://{API_BASE}"
+    API_WS_ENDPOINT = f"ws{s}://{API_BASE}"
+
+parser = argparse.ArgumentParser(description="SZBot twitchbot program.")
+parser.add_argument("-d", "--addr", default=f"{web.HOST}:{web.PORT}")
+
+def get_addr()->tuple[str, int]:
+    args = parser.parse_args()
+    addr:str = args.addr
+    if ":" in addr:
+        host, port = addr.split(":", 1)
+        if host and port:
+            if port.isdigit():
+                return host, int(port)
+            else:
+                print("Address port must be an integer")
+                exit(-1)
+        elif port and not port.isdigit():
+            print("Address port must be an integer")
+            exit(-1)
+        else:
+            return host or web.HOST, int(port) if port else web.PORT
+    elif addr.isdecimal():
+        return web.HOST, int(addr)
+    else:
+        return addr, web.PORT
 
 def get_prefix(bot:commands.Bot, message:twitchio.Message):
     configs = config.read()
@@ -28,7 +66,7 @@ def ratelimit(max_times:int, duration:timedelta, limited_callback:Callable[[comm
 
     def decor(f:Callable[..., Awaitable]):
         async def wrapper(ctx:commands.Context, *args, **kwargs):
-            if True or not ctx.author.is_mod:
+            if not ctx.author.is_mod:
                 now = datetime.now()
                 if ctx.author in users:
                     times = users[ctx.author]
@@ -135,7 +173,7 @@ class Bot(commands.Bot):
                                 link = links[name]
                                 if isinstance(link, str):
                                     await ctx.send(link)
-                        func.__doc__ = "Sends the accociated text in chat."
+                        func.__doc__ = "Sends the associated text in chat."
                         self.add_command(commands.Command(name=name, func=func, aliases=None, instance=None, no_global_checks=False))
                         self.links_commands.add(name)
                     elif name in self.links_commands:
@@ -246,6 +284,15 @@ async def main(retry:bool=True):
         pass
 
 if __name__ == "__main__":
+    define_endpoints(*get_addr())
+
+    #assign __main__ over twitchbot so importing twitchbot imports __main__ instead
+    #and the redefinition of the endpoints is used by plugins instead of the defaults
+    import os, sys
+    this = sys.modules[__name__]
+    modname = os.path.basename(__file__).rsplit(".", 1)[0]
+    sys.modules[modname] = this
+
     bot = init_bot()
     if bot is None:
         print("You must run main.py first to make sure your oauth_twitch.json file is fine.\nAlso, make sure to make a config.json file with your bot's \"Prefix\".")

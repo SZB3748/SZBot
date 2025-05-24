@@ -170,7 +170,7 @@ def api_unload_plugin():
     return "", 200
 
 
-def serve():
+def serve(host:str=HOST, port:int=PORT):
     app.register_blueprint(api)
-    server = WSGIServer((HOST, PORT), app)
+    server = WSGIServer((host, port), app)
     server.serve_forever()

@@ -9,5 +9,6 @@ keyboard
 MarkupSafe
 python-vlc
 requests
+twitchio
 websocket-client
 yt-dlp

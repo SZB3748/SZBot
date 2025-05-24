@@ -2,6 +2,7 @@ from gevent import monkey
 
 monkey.patch_all() #must be called first
 
+import argparse
 import config
 import plugins
 import traceback
@@ -11,17 +12,44 @@ import web
 
 OAUTH_ENDPOINT = "https://id.twitch.tv/oauth2/authorize"
 
-def get_auth_token(oauth:dict[str]):
+parser = argparse.ArgumentParser(description="SZBot main program.")
+parser.add_argument("-d", "--addr", default=f"{web.HOST}:{web.PORT}")
+
+def get_addr()->tuple[str, int]:
+    args = parser.parse_args()
+    addr:str = args.addr
+    if ":" in addr:
+        host, port = addr.split(":", 1)
+        if host and port:
+            if port.isdigit():
+                return host, int(port)
+            else:
+                print("Address port must be an integer")
+                exit(-1)
+        elif port and not port.isdigit():
+            print("Address port must be an integer")
+            exit(-1)
+        else:
+            return host or web.HOST, int(port) if port else web.PORT
+    elif addr.isdecimal():
+        return web.HOST, int(addr)
+    else:
+        return addr, web.PORT
+
+def get_auth_token(oauth:dict[str], addr:tuple[str, int]=(web.HOST, web.PORT)):
     import webbrowser
-    redirect = f"http://localhost:6742/oauth"
+    host, port, *_ = addr
+    redirect = f"http://{host}:{port}/oauth"
     scope = " ".join(twitchbot.OAUTH_SCOPES)
     url = f"{OAUTH_ENDPOINT}?response_type=code&client_id={oauth["Client-Id"]}&redirect_uri={quote(redirect)}&scope={quote(scope)}"
-    webbrowser.open(url)
-    print("Opening", url, "in your default browser")
-    web.serve()
+    try:
+        webbrowser.open(url)
+        print("Opening", url, "in your default browser")
+    except:
+        print("Could not automatically find a browser, open", url, "in a browser")
+    web.serve(host, port)
 
-
-def run():
+def run(addr:tuple[str, int]=(web.HOST, web.PORT)):
     print("reading plugin list")
     plugin_list = plugins.read_plugin_data()
     plugin_enabled_count = sum(1 for plugin in plugin_list.values() if plugin.module is not None and plugin.startup_load)
@@ -42,7 +70,7 @@ def run():
     print("starting web server")
     e = None
     try:
-        web.serve()
+        web.serve(host=addr[0], port=addr[1])
     except KeyboardInterrupt:
         pass
     except Exception as _e:
@@ -61,9 +89,11 @@ if __name__ == "__main__":
         print("You must create an oauth_twitch.json file with your twitch application's Client-Id and Client-Secret.")
     elif "Token" not in oauth:
         try:
-            get_auth_token(oauth)
+            addr = get_addr()
+            get_auth_token(oauth, addr)
         except KeyboardInterrupt:
             pass
         exit(0)
     else:
-        run()
+        addr = get_addr()
+        run(addr)
