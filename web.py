@@ -138,7 +138,7 @@ def api_configs():
 
 @api.get("/configs/meta")
 def api_configs_meta():
-    combined = {}
+    combined = {"": plugins.CORE_CONFIGS_META}
     for name, plugin in plugins.shared_plugins_list.items(): #if plugins.shared_plugins_list is None, raises an AttributeError and results in a 500
         if plugin.module is not None: #is enabled
             meta_type, meta_value = plugin.meta_target

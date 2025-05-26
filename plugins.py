@@ -100,7 +100,7 @@ def _handle_types(types_data:dict[str]):
                 else: #has anyfield
                     anyfield = _type_assert(type_info.get("anyfield", None), f"{type_name} anyfield", dict, can_be_none=False)
                     type_info["anyfield"] = _handle_types(anyfield)
-        elif type_name == "list":
+        elif type_name == TYPE_NAME_LIST:
             if isinstance(type_info, dict):
                 list_types = type_info.get("types", None)
                 _type_assert(list_types, f"{type_name} types", dict, can_be_none=False)
@@ -621,3 +621,89 @@ def generate_load_order(plugin_list:dict[str, Plugin])->list[str]:
     # _generate_order_rec(None, plugin_list, order, set())
     # return order
     return _generate_order_queuesim(plugin_list)
+
+
+CORE_CONFIGS_META = dict(
+    description="Most basic configurations that are built in to the bot, independent of any plugin.",
+    configs={
+        "Prefix": dict(
+            key="Prefix",
+            name="Twitch Bot Command Prefix",
+            description="The command prefix which the twitch bot will operate with.",
+            types={TYPE_NAME_STRING: True}
+        ),
+        "Channels": dict(
+            key="Channels",
+            name="Twitch Bot Operating Channels",
+            description="Names of the channels which the twitch bot will operate in.",
+            types={
+                TYPE_NAME_LIST: {"types": {TYPE_NAME_STRING: True}},
+                TYPE_NAME_NULL: True,
+            }
+        ),
+        "Links": dict(
+            key="Links",
+            name="Twitch Bot Link Commands",
+            description="Creates commands for the twitch bot that have the bot send the given text (intended to be a link).",
+            types={
+                TYPE_NAME_OBJECT: {"anyfield": {TYPE_NAME_STRING: True}},
+                TYPE_NAME_NULL: TYPE_COMMAND_EXCLUDE
+            },
+            optional=True
+        ),
+        "Style": dict(
+            key="Style",
+            name="Appearance Configs",
+            description="Allows for customization of the web interface's appearance.",
+            types={
+                TYPE_NAME_OBJECT: {
+                    "fields": {
+                        "text_color": dict(
+                            key="text_color",
+                            name="Text Color",
+                            description="The css color for the most text.",
+                            types={TYPE_NAME_STRING: True},
+                            optional=True
+                        ),
+                        "background_color": dict(
+                            key="background_color",
+                            name="Background Color",
+                            description="The css color for the page's background.",
+                            types={TYPE_NAME_STRING: True},
+                            optional=True
+                        ),
+                        "primary_foreground_color": dict(
+                            key="primary_foreground_color",
+                            name="Primary Foreground Color",
+                            description="The css color for foreground elements.",
+                            types={TYPE_NAME_STRING: True},
+                            optional=True
+                        ),
+                        "secondary_foreground_color": dict(
+                            key="secondary_foreground_color",
+                            name="Secondary Foreground Color",
+                            description="A second css color for foreground elements.",
+                            types={TYPE_NAME_STRING: True},
+                            optional=True
+                        ),
+                        "fonts": dict(
+                            key="fonts",
+                            name="Fonts",
+                            description="A list of css font families to use for most text.",
+                            types={
+                                TYPE_NAME_LIST: {
+                                    "types": {TYPE_NAME_STRING: True}
+                                },
+                                TYPE_NAME_STRING: True,
+                                TYPE_NAME_NULL: TYPE_COMMAND_EXCLUDE
+                            },
+                            optional=True
+                        )
+                    }
+                },
+                TYPE_NAME_NULL: TYPE_COMMAND_EXCLUDE
+            },
+            optional=True
+        )
+    }
+)

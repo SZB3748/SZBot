@@ -6,3 +6,34 @@ main section.interface:not(.show) {
     width: max(50vw, 400px);
     height: max(50vh, 300px);
 }
+
+.field {
+    margin-left: 2rem;
+    padding: 0.75rem 0.5rem;
+    padding-right: 0;
+    border-left: 2px solid #777;
+    border-top: 2px solid #777;
+}
+
+.field-controls {
+    padding-left: 0.5rem;
+    display: flex;
+    flex-direction: row;
+}
+
+.field-controls > select {
+    height: fit-content;
+}
+
+.field-controls > button {
+    height: fit-content;
+}
+
+.field-inputs > * {
+    display: flex;
+    flex-direction: column;
+}
+
+.field-inputs > *:not(.show) {
+    display: none;
+}

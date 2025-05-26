@@ -43,7 +43,12 @@
                         },
                         "Output-Device": {
                             "name": "Output Device",
-                            "description": "Name of the output device to play audio to. Default is the desktop audio device. VB-Cable and Voicemeeter (or something equivalent) is recommended."
+                            "description": "Name of the output device to play audio to. Default is the desktop audio device. VB-Cable and Voicemeeter (or something similar) is recommended.",
+                            "types": {
+                                "string": true,
+                                "null": "exclude"
+                            },
+                            "optional": true
                         }
                     }
                 }
