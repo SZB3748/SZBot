@@ -130,19 +130,26 @@ function groupMetaFields(metas) {
     return [grouping, backmap];
 }
 
-function addType(value, dest, fieldname, metafield, pluginName) {
-    
-}
-
 /**
  * @param {any} configs
  * @param {HTMLElement} dest
  * @param {string} fieldname
+ * @param {MetaField} metafield
  * @param {string} pluginName
- * @returns {Map<string, (remove: boolean|undefined) => void>}
  */
 function addAllTypes(configs, dest, fieldname, metafield, pluginName) {
-    
+    if (metafield == undefined) {
+        metafield = {types:{}};
+    }
+    if (metafield.types == undefined) {
+        metafield.types = {};
+    }
+    for (const typename of ["null", "boolean", "string", "integer", "float", "object", "list"]) {
+        if (!metafield.types[typename]) {
+            metafield.types[typename] = true;
+        }
+    }
+    return addMetaTypes(configs, dest, fieldname, metafield, pluginName);
 }
 
 /**
