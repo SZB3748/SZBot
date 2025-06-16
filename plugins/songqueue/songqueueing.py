@@ -1,12 +1,14 @@
 from . import playlist
 import config
-from datetime import timedelta
+from datetime import datetime, timedelta
 import events
 from io import TextIOWrapper
+import json
 import os
 import plugins
 import random
 import re
+import requests
 import string
 import subprocess
 import threading
@@ -14,6 +16,7 @@ import time
 from types import TracebackType
 from typing import MutableSequence
 import vlc
+import websocket
 
 THUMBNAILS_DIR = "thumbnails"
 CURRENT_FILE = "CURRENT"
@@ -89,6 +92,10 @@ class QueueDataEvent(events.Event):
             "b_track": b_track
         })
 
+    def to_song(self)->QueuedSong:
+        duration = parse_duration(self.data.get("duration",""))
+        return QueuedSong(self.data.get("id",""), self.data.get("title",""), duration, self.data.get("thumbnail",""), self.data.get("start",0), self.data.get("b_track", False))
+
 
 class QueuedSongEvent(QueueDataEvent):
     event_name = "songqueue:queue_song"
@@ -103,6 +110,9 @@ class QueuedSongEvent(QueueDataEvent):
 
 class PlaySongEvent(QueueDataEvent):
     event_name = "songqueue:play_song"
+
+class EndSongEvent(QueueDataEvent):
+    event_name = "songqueue:end_song"
 
 def parse_duration(s:str)->timedelta|None:
     duration_parts = s.split(":")
@@ -177,51 +187,100 @@ def get_playlist_song(url:str, number:str)->QueuedSong|None:
     else:
         print(f"Failed to get video ID for playlist video #{number}")
 
+class SongProgressTracker:
+    def __init__(self, duration:timedelta=timedelta(seconds=0), current:int|float=0):
+        self.duration = duration
+        self.current = current
+        self.last_at:datetime = None
+        self._flag = threading.Event()
+        self._paused = False
+
+    def reset(self, duration:timedelta=timedelta(seconds=0), current:int|float=0):
+        self.duration = duration
+        self.current = current
+        self.last_at = None
+        self._flag.clear()
+        self._paused = False
+
+    def play(self):
+        self.last_at = datetime.now()
+        self._paused = False
+
+    def pause(self):
+        now = datetime.now()
+        if self.last_at is not None:
+            self.current += (now - self.last_at).total_seconds()
+            self.last_at = None
+        self._flag.set()
+        self._paused = True
+    
+    def end(self):
+        self.current = self.duration.total_seconds()
+        self.last_at = None
+        self._flag.set()
+        
+    def get_elapsed(self)->float:
+        now = datetime.now()
+        if self.last_at is None:
+            return self.current
+        else:
+            return self.current + (now - self.last_at).total_seconds()
+        
+    def set_elapsed(self, secondsOrTimedelta:float|timedelta):
+        now = datetime.now()
+        self.current = secondsOrTimedelta.total_seconds() if isinstance(secondsOrTimedelta, timedelta) else secondsOrTimedelta
+        if self.last_at is not None:
+            self.last_at = now
+        self._flag.set() #let wait_until know to wait with a different timeout
+        
+    def get_remaining(self)->float:
+        return self.duration.total_seconds() - self.get_elapsed()
+
+    def is_playing(self):
+        return not self._paused and self.last_at is not None
+    
+    def is_paused(self):
+        return self._paused and self.last_at is None
+
+    def is_not_ended(self):
+        return self.get_elapsed() < (self.duration.total_seconds() - 1)
+
+    def is_ended(self):
+        return self.get_elapsed() >= (self.duration.total_seconds() - 1)
+    
+    def wait_until(self, timeout_on_pause:bool=False):
+        self._flag.clear()
+        while self.is_not_ended():
+            if self._flag.wait(self.get_remaining()):
+                if timeout_on_pause and self.last_at is None:
+                    break
+                self._flag.clear()
+        return self._flag.is_set()
+
 class SongQueue:
     """Class that handles waiting for songs in a queue file and playing them through a vlc instance."""
     def __init__(self, queue_file:str=QUEUE_FILE, current_file:str=CURRENT_FILE, next_file:str=NEXT_FILE):
         self.stop_loop = threading.Event()
-        self.song_done = threading.Event()
         self.queue_populated = threading.Event()
         self.queue_lock = threading.Lock()
         self.queue_file = queue_file
         self.current_file = current_file
         self.next_file = next_file
-        self.vlc_instance:vlc.Instance = None
-        self.vlc_player:vlc.MediaPlayer = None
         self.b_track_is_current:bool = False
         self.b_track_is_next:bool = False
         self.save_current_to_playlist:bool = True
         self.next_song:QueuedSong = None
         self.current_song:QueuedSong = None
+        self.song_loading_background:subprocess.Popen = None
         self.b_track_playlist:str = None
         self.b_track_index:int = None
         self.b_track_length:int = None
         self.b_track_order:MutableSequence[int] = None
-
-    def init_vlc(self):
-        if self.vlc_instance is None:
-            self.vlc_instance = vlc.Instance("--input-repeat=-1", "--fullscreen", "--file-caching=0")
-        if self.vlc_player is None:
-            self.vlc_player = self.vlc_instance.media_player_new()
+        self.current_tracker = SongProgressTracker()
 
     def open_queue(self, mode:str="r", buffering:int=-1, encoding:str|None=None, errors:str|None=None, newline:str|None=None, closefd:bool=True, opener=None, *args, **kwargs):
         """Allows for the queue lock to be aquired and the queue file to be opened in the same `with` statement."""
         return _QueueFileContextHandler(self.queue_lock, open(self.queue_file, mode, buffering, encoding, errors, newline, closefd, opener, *args, **kwargs))
-
-    #cite: https://stackoverflow.com/a/73886462
-    def get_device(self, name:str):
-        mods = self.vlc_player.audio_output_device_enum()
-        if mods:
-            mod = mods
-            while mod:
-                mod = mod.contents
-                if name in str(mod.description):
-                    vlc.libvlc_audio_output_device_list_release(mods)
-                    return mod.device, mod.description
-                mod = mod.next
-        vlc.libvlc_audio_output_device_list_release(mods)
-        return None, None
 
     def push_queue(self, *vs:QueuedSong)->int:
         with self.open_queue("a+") as f:
@@ -333,14 +392,6 @@ class SongQueue:
         self.b_track_index = (self.b_track_index + delta) % self.b_track_length
         return self.b_track_index
 
-    def load_next_bg(self):
-        try:
-            self.next_song = self.get_next_song()
-            if self.next_song is not None:
-                download_song(self.next_song.url, self.next_file)
-        except KeyboardInterrupt:
-            pass
-
     def ready_song(self):
         if self.b_track_is_next:
             with self.open_queue() as f:
@@ -366,6 +417,8 @@ class SongQueue:
                 self.current_song = v
                 if s.wait():
                     self.current_song = None
+                    if os.path.isfile(self.current_file):
+                        os.remove(self.current_file)
                 elif self.b_track_is_next:
                     self.increment_b_track()
             else:
@@ -379,21 +432,16 @@ class SongQueue:
                     self.increment_b_track()
             
         if self.next_song is None:
-            threading.Thread(target=self.load_next_bg, daemon=True).start()
+            self.next_song = self.get_next_song()
+            if self.next_song is not None:
+                self.song_loading_background = download_song(self.next_song.url, self.next_file)
+
+    def wait_song_load_background(self):
+        if self.song_loading_background:
+            self.song_loading_background.wait()
+            self.song_loading_background = None
 
     def song_cycle(self):
-        self.init_vlc()
-
-        configs_parent = get_configs()
-        configs:dict = configs_parent.get("Song-Queue", {})
-
-        if "Output-Device" in configs:
-            device, _ = self.get_device(configs["Output-Device"])
-            vlc.libvlc_audio_output_device_set(self.vlc_player, None, device)
-        
-        event_manager:vlc.EventManager = self.vlc_player.event_manager()
-        event_manager.event_attach(vlc.EventType.MediaPlayerEndReached, lambda _: self.song_done.set())
-
         if not os.path.isdir(THUMBNAILS_DIR):
             os.mkdir(THUMBNAILS_DIR)
         if not os.path.isfile(self.queue_file):
@@ -411,37 +459,25 @@ class SongQueue:
                     print("Getting next song")
                 if self.stop_loop.is_set():
                     return
+                
+                self.wait_song_load_background()
                 self.ready_song()
-
                 if self.stop_loop.is_set():
                     return
+                
                 if self.current_song and os.path.isfile(self.current_file):
                     cs = self.current_song #keep a reference to the object in case the global reference is changed
                     self.b_track_is_current = self.b_track_is_next
-                    
-                    song:vlc.Media = self.vlc_instance.media_new(self.current_file)
-                    if self.current_song.start and self.current_song.start < self.current_song.duration.total_seconds():
-                        song.add_option(f"start-time={self.current_song.start}")
-                    self.vlc_player.set_media(song)
 
-                    time.sleep(0.25)
-                    if self.stop_loop.is_set():
-                        return
-
-                    self.song_done.clear()
+                    self.current_tracker.reset(cs.duration, cs.start)
                     print(f"Playing Song: [{self.current_song.video_id}] ({self.current_song.duration}) {self.current_song.title}")
-                    self.vlc_player.play()
+                    self.current_tracker.play()
                     events.dispatch(PlaySongEvent.new(self.current_song))
-
-                    self.song_done.wait()
-
-                    if self.vlc_player.is_playing():
-                        print("Stopping", cs.video_id)
-                        self.vlc_player.pause()
+                    self.current_tracker.wait_until()
 
                     print("Stopped", cs.video_id)
-                    self.vlc_player.set_media(None)
                     os.remove(self.current_file)
+                    events.dispatch(EndSongEvent.new(cs))
 
                     if self.save_current_to_playlist:
                         r = add_to_playlist(cs.video_id)
@@ -454,17 +490,11 @@ class SongQueue:
                     self.b_track_is_current = False
         except KeyboardInterrupt:
             pass
-        finally:
-            if self.vlc_player.get_media() is not None:
-                self.vlc_player.pause()
-            self.vlc_player.set_media(None)
 
 def run_song_cycle(queue:SongQueue, daemon:bool=False):
     queue.stop_loop.clear()
-    queue.song_done.clear()
     t = threading.Thread(target=queue.song_cycle, daemon=daemon)
     t.start()
     return t
-
 
 main_queue:SongQueue = None

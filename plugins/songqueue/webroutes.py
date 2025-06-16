@@ -2,7 +2,7 @@ from . import songqueueing
 import config
 from datetime import timedelta
 import events
-from flask import Blueprint, Flask, render_template, request, send_from_directory
+from flask import Blueprint, Flask, render_template, request, send_file, send_from_directory
 import json
 import os
 import random
@@ -33,7 +33,7 @@ def music_interface():
 def music_overlay():
     return render_template("music_overlay.html")
 
-@musicpages.get("/thumbnail/<name>")
+@musicapi.get("/thumbnail/<name>")
 @serve_when_loaded(web_loaded_callback)
 def music_thumbnail(name:str):
     return send_from_directory(songqueueing.THUMBNAILS_DIR, name)
@@ -111,9 +111,12 @@ def api_music_queue_skip():
     if not count_s.isdigit():
         return "Invalid count", 422
     count = int(count_s)
+    next_song_target = 1
     pre_skipped = 0
     if count > 0:
-        if songqueueing.main_queue.current_song is not None:
+        if songqueueing.main_queue.current_song is None:
+            next_song_target -= 1
+        else:
             songqueueing.main_queue.save_current_to_playlist = False
             if npurge:
                 songqueueing.add_to_playlist(songqueueing.main_queue.current_song.video_id)
@@ -122,16 +125,21 @@ def api_music_queue_skip():
             pre_skipped += 1
     else:
         return "0", 200, {"Content-Type": "application/json"}
-    if count > 1:
+    
+    if count > next_song_target:
         if songqueueing.main_queue.next_song is not None:
             if npurge:
                 songqueueing.add_to_playlist(songqueueing.main_queue.next_song.video_id)
+            if songqueueing.main_queue.song_loading_background is not None:
+                songqueueing.main_queue.song_loading_background.kill()
+                songqueueing.main_queue.song_loading_background.wait(0.5)
+                songqueueing.main_queue.song_loading_background = None
             songqueueing.main_queue.next_song = None
             if os.path.isfile(songqueueing.main_queue.next_file):
                 os.remove(songqueueing.main_queue.next_file)
             pre_skipped += 1
     elif pre_skipped: #count == 1 and current was skipped
-        songqueueing.main_queue.song_done.set()
+        songqueueing.main_queue.current_tracker.end()
         return "1", 200, {"Content-Type": "application/json"}
     
     with songqueueing.main_queue.open_queue("r+") as f:
@@ -164,11 +172,12 @@ def api_music_queue_skip():
                 f.write(content)
                 raise
             finally:
-                songqueueing.main_queue.song_done.set()
+                songqueueing.main_queue.current_tracker.end()
         else:
-            songqueueing.main_queue.song_done.set()
+            songqueueing.main_queue.current_tracker.end()
     return str(skip_count), 200, {"Content-Type": "application/json"}
 
+import time
 @musicapi.route("/playerstate", methods=["GET", "POST"])
 @serve_when_loaded(web_loaded_callback)
 def api_music_playerstate():
@@ -178,22 +187,25 @@ def api_music_playerstate():
         if request.method == "POST":
             state = request.form["state"]
             if state == "play":
-                songqueueing.main_queue.vlc_player.play()
+                songqueueing.main_queue.current_tracker.play()
             elif state == "pause":
-                songqueueing.main_queue.vlc_player.pause()
+                songqueueing.main_queue.current_tracker.pause()
             else:
                 return "Invalid playerstate.", 422
             events.dispatch(events.Event("songqueue:change_playerstate", {
                 "state": state,
-                "position": songqueueing.main_queue.vlc_player.get_position() * songqueueing.main_queue.vlc_player.get_length()
+                "position": songqueueing.main_queue.current_tracker.get_elapsed() * 1000 #ms
             }))
         else:
-            state = "play" if songqueueing.main_queue.vlc_player.is_playing() else "pause"
+            state = "play" if songqueueing.main_queue.current_tracker.is_playing() else "pause"
         rtv = json.dumps({
             "state": state,
-            "position": songqueueing.main_queue.vlc_player.get_position() * songqueueing.main_queue.vlc_player.get_length()
+            "position": songqueueing.main_queue.current_tracker.get_elapsed() * 1000 #ms
         })
-    return rtv, 200, {"Content-Type": "application/json"}
+    return rtv, 200, {
+        "Content-Type": "application/json",
+        "Song-Duration": songqueueing.format_duration(songqueueing.main_queue.current_tracker.duration)
+    }
 
 @musicapi.post("/seek")
 @serve_when_loaded(web_loaded_callback)
@@ -205,16 +217,11 @@ def api_musics_seek():
         return "Invalid seconds", 422
     seconds = float(seconds_s)
     if os.path.isfile(songqueueing.main_queue.current_file):
-        song = songqueueing.main_queue.vlc_instance.media_new(songqueueing.main_queue.current_file)
-        song.add_option(f"start-time={seconds}")
-        was_playing = songqueueing.main_queue.vlc_player.is_playing()
+        songqueueing.main_queue.current_tracker.set_elapsed(seconds)
         events.dispatch(events.Event("songqueue:change_playerstate", {
-            "state": "play" if was_playing else "pause",
+            "state": "play" if songqueueing.main_queue.current_tracker.is_playing() else "pause",
             "position": seconds * 1000
         }))
-        songqueueing.main_queue.vlc_player.set_media(song)
-        if was_playing:
-            songqueueing.main_queue.vlc_player.play()
     return "", 200
 
 @musicapi.route("/b-track", methods=["GET", "POST"])
@@ -278,6 +285,13 @@ def api_music_b_track():
         "index": index
     }), 200, {"Content-Type": "application/json"}
 
+@musicapi.get("/song/current")
+@serve_when_loaded(web_loaded_callback)
+def api_music_song_current():
+    if songqueueing.main_queue.current_song is not None and os.path.isfile(songqueueing.CURRENT_FILE):
+        return send_file(songqueueing.CURRENT_FILE, conditional=True)
+    return "", 404
+
 @musicapi.get("/open-queue")
 @serve_when_loaded(web_loaded_callback)
 def api_music_open_queue():
@@ -318,7 +332,7 @@ def api_music_blacklist():
 
     if songqueueing.main_queue.current_song.video_id == id:
         songqueueing.main_queue.current_song = None
-        songqueueing.main_queue.song_done.set()
+        songqueueing.main_queue.current_tracker.end()
     if songqueueing.main_queue.next_song.video_id == id:
         songqueueing.main_queue.next_song = None
     with songqueueing.main_queue.open_queue("r+") as f:

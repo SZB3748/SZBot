@@ -223,10 +223,10 @@ class Plugin:
             self.is_loaded = False
 
 
-LoadEvent = tuple[dict[str, Plugin], Plugin, bool]                              #plugin_list, plugin, is_start
-UnloadEvent = tuple[dict[str, Plugin], Plugin, bool, Exception|None]            #plugin_list, plugin, is_end, exception
-TwitchBotLoadEvent = tuple[dict[str, Plugin], Plugin, bool, Bot]                #plugin_list, plugin, is_start, bot
-TwitchBotUnloadEvent = tuple[dict[str, Plugin], Plugin, bool, Exception|None]   #plugin_list, plugin, is_end, exception
+LoadEvent = tuple[dict[str, Plugin], Plugin, bool, tuple[str, int], str|None, bool]     #plugin_list, plugin, is_start, host_addr, remote_api_addr, api_only
+UnloadEvent = tuple[dict[str, Plugin], Plugin, bool, Exception|None]                    #plugin_list, plugin, is_end, exception
+TwitchBotLoadEvent = tuple[dict[str, Plugin], Plugin, bool, Bot]                        #plugin_list, plugin, is_start, bot
+TwitchBotUnloadEvent = tuple[dict[str, Plugin], Plugin, bool, Exception|None]           #plugin_list, plugin, is_end, exception
 
 
 shared_plugins_list:dict[str, Plugin] = None

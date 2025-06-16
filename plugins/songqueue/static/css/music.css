@@ -60,6 +60,11 @@ a.title {
     flex-direction: row;
 }
 
+#current-container > button {
+    height: fit-content;
+    margin: auto 0;
+}
+
 #current-song {
     width: 50vw;
 }

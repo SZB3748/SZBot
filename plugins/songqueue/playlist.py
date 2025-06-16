@@ -26,7 +26,7 @@ def get_authenticated_service():
             try:
                 credentials.refresh(Request())
             except RefreshError as e:
-                print("Failed to refresh credentials:", e)
+                print("Failed to refresh Youtube API credentials:", e)
                 credentials = None
         
         if credentials is None:

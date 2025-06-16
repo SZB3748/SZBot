@@ -4,7 +4,6 @@ import io
 import json
 import threading
 from typing import Callable, Self
-import weakref
 
 STATEMAP_FILE = "png_binds.json"
 

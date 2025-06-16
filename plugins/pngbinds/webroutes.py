@@ -197,6 +197,8 @@ def keybinds_events(ws:Server):
                         keylisteners.handle_event(event)
             for event in bucket.dump():
                 ws.send(event.to_json())
+    except KeyboardInterrupt:
+        ws.close()
     finally:
         keyevents.remove_bucket(bucket)
 

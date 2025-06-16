@@ -116,7 +116,7 @@ function setCurrentSong(queued) {
     const currentDurationLabel = document.querySelector("#persistent .current-duration");
     const duration = document.querySelector("#persistent .duration");
 
-    icon.src =  "/music/thumbnail/"+queued.thumbnail;
+    icon.src =  "/api/music/thumbnail/"+queued.thumbnail;
     title.innerText = queued.title;
     currentDurationLabel.innerText = formatDuration(playerState.position / 1000);
     duration.innerText = queued.duration;
@@ -142,7 +142,7 @@ function runToast(action, queued) {
     const duration = document.querySelector("#toast .duration");
 
     actionSpan.innerText = action + " • • •";
-    icon.src =  queued.thumbnail ? "/music/thumbnail/"+queued.thumbnail : "/static/music/img/dumbass.webp";
+    icon.src =  queued.thumbnail ? "/api/music/thumbnail/"+queued.thumbnail : "/static/music/img/dumbass.webp";
     title.innerText = queued.title;
     duration.innerText = queued.duration ? `${formatDuration(queued.start)} / ${queued.duration}` : "";
 
@@ -199,6 +199,11 @@ events.addEventListener("message", ev => {
                 data: event.data
             });
         break;
+    case "songqueue:end_song":
+        if (updateProgress)
+            clearInterval(updateProgress);
+        updateProgress = null;
+        break;
     case "songqueue:queue_song":
         if (event.data.success === false)
             toastQueue.push({
@@ -231,5 +236,5 @@ window.addEventListener("load", async () => {
     if (persistentParam !== null && persistentParam.trim().toLowerCase() !== "false")
         updatePersistence(true);
     const notifyBTrackParam = params.get("notify-b-track");
-    notifyBTrack = notifyBTrackParam.trim().toLowerCase() === "true";
+    notifyBTrack = notifyBTrackParam != null && notifyBTrackParam.trim().toLowerCase() === "true";
 });

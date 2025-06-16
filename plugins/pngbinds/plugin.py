@@ -12,8 +12,9 @@ KEYBOARD_LISTENER_FILE = os.path.join(DIR, "keyboard_listener.py")
 
 keyboard_listener_proc:subprocess.Popen = None
 
-def run_keyboard_listener():
-    return subprocess.Popen([sys.executable, KEYBOARD_LISTENER_FILE, "ws://localhost:6742/api/pngbinds/events"])
+def run_keyboard_listener(api_host_address:str, secure_api:bool=False):
+    s = "s" * secure_api
+    return subprocess.Popen([sys.executable, KEYBOARD_LISTENER_FILE, f"ws{s}://{api_host_address}/api/pngbinds/events"])
 
 #can be overriden
 def create_navigator(statemap:statemapping.StateMap, default_state:str,
@@ -23,7 +24,7 @@ def create_navigator(statemap:statemapping.StateMap, default_state:str,
 def on_load(ctx:plugins.LoadEvent):
     global keyboard_listener_proc
 
-    _, plugin, _, *_ = ctx
+    _, plugin, _, host_addr, remote_api, api_only, *_ = ctx
 
     if not os.path.isdir(medialist.MEDIA_DIR):
         os.mkdir(medialist.MEDIA_DIR)
@@ -31,14 +32,16 @@ def on_load(ctx:plugins.LoadEvent):
     webroutes.meta = plugin.meta
     webroutes.web_loaded = True
 
-    keyboard_listener_proc = run_keyboard_listener()
+    if not api_only:
+        keyboard_listener_proc = run_keyboard_listener(f"{host_addr[0]}:{host_addr[1]}", host_addr[1] == 443)
 
 def on_unload(ctx:plugins.UnloadEvent):
-    webroutes.keyevents.dispatch(events.Event("cleanup"))
-    webroutes.nav_stack = None
-    webroutes.dispatch_state_change_event()
     webroutes.web_loaded = False
-    keyboard_listener_proc.terminate()
+    if keyboard_listener_proc is not None:
+        webroutes.nav_stack = None
+        webroutes.keyevents.dispatch(events.Event("cleanup"))
+        webroutes.dispatch_state_change_event()
+        keyboard_listener_proc.terminate()
 
 
 webroutes.add_routes(web.app, web.api)

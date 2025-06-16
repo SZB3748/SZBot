@@ -247,7 +247,9 @@ def init_bot(old_bot:Bot|None=None):
 def ws_on_open(ws):
     print("connected to events socket")
 
-def ws_on_message(ws, msg:str|bytes):
+def ws_on_message(ws, msg:str|bytearray|memoryview):
+    if isinstance(msg, memoryview):
+        msg = msg.tobytes()
     print("events socket message:", msg)
     data = json.loads(msg)
     event = events.Event(**data)
@@ -256,7 +258,7 @@ def ws_on_message(ws, msg:str|bytes):
 def ws_on_error(ws, e:Exception):
     print(f"events socket error ({type(e).__name__}): {e}")
 
-def ws_on_close(ws, status_code, msg:str|bytes):
+def ws_on_close(ws, status_code, msg:str|bytearray|memoryview):
     print("disconnected from events socket")
 
 def ws_run():

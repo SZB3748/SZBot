@@ -135,7 +135,6 @@ def handle_socket_event(name:str, data:dict[str]):
                 frame = frame.prev
             nav.bind_frame(nav.stack)
         nav.statemap = statemap
-        print(nav.statemap)
     elif name == "default_state_update":
         name:str|None = data.get("name", None)
         if name is None or isinstance(name, str):

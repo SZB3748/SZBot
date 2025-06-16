@@ -201,7 +201,7 @@ function populateSongItem(elm, num, data) {
     duration.classList.add("duration");
 
     marker.innerText = num + ".";
-    icon.src = "/music/thumbnail/"+data.thumbnail;
+    icon.src = "/api/music/thumbnail/"+data.thumbnail;
     title.href = "https://youtube.com/watch?v=" + data.id;
     title.title = data.id;
     title.target = "_blank";
@@ -245,7 +245,7 @@ function updateQueueVisuals(state) {
 
 
             icon.classList.add("icon");
-            icon.src = "/music/thumbnail/"+state.current.thumbnail;
+            icon.src = "/api/music/thumbnail/"+state.current.thumbnail;
             
             title.classList.add("title");
             title.href = "https://youtube.com/watch?v=" + state.current.id;
@@ -338,6 +338,8 @@ events.addEventListener("message", ev => {
             state: "play",
             position: event.data.start * 1000
         };
+        if (!updateProgress)
+            updateProgress = setInterval(updateProgressCallback(), 100);
     case "songqueue:queue_song":
         if (event.data.success !== false)
             refreshState();
