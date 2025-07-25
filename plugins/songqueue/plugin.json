@@ -87,5 +87,13 @@
             },
             "optional": true
         }
+    },
+    "components": {
+        "interface": ["normal", "remote", null],
+        "overlay": ["normal", "remote", null],
+        "api": ["normal", "remote", null],
+        "twitchbot:commands": ["normal", null],
+        "songqueue": ["normal", null],
+        "songplayer": ["normal", "remote", null]
     }
 }

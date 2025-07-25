@@ -1,7 +1,7 @@
 from . import soundrequesting
 from flask import Blueprint, Flask, request, send_file
 import os
-from web import serve_when_loaded
+from web import add_bp_if_new, serve_when_loaded
 
 DIR = os.path.dirname(__file__)
 STATIC_DIR = os.path.join(DIR, "static")
@@ -41,18 +41,6 @@ def request_sound():
     soundrequesting.invoke_handler()
     return "", 201
 
-def _add_if_no_bp(t:Flask|Blueprint, bp:Blueprint):
-    if isinstance(t, Flask):
-        it = t.blueprints.values()
-    else:
-        it = (b for b, _ in t._blueprints)
-
-    for b in it:
-        if b == bp:
-            return False
-    t.register_blueprint(bp)
-    return True
-
-
-def add_routes(app:Flask, api:Blueprint):
-    _add_if_no_bp(api, soundreqapi)
+def add_routes(api:Blueprint, add_api=True):
+    if add_api:
+        add_bp_if_new(api, soundreqapi)

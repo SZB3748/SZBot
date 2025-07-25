@@ -1,12 +1,17 @@
 config.json
 plugins.json
+plugin_profiles/
 oauth_twitch.json
 oauth_youtube.json
+.tio.tokens.json
 secret.txt
 QUEUE
 CURRENT
 NEXT
+*.part
+*.ytdl
 __pycache__/
+.venv/
 .vscode/
 thumbnails/
 sounds/

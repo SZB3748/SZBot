@@ -35,7 +35,7 @@ async def add_song(ctx:commands.Context, url:str):
 
 async def skip_song(ctx:commands.Context, count:int=1, purge:bool=False):
     """Skips songs in the song queue."""
-    if not ctx.author.is_mod: #also works for broadcaster
+    if not ctx.author.moderator: #also works for broadcaster
         return
     
     count = int(count)
@@ -54,7 +54,7 @@ async def skip_song(ctx:commands.Context, count:int=1, purge:bool=False):
 
 async def pause_song(ctx:commands.Context):
     """Pauses the current song."""
-    if not ctx.author.is_mod:
+    if not ctx.author.moderator:
         return
     async with aiohttp.ClientSession() as session:
         async with session.post(f"{API_ENDPOINT}/music/playerstate", data={"state": "pause"}) as r:
@@ -66,7 +66,7 @@ async def pause_song(ctx:commands.Context):
 
 async def play_song(ctx:commands.Context):
     """Resumes playing the current song."""
-    if not ctx.author.is_mod:
+    if not ctx.author.moderator:
         return
     async with aiohttp.ClientSession() as session:
         async with session.post(f"{API_ENDPOINT}/music/playerstate", data={"state": "play"}) as r:
@@ -78,7 +78,7 @@ async def play_song(ctx:commands.Context):
 
 async def music_persistence(ctx:commands.Context, state:bool=True):
     """Changes the persistence state of the music overlay."""
-    if not ctx.author.is_mod:
+    if not ctx.author.moderator:
         return
     if isinstance(state, bool):
         async with aiohttp.ClientSession() as session:
@@ -89,7 +89,7 @@ async def music_persistence(ctx:commands.Context, state:bool=True):
 
 async def btrack(ctx:commands.Context, url:str=None, index:int=None):
     """Controls the queue's B-Track."""
-    if not ctx.author.is_mod:
+    if not ctx.author.moderator:
         return
     
     async with aiohttp.ClientSession() as session:
@@ -116,7 +116,7 @@ async def btrack(ctx:commands.Context, url:str=None, index:int=None):
 
 async def ban_song(ctx:commands.Context, id:str):
     """Ban the given song ID. Also extracts the ID from a youtube link."""
-    if not ctx.author.is_mod:
+    if not ctx.author.moderator:
         return
 
     async with aiohttp.ClientSession() as session:
@@ -139,7 +139,7 @@ command_list = {
 
 def add_commands(botinstance:commands.Bot):
     for name, func in command_list.items():
-        botinstance.add_command(commands.Command(name=name, func=func, aliases=None, instance=None, no_global_checks=False))
+        botinstance.add_command(commands.Command(name=name, callback=func, aliases=[], bypass_global_guards=False))
 
 def remove_commands(botinstance:commands.Bot):
     for name in command_list.keys():

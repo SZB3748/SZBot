@@ -9,7 +9,7 @@ import random
 import re
 import string
 import subprocess
-from web import serve_when_loaded
+from web import add_bp_if_new, serve_when_loaded
 
 
 DIR = os.path.dirname(__file__)
@@ -21,6 +21,7 @@ web_loaded_callback = lambda: web_loaded
 
 musicpages_parent = Blueprint("musicparent", __name__, static_folder=STATIC_DIR, static_url_path="/static/music")
 musicpages = Blueprint("music", __name__, url_prefix="/music", template_folder=TEMPATES_DIR)
+musicoverlays = Blueprint("musicoverlay", __name__, url_prefix="/music/overlay", template_folder=TEMPATES_DIR)
 musicapi = Blueprint("musicapi", __name__, url_prefix="/music")
 
 @musicpages.get("/")
@@ -28,7 +29,7 @@ musicapi = Blueprint("musicapi", __name__, url_prefix="/music")
 def music_interface():
     return render_template("music.html")
 
-@musicpages.get("/overlay")
+@musicoverlays.get("/")
 @serve_when_loaded(web_loaded_callback)
 def music_overlay():
     return render_template("music_overlay.html")
@@ -177,7 +178,7 @@ def api_music_queue_skip():
             songqueueing.main_queue.current_tracker.end()
     return str(skip_count), 200, {"Content-Type": "application/json"}
 
-import time
+
 @musicapi.route("/playerstate", methods=["GET", "POST"])
 @serve_when_loaded(web_loaded_callback)
 def api_music_playerstate():
@@ -216,7 +217,7 @@ def api_musics_seek():
     if not seconds_s.isdigit():
         return "Invalid seconds", 422
     seconds = float(seconds_s)
-    if os.path.isfile(songqueueing.main_queue.current_file):
+    if songqueueing.main_queue.current_song is not None:
         songqueueing.main_queue.current_tracker.set_elapsed(seconds)
         events.dispatch(events.Event("songqueue:change_playerstate", {
             "state": "play" if songqueueing.main_queue.current_tracker.is_playing() else "pause",
@@ -347,19 +348,12 @@ def api_music_blacklist():
 
     return "", 201
 
-def _add_if_no_bp(t:Flask|Blueprint, bp:Blueprint):
-    if isinstance(t, Flask):
-        it = t.blueprints.values()
-    else:
-        it = (b for b, _ in t._blueprints)
-
-    for b in it:
-        if b == bp:
-            return False
-    t.register_blueprint(bp)
-    return True
-
-def add_routes(app:Flask, api:Blueprint):
-    _add_if_no_bp(musicpages_parent, musicpages)
-    _add_if_no_bp(app, musicpages_parent)
-    _add_if_no_bp(api, musicapi)
+def add_routes(app:Flask, api:Blueprint, add_interface=True, add_overlay=True, add_api=True):
+    if add_interface:
+        add_bp_if_new(musicpages_parent, musicpages)
+    if add_overlay:
+        add_bp_if_new(musicpages_parent, musicoverlays)
+    if add_overlay or add_interface:
+        add_bp_if_new(app, musicpages_parent)
+    if add_api:
+        add_bp_if_new(api, musicapi)

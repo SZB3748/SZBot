@@ -9,7 +9,7 @@ import os
 import plugins
 import shutil
 import traceback
-from web import serve_when_loaded, sock
+from web import add_bp_if_new, serve_when_loaded, sock
 from werkzeug.security import safe_join
 
 DIR = os.path.dirname(__file__)
@@ -76,6 +76,7 @@ def event_stack_update(event:events.Event):
     
 pngbindspages_parent = Blueprint("pngbindsparent", __name__, static_folder=STATIC_DIR, static_url_path="/static/pngbinds")
 pngbindspages = Blueprint("pngbinds", __name__, url_prefix="/pngbinds", template_folder=TEMPATES_DIR)
+pngbindsoverlays = Blueprint("pngbindsoverlay", __name__, url_prefix="/pngbinds/overlay", template_folder=TEMPATES_DIR)
 pngbindsapi = Blueprint("pngbindsapi", __name__, url_prefix="/pngbinds")
 
 @pngbindsapi.route("/statemap.json", methods=["GET", "PUT"])
@@ -212,7 +213,7 @@ def get_current_state():
 def statemap_interface():
     return render_template("states.html")
 
-@pngbindspages.get("/overlay")
+@pngbindsoverlays.get("/")
 @serve_when_loaded(web_loaded_callback)
 def get_overlay():
     return render_template("pngbinds_overlay.html")
@@ -222,19 +223,12 @@ def get_overlay():
 def media_interface():
     return render_template("media.html")
 
-def _add_if_no_bp(t:Flask|Blueprint, bp:Blueprint):
-    if isinstance(t, Flask):
-        it = t.blueprints.values()
-    else:
-        it = (b for b, _ in t._blueprints)
-
-    for b in it:
-        if b == bp:
-            return False
-    t.register_blueprint(bp)
-    return True
-
-def add_routes(app:Flask, api:Blueprint):
-    _add_if_no_bp(pngbindspages_parent, pngbindspages)
-    _add_if_no_bp(app, pngbindspages_parent)
-    _add_if_no_bp(api, pngbindsapi)
+def add_routes(app:Flask, api:Blueprint, add_interface=True, add_overlay=True, add_api=True):
+    if add_interface:
+        add_bp_if_new(pngbindspages_parent, pngbindspages)
+    if add_overlay:
+        add_bp_if_new(pngbindspages_parent, pngbindsoverlays)
+    if add_overlay or add_interface:
+        add_bp_if_new(app, pngbindspages_parent)
+    if add_api:
+        add_bp_if_new(api, pngbindsapi)

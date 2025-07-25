@@ -9,7 +9,7 @@ import json
 import plugins
 import threading
 import traceback
-from typing import Awaitable, Callable
+from typing import Awaitable, Callable, Self
 import twitchio
 from twitchio.ext import commands
 from urllib.parse import quote
@@ -35,38 +35,44 @@ def define_endpoints(host:str, port:int):
 
 parser = argparse.ArgumentParser(description="SZBot twitchbot program.")
 parser.add_argument("-d", "--addr", default=f"{web.HOST}:{web.PORT}")
+parser.add_argument("-p", "--plugin-configs", default=config.PLUGIN_FILE, help="Plugin config file to use.")
 
-def get_addr()->tuple[str, int]:
+def get_args()->tuple[tuple[str, int], str]:
     args = parser.parse_args()
-    addr:str = args.addr
-    if ":" in addr:
-        host, port = addr.split(":", 1)
+    addr_arg:str = args.addr
+    if ":" in addr_arg:
+        host, port = addr_arg.split(":", 1)
+        host = host.strip().lower()
+        # using localhost can cause significant slowdowns for the
+        # API proxy on Windows. cite: https://stackoverflow.com/a/75425128
+        if host == "localhost":
+            host = "127.0.0.1"
         if host and port:
-            if port.isdigit():
-                return host, int(port)
+            if port.isdecimal():
+                addr_arg = host, int(port)
             else:
                 print("Address port must be an integer")
                 exit(-1)
-        elif port and not port.isdigit():
+        elif port and not port.isdecimal():
             print("Address port must be an integer")
             exit(-1)
         else:
-            return host or web.HOST, int(port) if port else web.PORT
-    elif addr.isdecimal():
-        return web.HOST, int(addr)
+            addr_arg = host or web.HOST, int(port) if port else web.PORT
+    elif addr_arg.isdecimal():
+        addr_arg = web.HOST, int(addr_arg)
     else:
-        return addr, web.PORT
+        host = addr_arg.strip().lower()
+        addr_arg = "127.0.0.1" if host == "localhost" else host, web.PORT
+    
+    return addr_arg, args.plugin_configs
 
-def get_prefix(bot:commands.Bot, message:twitchio.Message):
-    configs = config.read()
-    return configs["Prefix"]
 
 def ratelimit(max_times:int, duration:timedelta, limited_callback:Callable[[commands.Context, datetime], Awaitable[None]]|None=None):
-    users:dict[twitchio.PartialChatter|twitchio.Chatter, list[datetime]] = {}
+    users:dict[twitchio.PartialUser|twitchio.Chatter, list[datetime]] = {}
 
     def decor(f:Callable[..., Awaitable]):
         async def wrapper(ctx:commands.Context, *args, **kwargs):
-            if not ctx.author.is_mod:
+            if not ctx.author.moderator:
                 now = datetime.now()
                 if ctx.author in users:
                     times = users[ctx.author]
@@ -107,10 +113,11 @@ value_names = {
 }
 
 OAUTH_SCOPES:set[str] = {
-    "chat:read",
-    "chat:edit",
+    "user:write:chat"
+}
+
+OAUTH_CHANNEL_SCOPES:set[str] = {
     "user:read:chat",
-    "user:write:chat",
     "user:bot",
     "channel:bot"
 }
@@ -146,17 +153,33 @@ def get_command_signature(prefix:str, cmd:commands.Command)->str:
     
     return " ".join(usage_hint)
 
-class Bot(commands.Bot):
-    def __init__(self, configs:dict[str], oauth:dict[str], links_commands:set[str]|None=None):
+class Bot(commands.AutoBot):
+    def __init__(self, client_id, client_secret, bot_id, prefix:str|Callable[[Self, twitchio.ChatMessage], str], subs:list[twitchio.eventsub.SubscriptionPayload]):
         super().__init__(
-            token=oauth["Token"],
-            prefix=get_prefix,
-            client_secret=oauth["Client-Secret"],
-            initial_channels=configs.get("Channels", None) or [],
+            client_id=client_id,
+            client_secret=client_secret,
+            bot_id=bot_id,
+            prefix=prefix,
+            subscriptions=subs,
         )
-        self.links_commands:set[str] = set() if links_commands is None else set(links_commands)
+        self.links_commands:set[str] = set()
+        self.subs = subs
 
     def update_link_commands(self):
+        def newfunc(name:str):
+            async def func(ctx:commands.Context):
+                configs = config.read()
+                if "Links" not in configs:
+                    return
+                links = configs["Links"]
+                if isinstance(links, dict) and name in links:
+                    link = links[name]
+                    if isinstance(link, str):
+                        await ctx.send(link)
+            func.__name__ = f"func_{name}"
+            func.__doc__ = "Sends the associated text in chat."
+            return func
+        
         configs = config.read()
         if "Links" in configs:
             links = configs["Links"]
@@ -164,17 +187,7 @@ class Bot(commands.Bot):
                 sym_difference = self.links_commands ^ set(links.keys()) #values that aren't in both sets
                 for name in sym_difference:
                     if name in links:
-                        async def func(ctx:commands.Context):
-                            configs = config.read()
-                            if "Links" not in configs:
-                                return
-                            links = configs["Links"]
-                            if isinstance(links, dict) and name in links:
-                                link = links[name]
-                                if isinstance(link, str):
-                                    await ctx.send(link)
-                        func.__doc__ = "Sends the associated text in chat."
-                        self.add_command(commands.Command(name=name, func=func, aliases=None, instance=None, no_global_checks=False))
+                        self.add_command(commands.Command(name=name, callback=newfunc(name)))
                         self.links_commands.add(name)
                     elif name in self.links_commands:
                         self.remove_command(name)
@@ -183,66 +196,170 @@ class Bot(commands.Bot):
         for name in self.links_commands:
             self.remove_command(name)
 
-    async def event_command_error(self, ctx: commands.Context, err: Exception):
-        if isinstance(err, (commands.CommandNotFound, commands.MissingRequiredArgument, commands.ArgumentParsingFailed)):
-            await ctx.send("Bad command usage. Use !help <command_name> to view command usage details.")
-            print(type(err).__name__, err)
+    async def setup_hook(self):
+        self.add_listener(self.event_message)
+        await self.add_component(CoreComponent(self))
+
+    async def add_token(self, token:str, refresh:str)->twitchio.authentication.ValidateTokenPayload:
+        resp:twitchio.authentication.ValidateTokenPayload = await super().add_token(token, refresh)
+
+        respdata = {"token": token, "refresh_token": refresh}
+        oauth = config.read(config.OAUTH_TWITCH_FILE)
+        channels = oauth.get("channels", None)
+        user = await self.fetch_user(id=resp.user_id)
+        print("added token for user", user)
+        if isinstance(channels, dict):
+            channels[user.name] = respdata
         else:
-            traceback.print_exception(err)
+            channels = {user.name: respdata}
+        config.write(config_updates={"channels": channels}, path=config.OAUTH_TWITCH_FILE)
 
-    async def event_token_expired(self):
-        oauth = config.read(path=config.OAUTH_TWITCH_FILE)
-        async with aiohttp.ClientSession() as session:
-            async with session.post(f"{TOKEN_REFRESH_ENDPOINT}?client_id={oauth["Client-Id"]}&client_secret={oauth["Client-Secret"]}&grant_type=refresh_token&refresh_token={quote(oauth["Refresh-Token"])}") as r:
-                if r.ok:
-                    j = await r.json()
-                    token:str = j["access_token"]
-                    config.write(config_updates={
-                        "Token": token,
-                        "Refresh-Token": j["refresh_token"]
-                    }, path=config.OAUTH_TWITCH_FILE)
-                    return token
-                else:
-                    print(await r.text())
-                    if "Token" in oauth:
-                        del oauth["Token"]
-                    del oauth["Refresh-Token"]
-                    config.write(new_configs=oauth, path=config.OAUTH_TWITCH_FILE)
-                    return None
-                
     async def event_ready(self):
-        print("bot running")
+        oauth = config.read(path=config.OAUTH_TWITCH_FILE)
+        channels = oauth.get("channels",None)
+        if isinstance(channels, dict):
+            for d in channels.values():
+                if isinstance(d, dict):
+                    await self.add_token(d["token"], d["refresh_token"])
+        resp:twitchio.MultiSubscribePayload = await self.multi_subscribe(self.subs)
+        if resp.errors:
+            print("Failed to subscribe to", repr(resp.errors))
+        else:
+            print("Successfully subscribed")
+        print("twitch bot ready")
 
-    async def event_message(self, message:twitchio.Message):
-        if message.author is None: #bot message
+    async def event_message(self, message:twitchio.ChatMessage) -> None:      
+        print(datetime.now().strftime("[%Y-%M-%d %H:%M:%S]"), f"<{message.broadcaster}> {message.chatter}: {message.text}")
+        if message.chatter.id == self.bot_id:
+            return
+        self.update_link_commands()
+        await self.process_commands(message)
+
+    async def event_command_error(self, payload:commands.CommandErrorPayload):
+        if isinstance(payload.exception, (commands.CommandNotFound, commands.ArgumentError)):
+            await payload.context.send("Bad command usage. Use !help <command_name> to view command usage details.")
+            print("command error:", type(payload.exception).__name__, payload.exception)
+
+
+class CoreComponent(commands.Component):
+    def __init__(self, bot:Bot):
+        self.bot = bot
+
+    @commands.command(name="help")
+    async def help_command(self, ctx:commands.Context, command_name:str=None):
+        """Lists and describes commands."""
+        if command_name is None:
+            await ctx.send("Commands: " + ", ".join(bot.commands.keys()))
+        else:
+            cmd = bot.commands.get(command_name, None)
+            if isinstance(cmd, commands.Command):
+                signature = get_command_signature(ctx.prefix, cmd)
+                r = []
+                doc = cmd._callback.__doc__
+                if doc:
+                    r.append(doc)
+                r.append(f"Usage: {signature}")
+                await ctx.send(" ".join(r))
+            else:
+                await ctx.send(f"Command {command_name} does not exist.")
+
+    @commands.command(name="links")
+    async def links_command(self, ctx:commands.Context):
+        """Lists names of all link commands."""
+        if bot.links_commands:
+            await ctx.send(", ".join(name for name in bot.links_commands))
+
+    @commands.command(name="pload")
+    async def plugin_load(self, ctx:commands.Context, name:str):
+        """Loads a plugin with the give name."""
+        if not ctx.author.moderator:
             return
         
-        print(datetime.now().strftime("[%Y-%M-%d %H:%M:%S]"), f"{message.author}: {message.content}")
-        self.update_link_commands()
-        await self.handle_commands(message)
+        plugin = plugins.shared_plugins_list.get(name, None)
+        if plugin is not None:
+            if plugin.module is None:
+                await ctx.send(f"Plugin {name} is disabled")
+                return
+            plugin.twitch_bot_load(plugins.TwitchBotLoadEvent(plugins.shared_plugins_list, plugin, pconfig_path, False, bot))
+            r = await pload_request("load", name)
+            if r.ok:
+                await ctx.send(f"Loaded plugin {name}")
+                return
+            else:
+                print(f"[fail] /api/plugins/load name={name} ({r.status})")
+        await ctx.send(f"Failed to load plugin {name}")
 
+    @commands.command(name="punload")
+    async def plugin_unload(self, ctx:commands.Context, name:str):
+        """Unloads a plugin with the given name."""
+        if not ctx.author.moderator:
+            return
+        
+        plugin = plugins.shared_plugins_list.get(name, None)
+        if plugin is not None:
+            if plugin.module is None:
+                await ctx.send(f"Plugin {name} is disabled")
+                return
+            plugin.twitch_bot_unload(plugins.TwitchBotUnloadEvent(plugins.shared_plugins_list, plugin, False, None))
+            r = await pload_request("unload", name)
+            if r.ok:
+                await ctx.send(f"Unloaded plugin {name}")
+                return
+            else:
+                print(f"[fail] /api/plugins/unload name={name} ({r.status})")
+        await ctx.send(f"Failed to unload plugin {name}")
 
 async def pload_request(action:str, name:str):
     async with aiohttp.ClientSession() as session:
         async with session.post(f"{API_ENDPOINT}/plugins/{action}", data={"name": name}) as r:
             return r
 
+def get_init_ids(client_id, client_secret, bot_name:str, channels:list[str])->tuple[str, list[twitchio.User]]:
+    async def _func():
+        async with twitchio.Client(client_id=client_id, client_secret=client_secret) as client:
+            await client.login()
+            botusr = await client.fetch_user(login=bot_name)
+            if channels:
+                channel_ids = await client.fetch_users(logins=channels)
+            else:
+                channel_ids = []
+            return None if botusr is None else botusr.id, channel_ids
+    _loop = asyncio.new_event_loop()
+    rtv = _loop.run_until_complete(_func())
+    _loop.close()
+    return rtv
+
 #set up the bot
 def init_bot(old_bot:Bot|None=None):
-    configs = config.read()
+    m = plugins.parse_plugin_meta(plugins.CORE_CONFIGS_META)
+    c = plugins.config_apply_meta(config.read(), m.configs)
     oauth = config.read(path=config.OAUTH_TWITCH_FILE)
+    identity = oauth.get("identity", None)
 
-    if not ("Token" in oauth and "Client-Secret" in oauth and "Prefix" in configs):
+    if not (isinstance(identity, dict) and "Token" in identity and "Client-Id" in identity and "Client-Secret" in identity and "Prefix" in c):
         return None
+    
+    client_id = identity.get("Client-Id")
+    client_secret = identity.get("Client-Secret")
+    bot_name = identity.get("Bot-Name")
+    channels = oauth.get("channels", None)
 
-    newbot = Bot(configs, oauth)
+    bot_id, ids = get_init_ids(client_id, client_secret, bot_name, list(channels.keys()) if isinstance(channels, dict) else None)
+    subs = [twitchio.eventsub.ChatMessageSubscription(broadcaster_user_id=user.id, user_id=bot_id) for user in ids]
+
+    bot = Bot(client_id, client_secret, bot_id, c["Prefix"], subs)
+
+
     if old_bot is not None:
-        for cog in old_bot._cogs.values():
-            newbot.add_cog(cog)
+        old_bot.close()
+        for cog in old_bot._components.values():
+            bot.add_component(cog)
         for command in old_bot._commands.values():
-            newbot.add_command(command)
-        newbot._modules.update(old_bot._modules)
-    return newbot
+            bot.add_command(command)
+        bot.__modules.update(old_bot.__modules)
+
+    return bot
+
 
 def ws_on_open(ws):
     print("connected to events socket")
@@ -256,7 +373,8 @@ def ws_on_message(ws, msg:str|bytearray|memoryview):
     events.handle_event(event)
 
 def ws_on_error(ws, e:Exception):
-    print(f"events socket error ({type(e).__name__}): {e}")
+    print(f"events socket error ({type(e).__name__}):")
+    traceback.print_exception(e)
 
 def ws_on_close(ws, status_code, msg:str|bytearray|memoryview):
     print("disconnected from events socket")
@@ -267,26 +385,15 @@ def ws_run():
     except KeyboardInterrupt:
         pass
 
-async def main(retry:bool=True):
-    global bot
-    try:
-        await bot.start()
-    except twitchio.errors.AuthenticationError as e:
-        print(type(e).__name__, e)
-        if not retry:
-            return
-        token = await bot.event_token_expired()
-        if token is None:
-            print("Failed to refresh token. Make sure Token is removed from config.json and run the main script to generate a new token.")
-        else:
-            print("New token generated. Attempting to start bot again.")
-            bot = init_bot(old_bot=bot)
-            await main(retry=False)
-    except KeyboardInterrupt:
-        pass
+async def main():
+    await bot.start(load_tokens=False)
+
+__addr = (web.HOST, web.PORT)
 
 if __name__ == "__main__":
-    define_endpoints(*get_addr())
+    addr, pconfig_path = get_args()
+    __addr = addr
+    define_endpoints(*addr)
 
     #assign __main__ over twitchbot so importing twitchbot imports __main__ instead
     #and the redefinition of the endpoints is used by plugins instead of the defaults
@@ -306,72 +413,8 @@ if __name__ == "__main__":
         on_error=ws_on_error, on_close=ws_on_close
     )
 
-    @bot.command(name="help")
-    async def help_command(ctx:commands.Context, command_name:str=None):
-        """Lists and describes commands."""
-        if command_name is None:
-            await ctx.send("Commands: " + ", ".join(bot.commands.keys()))
-        else:
-            cmd = bot.commands.get(command_name, None)
-            if isinstance(cmd, commands.Command):
-                signature = get_command_signature(ctx.prefix, cmd)
-                r = []
-                doc = cmd._callback.__doc__
-                if doc:
-                    r.append(doc)
-                r.append(f"Usage: {signature}")
-                await ctx.send(" ".join(r))
-            else:
-                await ctx.send(f"Command {command_name} does not exist.")
-
-    @bot.command(name="links")
-    async def links_command(ctx:commands.Context):
-        """Lists names of all link commands."""
-        if bot.links_commands:
-            await ctx.send(", ".join(name for name in bot.links_commands))
-
-    @bot.command(name="pload")
-    async def plugin_load(ctx:commands.Context, name:str):
-        """Loads a plugin with the give name."""
-        if not ctx.author.is_mod:
-            return
-        
-        plugin = plugins.shared_plugins_list.get(name, None)
-        if plugin is not None:
-            if plugin.module is None:
-                await ctx.send(f"Plugin {name} is disabled")
-                return
-            plugin.twitch_bot_load((plugins.shared_plugins_list, plugin, False, bot))
-            r = await pload_request("load", name)
-            if r.ok:
-                await ctx.send(f"Loaded plugin {name}")
-                return
-            else:
-                print(f"[fail] /api/plugins/load name={name} ({r.status})")
-        await ctx.send(f"Failed to load plugin {name}")
-
-    @bot.command(name="punload")
-    async def plugin_unload(ctx:commands.Context, name:str):
-        """Unloads a plugin with the given name."""
-        if not ctx.author.is_mod:
-            return
-        
-        plugin = plugins.shared_plugins_list.get(name, None)
-        if plugin is not None:
-            if plugin.module is None:
-                await ctx.send(f"Plugin {name} is disabled")
-                return
-            plugin.twitch_bot_unload((plugins.shared_plugins_list, plugin, False, None))
-            r = await pload_request("unload", name)
-            if r.ok:
-                await ctx.send(f"Unloaded plugin {name}")
-                return
-            else:
-                print(f"[fail] /api/plugins/unload name={name} ({r.status})")
-        await ctx.send(f"Failed to unload plugin {name}")
-
     print("reading plugin list")
-    plugin_list = plugins.read_plugin_data()
+    plugin_list = plugins.read_plugin_data(pconfig_path)
     plugin_enabled_count = sum(1 for plugin in plugin_list.values() if plugin.module is not None)
     print("read", len(plugin_list), "plugins with", plugin_enabled_count, "enabled plugins")
     print("generating plugin load order")
@@ -380,7 +423,7 @@ if __name__ == "__main__":
     for plugin_name in load_order:
         plugin = plugin_list[plugin_name]
         if plugin.module is not None and plugin.startup_load:
-            plugin.twitch_bot_load((plugin_list, plugin, True, bot))
+            plugin.twitch_bot_load(plugins.TwitchBotLoadEvent(plugin_list, plugin, pconfig_path, True, bot))
     print("loaded plugins")
     plugins.shared_plugins_list = plugin_list
 
@@ -388,10 +431,9 @@ if __name__ == "__main__":
     ws_thread = threading.Thread(target=ws_run)
     ws_thread.start()
 
-    loop = asyncio.get_event_loop()
     e = None
     try:
-        loop.run_until_complete(main())
+        asyncio.run(main())
     except KeyboardInterrupt:
         print("^C")
     except Exception as _e:
@@ -401,7 +443,7 @@ if __name__ == "__main__":
     print("unloading enabled plugins")
     for plugin in plugin_list.values():
         if plugin.module is not None:
-            plugin.twitch_bot_unload((plugin_list, plugin, True, e))
+            plugin.twitch_bot_unload(plugins.TwitchBotUnloadEvent(plugin_list, plugin, True, e))
     print("unloaded plugins")
 
     ws.close()

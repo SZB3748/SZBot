@@ -3,20 +3,15 @@ import config
 from datetime import datetime, timedelta
 import events
 from io import TextIOWrapper
-import json
 import os
 import plugins
 import random
 import re
-import requests
 import string
 import subprocess
 import threading
-import time
 from types import TracebackType
 from typing import MutableSequence
-import vlc
-import websocket
 
 THUMBNAILS_DIR = "thumbnails"
 CURRENT_FILE = "CURRENT"

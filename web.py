@@ -1,8 +1,10 @@
+import requests.auth
 import config
 import events
 from flask import abort, Blueprint, Flask, render_template, request, Response, send_file, stream_with_context
 from flask_sock import Server, Sock
 from gevent.pywsgi import WSGIServer
+import inspect
 import json
 from markupsafe import Markup
 import plugins
@@ -19,9 +21,9 @@ SECRET_FILE = "secret.txt"
 API_PROXY_BUFFER_SIZE = 8192
 
 DEFAULT_STYLES_FONT = "\"Fragment Mono\""
-DEFAULT_STYLES_BG_COLOR = "#000"
-DEFAULT_STYLES_TEXT_COLOR = "#fff"
-DEFAULT_STYLES_FG_COLOR = "#7f0"
+DEFAULT_STYLES_BG_COLOR = "#000000"
+DEFAULT_STYLES_TEXT_COLOR = "#ffffff"
+DEFAULT_STYLES_FG_COLOR = "#77ff00"
 DEFAULT_STYLES_FG2_COLOR = "#041f00"
 DEFAULT_STYLES = f"""\
     font-family: {DEFAULT_STYLES_FONT};
@@ -71,7 +73,7 @@ def load_config_styles_css()->str:
 
 __host_addr = None
 __remote_api_addr = None
-__api_only = None
+__pconfig_path = None
 
 def serve_when_loaded(loaded_callback:Callable[[], bool], unloaded_error_code:int=404):
     def decor(f:Callable):
@@ -90,6 +92,8 @@ def serve_when_loaded(loaded_callback:Callable[[], bool], unloaded_error_code:in
 
 app = Flask(__name__)
 api = Blueprint("api", __name__, url_prefix="/api")
+coreinterface = Blueprint("core_interface", __name__)
+coreapi = Blueprint("core_api", __name__)
 app.jinja_env.globals["load_config_styles"] = load_config_styles_css
 app.url_map.strict_slashes = False
 app.jinja_env.auto_reload = True
@@ -98,17 +102,19 @@ with open(SECRET_FILE) as f:
     app.secret_key = f.read()
 sock = Sock(app)
 
-@app.get("/")
+@coreinterface.get("/")
 def index():
     return render_template("index.html")
 
 @app.get("/oauth")
 def oauth():
     code = request.args["code"]
-    configs = config.read(path=config.OAUTH_TWITCH_FILE)
+    oauth = config.read(path=config.OAUTH_TWITCH_FILE)
+    identity:dict = oauth["identity"]
+    client_id = identity["Client-Id"]
     r = requests.post("https://id.twitch.tv/oauth2/token", data={
-        "client_id": configs["Client-Id"],
-        "client_secret": configs["Client-Secret"],
+        "client_id": client_id,
+        "client_secret": identity["Client-Secret"],
         "code": code,
         "grant_type": "authorization_code",
         "redirect_uri": request.base_url
@@ -117,14 +123,33 @@ def oauth():
         print("oauth failure")
         return r.text, r.status_code
     d = r.json()
-    config.write(config_updates={"Token": d["access_token"], "Refresh-Token": d["refresh_token"]}, path=config.OAUTH_TWITCH_FILE)
-    return "Restart", 200
+    token = d["access_token"]
+    refresh = d["refresh_token"]
+    r2 = requests.get("https://api.twitch.tv/helix/users", headers={"Client-Id": client_id, "Authorization": f"Bearer {token}"})
+    if not r2.ok:
+        print("user identify failure")
+        return r2.text, r2.status_code
+    u = r2.json()
+    login = u["data"][0]["login"]
+    if login == str(identity["Bot-Name"]).lower():
+        identity.update({"Token": token, "Refresh-Token": refresh})
+        config.write(config_updates={"identity": identity}, path=config.OAUTH_TWITCH_FILE)
+        return "Authenticated bot identity, restart bot.", 200
+    else:
+        channels = oauth.get("channels",None)
+        tdata = {"token": token, "refresh_token": refresh}
+        if isinstance(channels, dict):
+            channels[login] = tdata
+        else:
+            channels = {login: tdata}
+        config.write(config_updates={"channels": channels}, path=config.OAUTH_TWITCH_FILE)
+        return "Authenticated user channel, you can close this tab.", 200
 
-@app.get("/configs")
+@coreinterface.get("/configs")
 def configs_page():
     return render_template("configs.html")
 
-@sock.route("/events", bp=api)
+@sock.route("/events", bp=coreapi)
 def api_events(ws:Server):
     bucket = events.new_bucket()
     try:
@@ -137,7 +162,15 @@ def api_events(ws:Server):
     finally:
         events.remove_bucket(bucket)
 
-@api.route("/configs", methods=["GET", "PUT"])
+@coreapi.post("/events/dispatch")
+def api_events_dispatch():
+    batch:list[dict[str]] = json.loads(request.form["batch"])
+    if not isinstance(batch, list):
+        return "", 422
+    events.dispatch(*(events.Event(**data) for data in batch if isinstance(data, dict)))
+    return "", 200
+
+@coreapi.route("/configs", methods=["GET", "PUT"])
 def api_configs():
     if request.method == "PUT":
         data = request.get_json()
@@ -146,7 +179,7 @@ def api_configs():
     else:
         return send_file(config.CONFIG_FILE)
 
-@api.get("/configs/meta")
+@coreapi.get("/configs/meta")
 def api_configs_meta():
     combined = {"": plugins.CORE_CONFIGS_META}
     for name, plugin in plugins.shared_plugins_list.items(): #if plugins.shared_plugins_list is None, raises an AttributeError and results in a 500
@@ -157,26 +190,27 @@ def api_configs_meta():
                     combined[name] = json.load(f)
             elif meta_type == "inline":
                 combined[name] = meta_value
-    
+    from pprint import pprint
+    pprint(combined)
     return combined
 
 
-@api.post("/plugins/load")
+@coreapi.post("/plugins/load")
 def api_load_plugin():
     name = request.form["name"]
     plugin = plugins.shared_plugins_list.get(name, None)
     if plugin is None:
         return "", 404
-    plugin.load((plugins.shared_plugins_list, plugin, False, __host_addr, __remote_api_addr, __api_only))
+    plugin.load(plugins.LoadEvent(plugins.shared_plugins_list, plugin, __pconfig_path, False, __host_addr, __remote_api_addr))
     return "", 200
 
-@api.post("/plugins/unload")
+@coreapi.post("/plugins/unload")
 def api_unload_plugin():
     name = request.form["name"]
     plugin = plugins.shared_plugins_list.get(name, None)
     if plugin is None:
         return "", 404
-    plugin.unload((plugins.shared_plugins_list, plugin, False, None))
+    plugin.unload(plugins.UnloadEvent(plugins.shared_plugins_list, plugin, False, None))
     return "", 200
 
 class proxy_headers:
@@ -211,30 +245,22 @@ def process_remote_api(remote_api_addr:str|None)->tuple[str|None, bool]:
         remote_api_addr = remote_api_addr.replace("localhost", "127.0.0.1", 1)
     return remote_api_addr, secure_scheme or remote_api_addr.split(":",1) == "443"
 
-def serve(host:str=HOST, port:int=PORT, remote_api_addr:str=None, api_only=False):
-    global __host_addr, __remote_api_addr, __api_only
 
-    __host_addr = host, port
-    __remote_api_addr = remote_api_addr
-    __api_only = api_only
+def create_endpoint_proxy(addr:str, routes:list[str], bp:Blueprint, normal=True, socket=True, endpoint_name:str|None=None):
+    processed_api_addr, secure = process_remote_api(addr)
 
-    if remote_api_addr is not None:
-        vapi = Blueprint("api", __name__, url_prefix="/api")
-        
-        processed_api_addr, secure = process_remote_api(remote_api_addr)
+    s = "s" * secure
+    proxy_host = f"http{s}://{processed_api_addr}/"
+    proxy_host_ws = f"ws{s}://{processed_api_addr}/"
 
-        s = "s" * secure
-        proxy_host = f"http{s}://{processed_api_addr}/"
-        proxy_host_ws = f"ws{s}://{processed_api_addr}/"
-        
+    if socket:
         EXCLUDE_SOCK_HEADERS = {"host", "upgrade", "connection"}
-        @sock.route("/", defaults={"path": ""}, bp=vapi)
-        @sock.route("/<path:path>", bp=vapi)
-        def api_ws_proxy(ws:Server, path:str):
-            print(f"PROXY WS: /api/{path}")
+        def ws_proxy(ws:Server, path:str):
+            url = request.url.replace(request.host_url, proxy_host_ws, 1)
+            print("PROXY WS:", url)
             def send_to_remote():
                 try:
-                    while ws.connected and client.keep_running:
+                    while ws.connected and client.keep_running: 
                         msg = ws.receive(0)
                         if msg is not None:
                             client.send(msg, websocket.ABNF.OPCODE_BINARY if isinstance(msg, bytes) else websocket.ABNF.OPCODE_TEXT)
@@ -256,13 +282,14 @@ def serve(host:str=HOST, port:int=PORT, remote_api_addr:str=None, api_only=False
                 ws.send(msg)
 
             def on_error(cws:websocket.WebSocket, e:Exception):
+                print(f"PROXY WS ERROR ({url}):")
                 traceback.print_exception(e)
 
             def on_close(cws:websocket.WebSocket, status_code, reason):
                 ws.close(status_code, reason)
 
             client = websocket.WebSocketApp(
-                url=request.url.replace(request.host_url, proxy_host_ws, 1),
+                url=url,
                 header=[
                     f"{k}: {v}" for k,v in request.headers.items()
                     if (kl := k.lower()) not in EXCLUDE_SOCK_HEADERS and not kl.startswith("sec-websocket-")
@@ -275,14 +302,22 @@ def serve(host:str=HOST, port:int=PORT, remote_api_addr:str=None, api_only=False
 
             client.run_forever()
 
+        if endpoint_name is not None:
+            ws_proxy.__name__ = endpoint_name
+
+        if routes:
+            for i in range(len(routes)-1, 0, -1):
+                ws_proxy = sock.route(routes[i], bp=bp)(ws_proxy)
+            ws_proxy = sock.route(routes[0], bp=bp, defaults={"path": ""})(ws_proxy)
+
+    if normal:
         methods = ["GET", "HEAD", "POST", "PUT", "DELETE", "CONNECT", "OPTIONS", "TRACE", "PATCH"]
-        @vapi.route("/", methods=methods, defaults={"path": ""})
-        @vapi.route("/<path:path>", methods=methods)
-        def api_proxy(path:str):
-            print(f"PROXY: /api/{path}")
+        def normal_proxy(path:str):
+            url = request.url.replace(request.host_url, proxy_host, 1)
+            print("PROXY:", url)
             resp = requests.request(
                 method=request.method,
-                url=request.url.replace(request.host_url, proxy_host, 1),
+                url=url,
                 headers=proxy_headers(request.headers, ("host",)),
                 data=request.get_data(),
                 cookies=request.cookies,
@@ -293,26 +328,69 @@ def serve(host:str=HOST, port:int=PORT, remote_api_addr:str=None, api_only=False
             headers = [(n, v) for n, v in resp.raw.headers.items() if n.lower() not in excluded_headers]
             
             return Response(stream_with_context(resp.iter_content(chunk_size=API_PROXY_BUFFER_SIZE)), resp.status_code, headers)
-    else:
-        vapi = api
+        
+        if endpoint_name is not None:
+            normal_proxy.__name__ = endpoint_name
 
-    if api_only:
-        #make a new Flask object, only keeping the api.* endpoints
-        vapp = Flask(__name__,
-                static_url_path=app.static_url_path, static_folder=app.static_folder, subdomain_matching=app.subdomain_matching,
-                template_folder=app.template_folder, instance_path=app.instance_path, root_path=app.root_path
-        )
-        vapp.jinja_env.globals.update(app.jinja_env.globals)
-        vapp.jinja_env.auto_reload = app.jinja_env.auto_reload
-        vapp.config.update(app.config)
-        vapp.url_map.strict_slashes = app.url_map.strict_slashes
-        vapp.secret_key = app.secret_key
-        for rule in app.url_map.iter_rules():
-            if rule.endpoint.startswith("api.") or rule.endpoint == "api":
-                vapp.url_map.add(rule)
+        if routes:
+            for i in range(len(routes)-1, 0, -1):
+                normal_proxy = bp.route(routes[i], methods=methods)(normal_proxy)
+            normal_proxy = bp.route(routes[0], methods=methods, defaults={"path": ""})(normal_proxy)
+    
+def add_bp_if_new(t:Flask|Blueprint, bp:Blueprint):
+    if isinstance(t, Flask):
+        it = t.blueprints.values()
     else:
-        vapp = app
+        it = (b for b, _ in t._blueprints)
 
-    vapp.register_blueprint(vapi)
-    server = WSGIServer((host, port), vapp)
+    for b in it:
+        if b == bp:
+            return False
+    t.register_blueprint(bp)
+    return True
+
+def create_component_proxy(address:str, dest:Flask|Blueprint, bpname:str, prefix:str|None=None, proxy_routes=["/", "/<path:path>"], normal:bool=True, socket:bool=True):
+    frame = inspect.currentframe()
+    iname = __name__
+    if frame is not None:
+        frame = frame.f_back
+        if frame is not None:
+            iname = frame.f_globals["__name__"]
+    vbp = Blueprint(bpname, iname, url_prefix=prefix)
+    create_endpoint_proxy(address, proxy_routes, vbp, normal=normal, socket=socket)
+    add_bp_if_new(dest, vbp)
+
+
+def attach_core(interface_mode:str, api_mode:str, remote_api_addr:str|None=None):
+    global __remote_api_addr
+    __remote_api_addr = remote_api_addr
+    if interface_mode == plugins.COMPONENT_MODE_NORMAL:
+        app.register_blueprint(coreinterface)
+    elif interface_mode == plugins.COMPONENT_MODE_REMOTE:
+        create_component_proxy(remote_api_addr, app, "proxy_core_interface", socket=False)
+
+    if api_mode == plugins.COMPONENT_MODE_NORMAL:
+        api.register_blueprint(coreapi)
+    elif api_mode == plugins.COMPONENT_MODE_REMOTE:
+        vcoreapi = Blueprint("proxy_core_api", __name__)
+        for p in ["/configs", "/configs/meta", "/plugins/load", "/plugins/unload", "/events/dispatch"]:
+            create_endpoint_proxy(remote_api_addr, [p], vcoreapi, socket=False, endpoint_name=p[1:].replace("/", "_"))
+        create_endpoint_proxy(remote_api_addr, ["/events"], vcoreapi, normal=False, endpoint_name="events")
+        api.register_blueprint(vcoreapi)
+        #replace default_container.dispatch so that all events for the default event system get sent to the remote instance
+        def proxy_dispatch(*e:events.Event):
+            batch = [{"name":event.name, "data":event.data} for event in e]
+            r = requests.post(f"http{"s"*(__host_addr[1]==443)}://{__host_addr[0]}:{__host_addr[1]}/api/events/dispatch", data={"batch":json.dumps(batch)})
+            r.raise_for_status()
+        events.default_container.dispatch = proxy_dispatch
+
+
+def serve(host:str=HOST, port:int=PORT, pconfig_path:str=config.PLUGIN_FILE):
+    global __host_addr, __pconfig_path
+
+    __host_addr = host, port
+    __pconfig_path = pconfig_path
+
+    app.register_blueprint(api)
+    server = WSGIServer((host, port), app)
     server.serve_forever()

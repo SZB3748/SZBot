@@ -55,5 +55,10 @@
             },
             "optional": true
         }        
+    },
+    "components": {
+        "api": ["normal", "remote", null],
+        "twitchbot:commands": ["normal", null],
+        "soundplayer": ["normal", null]
     }
 }

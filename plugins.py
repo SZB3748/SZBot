@@ -1,4 +1,5 @@
 import config
+from dataclasses import dataclass
 import importlib.util
 import os
 import re
@@ -14,7 +15,13 @@ MetaTypeCommand = str
 MetaTypeExpression = MetaTypeOptions | MetaTypeAllowed | MetaTypeCommand
 
 DataTarget = tuple[str, Any]
-EventCallbackContext = tuple
+
+class EventCallbackContext:
+    """Context for handling a plugin event."""
+
+    def handle(self, plugin):
+        raise NotImplementedError
+    
 EventCallback = Callable[[EventCallbackContext], None]
 
 TYPE_COMMAND_EXCLUDE = "exclude"
@@ -25,6 +32,11 @@ TYPE_NAME_INTEGER = "integer"
 TYPE_NAME_FLOAT = "float"
 TYPE_NAME_BOOLEAN = "boolean"
 TYPE_NAME_NULL = "null"
+
+
+COMPONENT_MODE_NORMAL = "normal"
+COMPONENT_MODE_REMOTE = "remote"
+COMPONENT_MODE_OFF = None
 
 ExcludedType = type("excluded", (), {"__repr__": lambda _: "excluded"})
 excluded = ExcludedType()
@@ -66,6 +78,9 @@ class MetaTypeInvalidValueError(ConfigMetaError):
 class MetaTypeBadOptionError(ConfigMetaError):
     """Meta type option is invalid."""
 
+class InvalidComponentError(ConfigMetaError):
+    """Plugin component configured to run with a mode that is not allowed."""
+
 def _type_assert(value, name:str, *types:type, can_be_none:bool=True):
     if not ((can_be_none and value is None) or isinstance(value, types)):
         if can_be_none:
@@ -84,6 +99,7 @@ def _handle_types(types_data:dict[str]):
     types:dict[str, MetaTypeExpression] = {}
     for type_name, type_info in types_data.items():
         _type_assert(type_info, "type expression", str, bool, dict, can_be_none=False)
+        new_type_info = {} if isinstance(type_info, dict) else type_info
         if type_name == TYPE_NAME_OBJECT:
             if isinstance(type_info, dict):
                 hasfields = "fields" in type_info
@@ -93,19 +109,18 @@ def _handle_types(types_data:dict[str]):
                     fields = _type_assert(type_info.get("fields", None), f"{type_name} fields", dict, can_be_none=False)
                     new_fields = {}
                     for field_name, field_info in fields.items():
-                        _type_assert(field_info, f"{type_name} field info", dict)
                         if field_info is not None:
                             new_fields[field_name] = MetaField.construct(field_name, field_info)
-                    type_info["fields"] = new_fields
+                    new_type_info["fields"] = new_fields
                 else: #has anyfield
                     anyfield = _type_assert(type_info.get("anyfield", None), f"{type_name} anyfield", dict, can_be_none=False)
-                    type_info["anyfield"] = _handle_types(anyfield)
+                    new_type_info["anyfield"] = _handle_types(anyfield)
         elif type_name == TYPE_NAME_LIST:
             if isinstance(type_info, dict):
                 list_types = type_info.get("types", None)
                 _type_assert(list_types, f"{type_name} types", dict, can_be_none=False)
-                type_info["types"] = _handle_types(list_types)
-        types[type_name] = type_info
+                new_type_info["types"] = _handle_types(list_types)
+        types[type_name] = new_type_info
     return types
 
 
@@ -151,13 +166,17 @@ class MetaField:
 MetaFieldCollection = dict[str, MetaField]
 
 class Meta:
-    def __init__(self, name:str|ExcludedType=excluded, description:str|ExcludedType=excluded, configs:MetaFieldCollection|ExcludedType=excluded):
+    def __init__(self, name:str|ExcludedType=excluded, description:str|ExcludedType=excluded, configs:MetaFieldCollection|ExcludedType=excluded, components:dict[str,list[str|None]]|ExcludedType=excluded):
         self.name = name
         self.description = description
         self.configs = configs
+        self.components = components
+
+ComponentList = dict[str, str|None]
+    
 
 class Plugin:
-    def __init__(self, name:str, run_target:DataTarget, meta_target:DataTarget, meta:Meta|None=None, module:ModuleType|None=None,
+    def __init__(self, name:str, run_target:DataTarget, meta_target:DataTarget, meta:Meta|None=None, components:ComponentList=None, module:ModuleType|None=None,
                  run_next:list[str]|None=None, depends_on:list[str]|None=None, on_load:EventCallback|None=None, on_unload:EventCallback|None=None,
                  on_twitch_bot_load:EventCallback|None=None, on_twitch_bot_unload:EventCallback|None=None, startup_load:bool=True):
         self.name = name
@@ -173,8 +192,9 @@ class Plugin:
                 self.meta = Meta()
         else:
             self.meta = meta
+        self.components = {} if components is None else components
         self.module = module
-        self.run_next = [] if run_next is None else run_next #run this plugin before these plugins
+        self.run_next = [] if run_next is None else run_next #run th-----+is plugin before these plugins
         self.depends_on = [] if depends_on is None else depends_on #run this plugin after these plugins
         self.on_load = on_load
         self.on_unload = on_unload
@@ -196,9 +216,10 @@ class Plugin:
             self.on_twitch_bot_load = getattr(self.module, "on_twitch_bot_load", None)
             self.on_twitch_bot_unload = getattr(self.module, "on_twitch_bot_unload", None)
 
-    def disable(self, ctx:EventCallbackContext):
+    def disable(self, *ctxs:EventCallbackContext):
         if self.module is not None:
-            self.unload(ctx)
+            for ctx in ctxs:
+                ctx.handle(self)
             del sys.modules[self.module.__name__]
             self.module = None
 
@@ -222,12 +243,63 @@ class Plugin:
             self.on_twitch_bot_unload(ctx)
             self.is_loaded = False
 
+    def get_component_mode(self, name:str, default=COMPONENT_MODE_NORMAL):
+        if name in self.components:
+            return self.components[name]
+        return default
 
-LoadEvent = tuple[dict[str, Plugin], Plugin, bool, tuple[str, int], str|None, bool]     #plugin_list, plugin, is_start, host_addr, remote_api_addr, api_only
-UnloadEvent = tuple[dict[str, Plugin], Plugin, bool, Exception|None]                    #plugin_list, plugin, is_end, exception
-TwitchBotLoadEvent = tuple[dict[str, Plugin], Plugin, bool, Bot]                        #plugin_list, plugin, is_start, bot
-TwitchBotUnloadEvent = tuple[dict[str, Plugin], Plugin, bool, Exception|None]           #plugin_list, plugin, is_end, exception
+def get_invalid_plugin_components(components:dict[str, str|None], meta:Meta)->list[str]:
+    if not isinstance(meta.components, dict):
+        return []
+    invalid = []
+    for component, mode in components.items():
+        allowed = meta.components.get(component, None)
+        if isinstance(allowed, list) and mode not in allowed:
+            invalid.append(component)
+    return invalid
 
+@dataclass
+class LoadEvent(EventCallbackContext):
+    plugin_list:dict[str, Plugin]
+    plugin:Plugin
+    pconfig_path:str
+    is_start:bool
+    host_addr:tuple[str, int]
+    remote_api_addr:str|None
+
+    def handle(self, plugin:Plugin):
+        return plugin.load(self)
+
+@dataclass
+class UnloadEvent(EventCallbackContext):
+    plugin_list:dict[str, Plugin]
+    plugin:Plugin
+    is_end:bool
+    exception:Exception|None
+
+    def handle(self, plugin:Plugin):
+        return plugin.unload(self)
+
+@dataclass
+class TwitchBotLoadEvent(EventCallbackContext):
+    plugin_list:dict[str, Plugin]
+    plugin:Plugin
+    pconfig_path:str
+    is_start:bool
+    bot:Bot
+
+    def handle(self, plugin:Plugin):
+        return plugin.twitch_bot_load(self)
+
+@dataclass
+class TwitchBotUnloadEvent(EventCallbackContext):
+    plugin_list:dict[str, Plugin]
+    plugin:Plugin
+    is_end:bool
+    exception:Exception|None
+
+    def handle(self, plugin:Plugin):
+        return plugin.twitch_bot_unload(self)
 
 shared_plugins_list:dict[str, Plugin] = None
 
@@ -251,8 +323,19 @@ def parse_plugin_meta(data:dict[str])->Meta:
                 configs[name] = MetaField.construct(name, config_info)
     else:
         configs = excluded
-
-    return Meta(name=name, description=description, configs=configs)
+    
+    components_data = data.get("components", None)
+    if isinstance(components_data, dict):
+        components = {}
+        for name, allowed in components_data.items():
+            _type_assert(allowed, "component allowed modes", list)
+            if allowed is not None:
+                for mode in allowed:
+                    _type_assert(mode, "component mode", str)
+                components[name] = allowed
+    else:
+        components = excluded
+    return Meta(name=name, description=description, configs=configs, components=components)
 
 def _config_apply_meta_list(v:list, field:MetaField):
     field_t = field.types.get(TYPE_NAME_LIST)
@@ -528,6 +611,7 @@ def read_plugin_data(path=config.PLUGIN_FILE)->dict[str, Plugin]:
             metainfo = info.get("meta", None)
             runnext = info.get("run_next", None)
             dependson = info.get("depends_on", None)
+            components = info.get("components", None)
 
             if runinfo and isinstance(runinfo, dict):
                 run_target = runinfo["type"], runinfo["value"]
@@ -550,30 +634,20 @@ def read_plugin_data(path=config.PLUGIN_FILE)->dict[str, Plugin]:
             else:
                 depends_on = None
 
-            plugin = plugins[name] = Plugin(name, run_target, meta_target, run_next=run_next, depends_on=depends_on, startup_load=bool(info.get("loaded", True)))
+            if not isinstance(components, dict):
+                components = None
+
+            plugin = plugins[name] = Plugin(name, run_target, meta_target, components=components, run_next=run_next, depends_on=depends_on, startup_load=bool(info.get("loaded", True)))
+
+            invalid_components = get_invalid_plugin_components(plugin.components, plugin.meta)
+            if invalid_components:
+                raise InvalidComponentError(f"Component(s) have invalid modes: {", ".join(invalid_components)}")
 
             enabled = info.get("enabled", True)
             if enabled:
                 plugin.enable()
             
     return plugins
-
-# def _generate_order_rec(plugin:Plugin|None, plugin_list:dict[str, Plugin], order:list[str], visited:set[str]):
-#     if plugin is None:
-#         for n, p in plugin_list.items():
-#             if n not in order:
-#                 _generate_order_rec(p, plugin_list, order, visited)
-#     elif plugin.module is not None: #must be enabled
-#         for n in plugin.depends_on:
-#             if n not in visited:
-#                 visited.add(n)
-#                 _generate_order_rec(plugin_list[n], plugin_list, order, visited)
-#         if plugin.name not in order:
-#             order.append(plugin.name)
-#             visited.add(plugin.name)
-#         for n in plugin.run_next:
-#             if n not in visited:
-#                 _generate_order_rec(plugin_list[n], plugin_list, order, visited, is_next=True)
 
 
 def _generate_order_queuesim(plugin_list:dict[str, Plugin]):
@@ -622,7 +696,9 @@ def generate_load_order(plugin_list:dict[str, Plugin])->list[str]:
     # return order
     return _generate_order_queuesim(plugin_list)
 
-
+CORE_COMPONENT_INTERFACE = "interface"
+CORE_COMPONENT_API = "api"
+CORE_COMPONENT_TWITCHBOT_COMMANDS = "twitchbot:commands"
 CORE_CONFIGS_META = dict(
     description="Most basic configurations that are built in to the bot, independent of any plugin.",
     configs={
@@ -705,5 +781,10 @@ CORE_CONFIGS_META = dict(
             },
             optional=True
         )
+    },
+    components={
+        CORE_COMPONENT_INTERFACE: [COMPONENT_MODE_NORMAL, COMPONENT_MODE_REMOTE, COMPONENT_MODE_OFF],
+        CORE_COMPONENT_API: [COMPONENT_MODE_NORMAL, COMPONENT_MODE_REMOTE, COMPONENT_MODE_OFF],
+        CORE_COMPONENT_TWITCHBOT_COMMANDS: [COMPONENT_MODE_NORMAL, COMPONENT_MODE_OFF]
     }
 )

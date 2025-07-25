@@ -4,9 +4,10 @@ import json
 import os
 from typing import Any
 
-CONFIG_FILE = "config.json"
-PLUGIN_FILE = "plugins.json"
-OAUTH_TWITCH_FILE = "oauth_twitch.json"
+DIR = os.path.dirname(__file__)
+CONFIG_FILE = os.path.join(DIR, "config.json")
+PLUGIN_FILE = os.path.join(DIR, "plugins.json")
+OAUTH_TWITCH_FILE = os.path.join(DIR, "oauth_twitch.json")
 
 _cached_contents:dict[str, tuple[datetime, Any]] = {}
 

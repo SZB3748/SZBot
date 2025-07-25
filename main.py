@@ -12,9 +12,10 @@ import web
 parser = argparse.ArgumentParser(description="SZBot main program.")
 parser.add_argument("-d", "--addr", default=f"{web.HOST}:{web.PORT}", help="Stores the address to host the flask app on.")
 parser.add_argument("--remote-api", default=None, help="The IP/Domain:Port to connect to for API calls. Will be used to make a uri_host: \"http(s)://{api}/\". The API routes on the local flask app will act as a proxy.")
-parser.add_argument("--api-only", action="store_true", help="Only serve/handle the API endpoints.")
+parser.add_argument("-p", "--plugin-configs", default=config.PLUGIN_FILE, help="Plugin config file to use.")
+parser.add_argument("-C", "--core-component", action="append", default=[], help="Set modes for core components with <name>=<mode> syntax. Modes are normal|remote|off")
 
-def get_args()->tuple[tuple[str, int], str|None, bool]:
+def get_args()->tuple[tuple[str, int], str|None, str, dict[str, str|None]]:
     args = parser.parse_args()
     addr_arg:str = args.addr
     if ":" in addr_arg:
@@ -40,12 +41,26 @@ def get_args()->tuple[tuple[str, int], str|None, bool]:
     else:
         host = addr_arg.strip().lower()
         addr = "127.0.0.1" if host == "localhost" else host, web.PORT
-    
-    return addr, args.remote_api, args.api_only
 
-def run(addr:tuple[str, int]=(web.HOST, web.PORT), remote_api_addr:str=None, api_only=False):
+    expressions:list[str] = args.core_component
+    components = {}
+    for expr in expressions:
+        if "=" in expr:
+            name, modename = expr.split("=", 1)
+            name = name.strip()
+            modename = modename.strip().lower()
+            if modename == "off":
+                modename = None
+            components[name] = modename
+        else:
+            print("Core component must be in the <name>=<mode> format, got:", expr)
+            exit(-1)
+    
+    return addr, args.remote_api, args.plugin_configs, components
+
+def run(addr:tuple[str, int]=(web.HOST, web.PORT), remote_api_addr:str=None, pconfig_path:str=config.PLUGIN_FILE, core_components:dict[str, str|None]={}):
     print("reading plugin list")
-    plugin_list = plugins.read_plugin_data()
+    plugin_list = plugins.read_plugin_data(path=pconfig_path)
     plugin_enabled_count = sum(1 for plugin in plugin_list.values() if plugin.module is not None and plugin.startup_load)
     print("read", len(plugin_list), "plugins with", plugin_enabled_count, f"enabled plugin{"s" * (not plugin_enabled_count)}")
     print("generating plugin load order")
@@ -55,16 +70,30 @@ def run(addr:tuple[str, int]=(web.HOST, web.PORT), remote_api_addr:str=None, api
         for plugin_name in load_order:
             plugin = plugin_list[plugin_name]
             if plugin.module is not None and plugin.startup_load:
-                plugin.load((plugin_list, plugin, True, addr, remote_api_addr, api_only))
+                plugin.load(plugins.LoadEvent(plugin_list, plugin, pconfig_path, True, addr, remote_api_addr))
         print("loaded plugins")
     else:
         print("no plugins made it into the load order\nmake sure that any dependenant plugins are enabled")
     plugins.shared_plugins_list = plugin_list
     print("bot must be started manually")
+
+    if core_components:
+        core_meta = plugins.parse_plugin_meta(plugins.CORE_CONFIGS_META)
+        invalid_components = plugins.get_invalid_plugin_components(core_components, core_meta)
+        if invalid_components:
+            raise plugins.InvalidComponentError(f"Component(s) have invalid modes: {", ".join(invalid_components)}")
+        
+        interface_mode = core_components.get(plugins.CORE_COMPONENT_INTERFACE, plugins.COMPONENT_MODE_NORMAL)
+        api_mode = core_components.get(plugins.CORE_COMPONENT_API, plugins.COMPONENT_MODE_NORMAL)
+    else:
+        interface_mode = api_mode = plugins.COMPONENT_MODE_NORMAL
+
+    web.attach_core(interface_mode, api_mode, remote_api_addr)
+
     print("starting web server")
     e = None
     try:
-        web.serve(host=addr[0], port=addr[1], remote_api_addr=remote_api_addr, api_only=api_only)
+        web.serve(host=addr[0], port=addr[1], pconfig_path=pconfig_path)
     except KeyboardInterrupt:
         pass
     except Exception as _e:
@@ -74,20 +103,20 @@ def run(addr:tuple[str, int]=(web.HOST, web.PORT), remote_api_addr:str=None, api
     print("unloading enabled plugins")
     for plugin in plugin_list.values():
         if plugin.module is not None:
-            plugin.unload((plugin_list, plugin, True, e))
+            plugin.unload(plugins.UnloadEvent(plugin_list, plugin, True, e))
     print("unloaded plugins")
 
 if __name__ == "__main__":
     oauth = config.read(path=config.OAUTH_TWITCH_FILE)
-    if not ("Client-Id" in oauth and "Client-Secret" in oauth):
+    identity = oauth.get("identity", None)
+    if not (isinstance(identity, dict) and "Client-Id" in identity and "Client-Secret" in identity):
         print("You must create an oauth_twitch.json file with your twitch application's Client-Id and Client-Secret.")
-    elif "Token" not in oauth:
+    elif "Token" not in identity:
         try:
-            addr, _, _ = get_args()
+            addr, _, _, _ = get_args()
             twitch_reauth.get_auth_token(oauth, addr)
         except KeyboardInterrupt:
             pass
-        exit(0)
     else:
-        addr, remote_api_addr, api_only = get_args()
-        run(addr, remote_api_addr, api_only)
+        addr, remote_api_addr, pconfig_path, core_components = get_args()
+        run(addr, remote_api_addr, pconfig_path, core_components)

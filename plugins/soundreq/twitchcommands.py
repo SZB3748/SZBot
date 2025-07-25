@@ -1,7 +1,5 @@
 import aiohttp
-import asyncio
 from datetime import datetime, timedelta
-import events
 from twitchio.ext import commands
 from twitchbot import API_ENDPOINT, ratelimit
 
@@ -19,7 +17,8 @@ async def request_sound(ctx:commands.Context, name:str):
             if not r.ok:
                 await ctx.send("Failed to request for sound to be played.")
 
-async def list_sound(ctx:commands.Context):
+async def list_sounds(ctx:commands.Context):
+    """List names of all available sounds."""
     async with aiohttp.ClientSession() as session:
         async with session.get(f"{API_ENDPOINT}/soundreq/list") as r:
             if r.ok:
@@ -32,12 +31,12 @@ async def list_sound(ctx:commands.Context):
 
 command_list = {
     "sound": request_sound,
-    "listsounds": list_sound
+    "listsounds": list_sounds
 }
 
 def add_commands(botinstance:commands.Bot):
     for name, func in command_list.items():
-        botinstance.add_command(commands.Command(name=name, func=func, aliases=None, instance=None, no_global_checks=False))
+        botinstance.add_command(commands.Command(name=name, callback=func, aliases=[], bypass_global_guards=False))
 
 def remove_commands(botinstance:commands.Bot):
     for name in command_list.keys():

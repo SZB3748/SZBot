@@ -24,5 +24,11 @@
             },
             "optional": true
         }
+    },
+    "components": {
+        "interface": ["normal", "remote", null],
+        "overlay": ["normal", "remote", null],
+        "api": ["normal", "remote", null],
+        "listener": ["normal", "remote", null]
     }
 }

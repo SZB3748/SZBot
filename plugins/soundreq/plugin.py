@@ -4,37 +4,46 @@ from threading import Thread
 import twitchbot
 import web
 
+COMPONENT_API = "api"
+COMPONENT_TWITCHBOT_COMMANDS = "twitchbot:commands"
+COMPONENT_SOUNDPLAYER = "soundplayer"
+
 bot:twitchbot.Bot = None
 playerthread:Thread = None
 player:soundrequesting.SoundRequestPlayer = None
 
 def on_load(ctx:plugins.LoadEvent):
     global playerthread, player
-
-    _, plugin, _, host_addr, _, api_only, *_ = ctx
     
-    soundrequesting.meta = plugin.meta
+    soundrequesting.meta = ctx.plugin.meta
     webroutes.web_loaded = True
+    
+    m_api = ctx.plugin.get_component_mode(COMPONENT_API)
+    m_soundplayer = ctx.plugin.get_component_mode(COMPONENT_SOUNDPLAYER)
 
-    if not api_only:
-        # use host_addr even when local API is just a proxy, allows for
-        # easier integration with plugins that modify API behavior
-        # (e.g. authentication, logging)
-        player_api_addr = f"{host_addr[0]}:{host_addr[1]}"
-        player = soundrequesting.SoundRequestPlayer(player_api_addr, host_addr[1] == 443)
+    if ctx.is_start:
+        webroutes.add_routes(web.api, m_api == plugins.COMPONENT_MODE_NORMAL)
+        if m_api == plugins.COMPONENT_MODE_REMOTE:
+            web.create_component_proxy(ctx.remote_api_addr, web.api, webroutes.soundreqapi.name, webroutes.soundreqapi.url_prefix, socket=False)
+
+    assert m_soundplayer != plugins.COMPONENT_MODE_REMOTE, "Sound Player has no remote mode."
+    if m_soundplayer == plugins.COMPONENT_MODE_NORMAL:
+        player = soundrequesting.SoundRequestPlayer(f"{ctx.host_addr[0]}:{ctx.host_addr[1]}", ctx.host_addr[1] == 443)
         playerthread = Thread(target=player.start, daemon=True)
         print("Starting sound player")
         playerthread.start()
 
 def on_twitch_bot_load(ctx:plugins.TwitchBotLoadEvent):
     global bot
-    _, _, _, bot, *_ = ctx
-    twitchcommands.add_commands(bot)
+    m_commands = ctx.plugin.get_component_mode(COMPONENT_TWITCHBOT_COMMANDS)
+    assert m_commands != plugins.COMPONENT_MODE_REMOTE, "Twitch bot commands has no remote mode."
+    if m_commands == plugins.COMPONENT_MODE_NORMAL:
+        bot = ctx.bot
+        print("Adding soundreq twitch commands")
+        twitchcommands.add_commands(bot)
 
 def on_unload(ctx:plugins.UnloadEvent):
     global playerthread, player
-
-    _, _, _, _, *_ = ctx
     
     webroutes.web_loaded = False
 
@@ -65,8 +74,8 @@ def on_unload(ctx:plugins.UnloadEvent):
     player = None
 
 def on_twitch_bot_unload(ctx:plugins.TwitchBotUnloadEvent):
-    _, _, _, _, *_ = ctx
-    twitchcommands.remove_commands(bot)
-
-
-webroutes.add_routes(web.app, web.api)
+    global bot
+    if bot is not None:
+        print("Removing soundreq twitch commands")
+        twitchcommands.remove_commands(bot)
+        bot = None

@@ -10,5 +10,6 @@ MarkupSafe
 python-vlc
 requests
 twitchio
+twitchio[starlette]
 websocket-client
 yt-dlp
