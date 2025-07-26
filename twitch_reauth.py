@@ -6,7 +6,7 @@ from urllib.parse import quote
 import web
 
 parser = argparse.ArgumentParser(description="Script for generating twitch OAuth tokens.")
-parser.add_argument("-s", "--scopes", choices=["identity", "channel"], default="identity")
+parser.add_argument("-s", "--scopes", choices=["identity", "channel"], default="identity", help="Category of scopes to use when authenticating.")
 
 OAUTH_ENDPOINT = "https://id.twitch.tv/oauth2/authorize"
 

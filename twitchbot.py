@@ -12,7 +12,6 @@ import traceback
 from typing import Awaitable, Callable, Self
 import twitchio
 from twitchio.ext import commands
-from urllib.parse import quote
 import web
 import websocket
 
@@ -34,8 +33,8 @@ def define_endpoints(host:str, port:int):
     API_WS_ENDPOINT = f"ws{s}://{API_BASE}"
 
 parser = argparse.ArgumentParser(description="SZBot twitchbot program.")
-parser.add_argument("-d", "--addr", default=f"{web.HOST}:{web.PORT}")
-parser.add_argument("-p", "--plugin-configs", default=config.PLUGIN_FILE, help="Plugin config file to use.")
+parser.add_argument("-d", "--addr", default=f"{web.HOST}:{web.PORT}", help="The address main.py is listening on.")
+parser.add_argument("-p", "--plugin-configs", default=config.PLUGIN_FILE, help="Path to the plugin config file to use.")
 
 def get_args()->tuple[tuple[str, int], str]:
     args = parser.parse_args()
@@ -388,11 +387,8 @@ def ws_run():
 async def main():
     await bot.start(load_tokens=False)
 
-__addr = (web.HOST, web.PORT)
-
 if __name__ == "__main__":
     addr, pconfig_path = get_args()
-    __addr = addr
     define_endpoints(*addr)
 
     #assign __main__ over twitchbot so importing twitchbot imports __main__ instead

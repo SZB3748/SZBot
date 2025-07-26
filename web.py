@@ -1,4 +1,3 @@
-import requests.auth
 import config
 import events
 from flask import abort, Blueprint, Flask, render_template, request, Response, send_file, stream_with_context

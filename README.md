@@ -9,7 +9,7 @@ Very creative name.
 1. Log into the [Twitch Developer Console](https://dev.twitch.tv/console)
 2. "Register a New Application"
    - The name can be whatever
-   - Make sure at least one of the OAuth Redirect URLs is `http://localhost:6742/oauth`. If you change the port number, make sure to replace the `6742`.
+   - Make sure at least one of the OAuth Redirect URLs is `http://localhost:6742/oauth`. If you run the bot with a different port number, make sure to replace the `6742`.
    - I don't know if you have to set the category to Chat Bot, but I did and it works for me ¯\\_(ツ)_/¯.
    - Set the Client Type to Confidential
    - Copy the Client ID and Client Secret, you'll need them in a few steps.
@@ -18,33 +18,27 @@ Very creative name.
 ### Files
 
 1. Install requirements.txt: `pip -r requirements.txt`
-   - Currently this includes packages for the built-in plugins as well ( `pngbinds`, `songqueue`, and `soundreq` )
-2. Create a `oauth_twitch.json` file (if copy-pasting, remove the `//` comments). It should look something like:
+   - Currently this also includes packages for the built-in plugins as well ( `pngbinds`, `songqueue`, and `soundreq` )
+2. Create a `oauth_twitch.json` file. It should look something like:
 ```json
 {
-    "Client-Id": "YOUR CLIENT ID",
-    "Client-Secret": "YOUR CLIENT SECRET",
-    "Scopes": [
-        //i dont know how many of these are necessary, feel free to experiment
-        "chat:read",
-        "chat:edit",
-        "user:read:chat",
-        "user:write:chat",
-        "user:bot",
-        "channel:bot"
-    ]
+    "identity": {
+        "Bot-Name": "YOUR BOT ACCOUNT'S NAME (either make a new account or use your own)",
+        "Client-Id": "YOUR CLIENT ID",
+        "Client-Secret": "YOUR CLIENT SECRET"
+    },
+    "channels": {
+        "YOUR CHANNEL": null
+    }
 }
 ```
 3. Create a `config.json` file (if copy-pasting, remove the `//` comments). It should look something like:
 ```json
 {
     "Prefix": "YOUR PREFIX (usually '!')",
-    "Channels": [
-        "YOUR CHANNEL NAME"
-    ],
     //optionally, you can include these fields:
     "Links": {
-        "link name (creates a command)": "link text"
+        "link name (creates a command)": "text to send when someone uses the command"
     },
     "Style": {
         "text_color": "css color",
@@ -68,14 +62,19 @@ Very creative name.
             "value": "PATH/TO/plugin.json (usually next to plugin.py)"
         },
         //optional fields:
-        "loaded": true, //if the plugin should start
-        "enabled": true
+        "loaded": true,   //if the plugin should run when the bot starts
+        "enabled": true,  //if the plugin should be able to run at all
+        "components": {
+            "component name (see plugin for details)": "mode name (see plugin for details)"
+        }
     },
     ...
 }
 ```
-5. Create a `secret.txt` file. Just put a bunch of random keyboard spam in it, or do some research if you want to put a bit more thought into it.
-6. Run `main.py`. It will detect that your `oauth_twitch.json` file doesn't contain a token and begin the process of generating one. Link your twitch account when it asks to. If you get redirected to a page that says "Restart", then you can restart the server.
+5. Create a `secret.txt` file. You can just put a bunch of random keyboard spam in it, or do some research if you want to put a bit more thought into it.
+6. Get the OAuth tokens for the twitch bot.
+    - Run `twitch_reauth.py` and make sure to link with the account you plan for the bot to send messages through
+    - Run `twitch_reauth.py -s channel` and link with the account (channel) you want your bot to act in
 
 ## Built-In Plugins
 
@@ -89,3 +88,5 @@ Plugins that are included with the source code for SZBot, but still need to be a
 
 - To run the main program, run `main.py`
 - To run the twitch bot, run `main.py` then `twitchbot.py`
+
+For more info on customizing how these files are run, add the `-h` argument when running either of them.

@@ -708,15 +708,6 @@ CORE_CONFIGS_META = dict(
             description="The command prefix which the twitch bot will operate with.",
             types={TYPE_NAME_STRING: True}
         ),
-        "Channels": dict(
-            key="Channels",
-            name="Twitch Bot Operating Channels",
-            description="Names of the channels which the twitch bot will operate in.",
-            types={
-                TYPE_NAME_LIST: {"types": {TYPE_NAME_STRING: True}},
-                TYPE_NAME_NULL: True,
-            }
-        ),
         "Links": dict(
             key="Links",
             name="Twitch Bot Link Commands",

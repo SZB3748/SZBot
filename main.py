@@ -10,10 +10,10 @@ import twitch_reauth
 import web
 
 parser = argparse.ArgumentParser(description="SZBot main program.")
-parser.add_argument("-d", "--addr", default=f"{web.HOST}:{web.PORT}", help="Stores the address to host the flask app on.")
-parser.add_argument("--remote-api", default=None, help="The IP/Domain:Port to connect to for API calls. Will be used to make a uri_host: \"http(s)://{api}/\". The API routes on the local flask app will act as a proxy.")
-parser.add_argument("-p", "--plugin-configs", default=config.PLUGIN_FILE, help="Plugin config file to use.")
-parser.add_argument("-C", "--core-component", action="append", default=[], help="Set modes for core components with <name>=<mode> syntax. Modes are normal|remote|off")
+parser.add_argument("-d", "--addr", default=f"{web.HOST}:{web.PORT}", help="Address to host the flask app on. Can be `host:port`, `host`, or `port`.")
+parser.add_argument("--remote-api", default=None, help="The IP/Domain:Port to connect to for any remote behavior. May be required to run depending on plugins.")
+parser.add_argument("-p", "--plugin-configs", default=config.PLUGIN_FILE, help="Path to the plugin config file to use.")
+parser.add_argument("-C", "--core-component", action="append", default=[], help="Set modes for core components with <name>=<mode> syntax. These modes can be normal|remote|off")
 
 def get_args()->tuple[tuple[str, int], str|None, str, dict[str, str|None]]:
     args = parser.parse_args()
