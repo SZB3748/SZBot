@@ -26,10 +26,11 @@ class MediaReference:
         self.__init__(**d)
 
 class State:
-    def __init__(self, name:str, media:MediaReference, change:TimeoutChange=None):
+    def __init__(self, name:str, media:MediaReference, change:TimeoutChange=None, allow_event_interrupt:bool=False):
         self.name = name
         self.media = media
         self.change = change
+        self.allow_event_interrupt = allow_event_interrupt
 
     def __eq__(self, other):
         if isinstance(other, State):
@@ -40,7 +41,7 @@ class State:
         return hash(str(id(type(self))) + self.name)
 
     def __getstate__(self):
-        rtv:dict[str] = {"media": self.media.__getstate__()}
+        rtv:dict[str] = {"media": self.media.__getstate__(), "allow_event_interrupt": self.allow_event_interrupt}
         if self.change is not None:
             rtv["change"] = {
                 "destination": self.change[0],
@@ -58,6 +59,7 @@ class State:
             self.change:TimeoutChange = dchange["destination"], timedelta(seconds=dchange["timeout"])
         else:
             self.change = None
+        self.allow_event_interrupt = bool(d.get("allow_event_interrupt", False))
 
 class Transition:
     def __init__(self, keybind:str, mode:TransitionMode, destination:str, pop_destination:str|None=None):
@@ -84,11 +86,138 @@ class Transition:
             mode = TransitionMode(dmode)
         self.__init__(d["keybind"], mode, d["destination"], d.get("pop_destination", None))
 
+class EventCondition:
+    @classmethod
+    def cast(cls, condition:Self):
+        if not issubclass(condition.__class__, cls):
+            condition.__class__ = cls
+        return condition
+
+    def __init__(self, name:str, data:dict[str]):
+        self.name = name
+        self.data = data
+
+    def __getstate__(self)->dict[str]:
+        return self.__dict__.copy()
+    
+    def __setstate__(self, d:dict[str]):
+        self.name = d["name"]
+        self.data = d["data"]
+
+CONDITION_CATEGORY_STATE_MATCH = "state_match"
+CONDITION_CATEGORY_MEDIA_MATCH = "media_match"
+CONDITION_CATEGORY_KEYBINDS_IDLE = "keybinds_idle"
+CONDITION_CATEGORY_ACTIVE_LIMIT = "active_limit"
+CONDITION_CATEGORY_INACTIVE = "inactive"
+
+class StateMatchCondition(EventCondition):
+    """Condition that is met when the current state matches one of the given names."""
+    CATEGORY_NAME = CONDITION_CATEGORY_STATE_MATCH
+    def __init__(self, *names:str, **data):
+        data["names"] = list(names)
+        super().__init__(self.CATEGORY_NAME, data)
+
+    @property
+    def names(self)->list[str]:
+        return self.data["names"]
+    
+    @names.setter
+    def names(self, value:list[str]):
+        self.data["names"] = value
+
+class MediaMatchCondition(EventCondition):
+    """Condition that is met when the current state uses media with one of the given names, and optionally from the given location (e.g. border, content)."""
+    CATEGORY_NAME = CONDITION_CATEGORY_MEDIA_MATCH
+    def __init__(self, *names:str, location:str|None=None, **data):
+        data["names"] = list(names)
+        if location is not None:
+            data["location"] = location
+        super().__init__(self.CATEGORY_NAME, data)
+
+    @property
+    def names(self)->list[str]:
+        return self.data["names"]
+    
+    @names.setter
+    def names(self, value:list[str]):
+        self.data["names"] = value
+
+    @property
+    def location(self)->str|None:
+        return self.data.get("location", None)
+    
+    @location.setter
+    def location(self, value:str|None):
+        self.data["location"] = value
+
+    @location.deleter
+    def location(self):
+        if "location" in self.data:
+            del self.data["location"]
+
+
+class DurationConditionType(EventCondition):
+    """Type of conditions which stores a timespan in seconds."""
+    CATEGORY_NAME:str = NotImplemented
+    def __init__(self, seconds:float|timedelta, **data):
+        data["seconds"] = seconds.total_seconds() if isinstance(seconds, timedelta) else seconds
+        assert isinstance(self.CATEGORY_NAME, str), f"EventCondition {type(self).__name__} must define a CATEGORY_TYPE, got {self.CATEGORY_NAME}"
+        super().__init__(self.CATEGORY_NAME, data)
+
+    @property
+    def seconds(self)->float:
+        return self.data["seconds"]
+
+    @seconds.setter
+    def seconds(self, value:float|timedelta):
+        self.data["seconds"] = value.total_seconds() if isinstance(value, timedelta) else value
+
+class IdleCondition(DurationConditionType):
+    """Condition that is met when no keybinds have been entered for the given amount of seconds."""
+    CATEGORY_NAME = CONDITION_CATEGORY_KEYBINDS_IDLE
+
+class ActiveLimitCondition(DurationConditionType):
+    """Condition that is not met when all of an event's conditions have been met for more than the given amount of seconds."""
+    CATEGORY_NAME = CONDITION_CATEGORY_ACTIVE_LIMIT
+
+class InactiveCondition(DurationConditionType):
+    """Condition that is met when all of an event's conditions haven't been met for more than the given amount of seconds."""
+    CATEGORY_NAME = CONDITION_CATEGORY_INACTIVE
+
+
+EventConditions = list[EventCondition]
+
+class Event:
+    def __init__(self, name:str, media:MediaReference, conditions:EventConditions):
+        self.name = name
+        self.media = media
+        self.conditions = conditions
+
+    def __getstate__(self):
+        rtv:dict[str] = {"media": self.media.__getstate__(), "conditions": [condition.__getstate__() for condition in self.conditions]}
+        return rtv
+
+    def __setstate__(self, d:dict[str]):
+        if "name" in d:
+            self.name:str = d["name"]
+        self.media = MediaReference.__new__(MediaReference)
+        self.media.__setstate__(d["media"])
+        conditions = []
+        cd:list[dict] = d["conditions"]
+        for cinfo in cd:
+            c = EventCondition.__new__(EventCondition)
+            c.__setstate__(cinfo)
+            conditions.append(c)
+        self.conditions = conditions
+
+    def state_name(self):
+        return f"event:{self.name}:{hex(hash(self.name))[2:]}" #hash prevents name collisions with a state named f"event:{self.name}"
+
 StateCollection = dict[str, State]
 TransitionStructure = dict[str, list[Transition]]
+EventCollection = dict[str, Event]
 
 class StateMap:
-
     @classmethod
     def loads(cls, s:str|bytes, **kwargs):
         d = json.loads(s, **kwargs)
@@ -103,22 +232,26 @@ class StateMap:
         statemap.__setstate__(d)
         return statemap
 
-    def __init__(self, states:StateCollection=None, transitions:TransitionStructure=None):
+    def __init__(self, states:StateCollection=None, transitions:TransitionStructure=None, events:EventCollection=None):
         self.states = {} if states is None else states
         self.transitions = {} if transitions is None else transitions
+        self.events = {} if events is None else events
 
     def __getstate__(self):
         return {
             "states": {name: state.__getstate__() for name, state in self.states.items()},
-            "transitions": {name: [t.__getstate__() for t in ts] for name, ts in self.transitions.items()}
+            "transitions": {name: [t.__getstate__() for t in ts] for name, ts in self.transitions.items()},
+            "events": {name: event.__getstate__() for name, event in self.events.items()}
         }
 
     def __setstate__(self, d:dict[str]):
         states = {}
         transitions = {}
+        events = {}
 
         dstates:dict[str, dict] = d.get("states", None)
         dtransitions:dict[str, list] = d.get("transitions", None)
+        devents = d.get("events", None)
 
         if isinstance(dstates, dict):
             for name, info in dstates.items():
@@ -134,7 +267,13 @@ class StateMap:
                     transition.__setstate__(t)
                     ts.append(transition)
                 transitions[name] = ts
-        self.__init__(states, transitions)
+        if isinstance(devents, dict):
+            for name, info in devents.items():
+                info["name"] = name
+                event = Event.__new__(Event)
+                event.__setstate__(info)
+                events[name] = event
+        self.__init__(states, transitions, events)
 
 
     def dumps(self, **kwargs):
@@ -242,3 +381,6 @@ class StateMapNavigator:
     
     def hook_mode_up(frame:NavigatorStackFrame, t:Transition):
         raise NotImplementedError
+    
+    def event_can_interrupt(self):
+        return self.stack is None or self.stack.state.allow_event_interrupt

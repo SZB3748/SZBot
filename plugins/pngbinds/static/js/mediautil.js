@@ -1,5 +1,12 @@
 /**
- * @typedef {string[]} PngBindsMediaList
+ * @typedef {Object<string, PngBindsMedia>} PngBindsMediaList
+ */
+
+/**
+ * @typedef PngBindsMedia
+ * @property {any} value
+ * @property {"image"|"iframe"} type
+ * @property {MediaBounds} bounds
  */
 
 /**
@@ -8,10 +15,6 @@
  * @property {number} right
  * @property {number} bottom
  * @property {number} left
- */
-
-/**
- * @typedef {Object<string, MediaBounds?>} MediaListBounds
  */
 
 
@@ -24,16 +27,6 @@ const mediaCache = new Map();
  */
 async function getMediaList() {
     const r = await fetch("/api/pngbinds/media/list");
-    if (r.ok)
-        return r.json();
-    return null;
-}
-
-/**
- * @returns {Promise<MediaListBounds|null>}
- */
-async function getMediaListBounds() {
-    const r = await fetch("/api/pngbinds/media/list/bounds");
     if (r.ok)
         return r.json();
     return null;
@@ -64,12 +57,20 @@ async function getMedia(name, useCache) {
 
 /**
  * @param {string} name
- * @param {File} file
+ * @param {string} type
+ * @param {string?} value
+ * @param {File?} file
  * @returns {Promise<bool>}
  */
-async function uploadMedia(name, file) {
+async function uploadMedia(name, type, value, file) {
     const body = new FormData();
-    body.set("file", file);
+    if (file != null) {
+        body.set("file", file);
+    }
+    if (value != null) {
+        body.set("value", value);
+    }
+    body.set("type", type);
     const r = await fetch(`/api/pngbinds/media/file/${name}`, {
         method: "POST",
         body: body

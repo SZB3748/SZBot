@@ -67,13 +67,15 @@ function createStateElement(name, state, dest) {
     // changeNameInput.required = true;     // null option value is "", so required will make it unselectable
 
     nameInput.value = name;
-    for (const mname of mlist) {
+    for (const mname in mlist) {
         const contentOption = document.createElement("option");
         const borderOption = document.createElement("option");
         contentOption.text = contentOption.value = mname;
         borderOption.text = borderOption.value = mname;
         contentInput.appendChild(contentOption);
-        borderInput.appendChild(borderOption);
+        if (mlist[mname].type == "image") {
+            borderInput.appendChild(borderOption);
+        }
     }
     contentInput.value = state.media?.content_name || "";
     borderInput.value = state.media?.border_name || "";

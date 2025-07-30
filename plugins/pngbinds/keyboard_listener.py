@@ -203,7 +203,9 @@ def on_change(old:statemapping.NavigatorStackFrame, new:statemapping.NavigatorSt
     for t in new.transitions:
         print(f"pngbinds:\t{t.keybind} {t.mode.name} --> {repr(t.destination)}{"" if t.pop_destination is None else ".."+repr(t.pop_destination)}")
 
+
+nav:KeyboardStateMapNavigator = None
+ws = websocket.WebSocketApp(sys.argv[1], on_open=on_open, on_message=on_message)
+
 if __name__ == "__main__":
-    nav:KeyboardStateMapNavigator = None
-    ws = websocket.WebSocketApp(sys.argv[1], on_open=on_open, on_message=on_message)
     ws.run_forever()

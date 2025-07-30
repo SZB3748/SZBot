@@ -11,7 +11,15 @@
 <h2>Upload</h2>
 <div id="media-upload">
     <div><span>Name</span><input id="upload-name"></div>
-    <div><input id="upload-input" type="file" accept="image/*"> <img id="upload-preview" class="media-image"></div>
+    <div>
+        <span>Type</span>
+        <select id="upload-type">
+            <option value="image" selected>image</option>
+            <option value="iframe">iframe</option>
+        </select>
+    </div>
+    <div id="image-input"><input id="upload-image-input" type="file" accept="image/*"> <img id="upload-image-preview" class="media-image"></div>
+    <div id="iframe-input"><span>IFrame URL</span><input id="upload-iframe-input" type="url"> <iframe id="upload-iframe-preview" class="media-iframe"></iframe></div>
     <div><button id="upload-button">Upload</button></div>
 </div>
 <h2>Media List</h2>

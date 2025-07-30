@@ -1,4 +1,4 @@
-from . import medialist, statemapping
+from . import event_negotiation, medialist, statemapping
 import config
 from datetime import datetime, timedelta
 import events
@@ -8,6 +8,7 @@ import json
 import os
 import plugins
 import shutil
+import threading
 import traceback
 from web import add_bp_if_new, serve_when_loaded, sock
 from werkzeug.security import safe_join
@@ -22,15 +23,29 @@ web_loaded_callback = lambda: web_loaded
 
 meta:plugins.Meta = None
 nav_stack:statemapping.NavigatorStackFrame = None
+statemap:statemapping.StateMap = None
+event_negotiator:event_negotiation.EventNegotiator = None
+event_negotiator_thread:threading.Thread = None
 keyevents = events.EventBucketContainer()
 keylisteners = events.EventListenerCollection()
 last_statemap_send = datetime.now()
 
 def _get_state_data(frame:statemapping.NavigatorStackFrame|None)->dict[str]:
+    event = None if event_negotiator is None else event_negotiator.get_first_active()
     if frame is not None:
         state = frame.state
-        return {"name": state.name, "media": state.media.__getstate__()}
-    return {"name": None, "media": None}
+        if event is not None and state.allow_event_interrupt:
+            data_name = event.state_name()
+            data_media = event.media.__getstate__()
+        else:
+            data_name = state.name
+            data_media = state.media.__getstate__()
+    elif event is not None:
+        data_name = event.state_name()
+        data_media = event.media.__getstate__()
+    else:
+        data_name = data_media = None
+    return {"name": data_name, "media": data_media}
 
 def dispatch_state_change_event():
     events.dispatch(events.Event("pngbinds:state_change", _get_state_data(nav_stack)))
@@ -96,37 +111,51 @@ def statemap_file():
         return send_file(statemapping.STATEMAP_FILE)
     else:
         return {}
-    
+
 @pngbindsapi.get("/media/list")
 @serve_when_loaded(web_loaded_callback)
 def get_media_list():
-    return [name for name in medialist.load_media_list().keys()]
-
-@pngbindsapi.get("/media/list/bounds")
-@serve_when_loaded(web_loaded_callback)
-def get_media_bounds():
-    return {name: m.get("bounds", None) for name, m in medialist.load_media_list().items()}
+    return medialist.load_media_list()
 
 @pngbindsapi.route("/media/file/<name>", methods=["GET", "POST", "DELETE"])
 @serve_when_loaded(web_loaded_callback)
 def get_media_file(name:str):
     if request.method == "POST":
-        file = request.files["file"]
-        path = safe_join(medialist.MEDIA_DIR, file.filename)
-        with open(path, "wb") as f:
-            shutil.copyfileobj(file, f)
-        mlist = medialist.load_media_list()
-        mlist[name] = {
-            "path": path
+        mtype = request.form.get("type", None)
+        if mtype is None:
+            mtype = "image"
+        else:
+            mtype = mtype.lower()
+        
+        if mtype == "image":
+            file = request.files["file"]
+            value = safe_join(medialist.MEDIA_DIR, file.filename)
+            with open(value, "wb") as f:
+                shutil.copyfileobj(file, f)
+        elif mtype == "iframe":
+            value = request.form["value"]
+        entry = {
+            "value": value,
+            "type": mtype
         }
+
+        mlist = medialist.load_media_list()
+        if name in mlist:
+            mlist[name].update(entry)
+        else:
+            mlist[name] = entry
         medialist.save_media_list(mlist)
         return "", 200
     elif request.method == "DELETE":
         mlist = medialist.load_media_list()
-        path = mlist.pop(name, None)
-        if path is not None:
-            if os.path.isfile(path):
-                os.remove(path)
+        entry = mlist.get(name, None)
+        if entry is not None:
+            mtype = entry.get("type", None)
+            value = entry.get("value", None)
+            if mtype == "image":
+                if value is not None and os.path.isfile(value):
+                    os.remove(value)
+            del mlist[name]
             medialist.save_media_list(mlist)
             return "", 200
         return "", 404
@@ -134,9 +163,13 @@ def get_media_file(name:str):
         mlist = medialist.load_media_list()
         m = mlist.get(name, None)
         if m is not None:
-            mpath:str = m["path"]
-            if os.path.isfile(mpath):
-                return send_file(mpath)
+            mtype = m.get("type", None)
+            if mtype == "image":
+                mpath:str = m["value"]
+                if os.path.isfile(mpath):
+                    return send_file(mpath)
+            elif mtype == "iframe":
+                return m["value"]
         return "", 404
     
 @pngbindsapi.route("/media/file/<name>/bounds", methods=["POST", "DELETE"])
@@ -169,7 +202,7 @@ def set_media_file_bounds(name:str):
 @sock.route("/events", bp=pngbindsapi)
 @serve_when_loaded(web_loaded_callback)
 def keybinds_events(ws:Server):
-    global statemap
+    global event_negotiator, event_negotiator_thread, statemap
 
     if keyevents.buckets:
         ws.close(418)
@@ -199,9 +232,12 @@ def keybinds_events(ws:Server):
             for event in bucket.dump():
                 ws.send(event.to_json())
     except KeyboardInterrupt:
-        ws.close()
+        pass
     finally:
+        if ws.connected:
+            ws.close()
         keyevents.remove_bucket(bucket)
+        
 
 @pngbindsapi.get("/state/current")
 @serve_when_loaded(web_loaded_callback)

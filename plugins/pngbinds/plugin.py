@@ -1,7 +1,9 @@
-from . import medialist, statemapping, webroutes
+from . import event_negotiation, medialist, statemapping, webroutes
+import asyncio
 import events
 import os
 import plugins
+import threading
 import subprocess
 import sys
 import web
@@ -53,6 +55,10 @@ def on_load(ctx:plugins.LoadEvent):
             web.add_bp_if_new(web.app, vpngbindspages_parent)
         if m_api == plugins.COMPONENT_MODE_REMOTE:
             web.create_component_proxy(ctx.remote_api_addr, web.api, webroutes.pngbindsapi.name, webroutes.pngbindsapi.url_prefix)
+        
+    event_negotiator = webroutes.event_negotiator = event_negotiation.EventNegotiator(lambda: webroutes.nav_stack, lambda: webroutes.statemap, webroutes.dispatch_state_change_event)
+    webroutes.event_negotiator_thread = threading.Thread(target=event_negotiator.background_task)
+    webroutes.event_negotiator_thread.start()
 
     if m_listener == plugins.COMPONENT_MODE_NORMAL:
         keyboard_listener_proc = run_keyboard_listener(f"{ctx.host_addr[0]}:{ctx.host_addr[1]}", ctx.host_addr[1] == 443)
@@ -67,3 +73,7 @@ def on_unload(ctx:plugins.UnloadEvent):
         webroutes.keyevents.dispatch(events.Event("cleanup"))
         webroutes.dispatch_state_change_event()
         keyboard_listener_proc.terminate()
+    if webroutes.event_negotiator:
+        if webroutes.event_negotiator._loop is not None:
+            webroutes.event_negotiator._loop.close()
+        webroutes.event_negotiator_thread.join(0.5)

@@ -6,7 +6,7 @@
  * @property {{content_name:string, border_name:string}|null} media
  */
 
-/** @type {MediaListBounds} */
+/** @type {PngBindsMediaList} */
 let mlist;
 /** @type {StateMap} */
 let statemap;
@@ -20,19 +20,43 @@ let displayChangeBuffer = null;
 async function displayState(info) {
     /** @type {HTMLImageElement} */
     const borderImage = document.getElementById("border-image");
-    /** @type {HTMLImageElement} */
-    const contentImage = document.getElementById("content-image");
+    /** @type {HTMLDivElement} */
+    const contentDiv = document.getElementById("content-div");
     if (currentState == info.name)
         return;
 
     currentState = info.name;
 
     if (info.media != null) {
-        borderImage.src = await getMedia(info.media.border_name, true);
-        contentImage.src = await getMedia(info.media.content_name, true);
+        const borderMedia = mlist[info.media.border_name];
+        const contentMedia = mlist[info.media.content_name];
+        if (borderMedia.type == "image") {
+            borderImage.src = await getMedia(info.media.border_name, true);
+        } else {
+            borderImage.src = ""; //borders can only use image media
+        }
 
-        const borderBounds = mlist[info.media.border_name];
-        const contentBounds = mlist[info.media.content_name];
+        while (contentDiv.children.length > 0) {
+            contentDiv.firstChild.remove();
+        }
+
+        switch (contentMedia.type) {
+        case "image": {
+            const img = document.createElement("img");
+            img.src = await getMedia(info.media.content_name, true);
+            contentDiv.appendChild(img);
+            break;
+        }
+        case "iframe": {
+            const iframe = document.createElement("iframe");
+            iframe.src = contentMedia.value;
+            contentDiv.appendChild(iframe);
+            break;
+        }
+        }
+
+        const borderBounds = mlist[info.media.border_name]?.bounds;
+        const contentBounds = mlist[info.media.content_name]?.bounds;
 
         const contentContainer = document.getElementById("content-container");
         const contentMargin = document.getElementById("content-margin");
@@ -58,7 +82,9 @@ async function displayState(info) {
 
 function preloadAssets() {
     for (const name in mlist) {
-        getMedia(name, true);
+        if (mlist[name].type == "image") {
+            getMedia(name, true);
+        }
     }
 }
 
@@ -76,7 +102,7 @@ function bufferedDisplayState(info) {
 
 
 window.addEventListener("load", async () => {
-    [mlist, statemap] = await Promise.all([getMediaListBounds(), getStatemap()]);
+    [mlist, statemap] = await Promise.all([getMediaList(), getStatemap()]);
     preloadAssets(); //allows for media to be changed ASAP
     const events = new WebSocket("/api/events");
 
