@@ -1,6 +1,6 @@
 from . import event_negotiation, medialist, statemapping
 import config
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import events
 from flask import Blueprint, Flask, render_template, request, send_file
 from flask_sock import Server
@@ -87,7 +87,20 @@ def event_stack_update(event:events.Event):
     changed = ((stack is None) ^ (nav_stack is None)) or stack.state != nav_stack.state
     nav_stack = stack
     if changed:
+        if event_negotiator is not None:
+            event_negotiator.update_event_activity()
         dispatch_state_change_event()
+
+@keylisteners.listener("key_press")
+def event_key_press(event:events.Event):
+    if event_negotiator is None:
+        return
+    event_negotiator.last_keybind_trigger = datetime.now(timezone.utc)
+    hold_start = event.data.get("hold_start", None)
+    if isinstance(hold_start, bool):
+        event_negotiator.keybind_holding = hold_start
+    event_negotiator.update_event_activity()
+
     
 pngbindspages_parent = Blueprint("pngbindsparent", __name__, static_folder=STATIC_DIR, static_url_path="/static/pngbinds")
 pngbindspages = Blueprint("pngbinds", __name__, url_prefix="/pngbinds", template_folder=TEMPATES_DIR)
@@ -202,7 +215,7 @@ def set_media_file_bounds(name:str):
 @sock.route("/events", bp=pngbindsapi)
 @serve_when_loaded(web_loaded_callback)
 def keybinds_events(ws:Server):
-    global event_negotiator, event_negotiator_thread, statemap
+    global statemap
 
     if keyevents.buckets:
         ws.close(418)

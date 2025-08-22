@@ -96,12 +96,14 @@ class EventNegotiator:
         self.statemap_callback = statemap_callback
         self.activity_update_callback = activity_update_callback
         self.last_keybind_trigger = datetime.now(timezone.utc)
+        self.keybind_holding = False
         self.event_activity_states:dict[str, EventActiveState] = {}
         self.active_queue = EventQueue()
         self.__activity_state_default = datetime.now(timezone.utc)
         self.wait_flag = threading.Event()
         self.background_task_wait_interval = 2.0
         self.keep_running = True
+        self._update_lock = threading.Lock()
 
     def get_first_active(self):
         return self.active_queue.peek()
@@ -122,28 +124,21 @@ class EventNegotiator:
         return (border and media.border_name in condition.names) or (content and media.content_name in condition.names)
 
     def check_condition_keybinds_idle(self, condition:statemapping.IdleCondition)->bool:
-        x = (datetime.now(timezone.utc) - self.last_keybind_trigger).total_seconds() >= condition.seconds
-        print(condition, x)
-        return x
+        return not self.keybind_holding and (datetime.now(timezone.utc) - self.last_keybind_trigger).total_seconds() >= condition.seconds
     
     def check_condition_active_limit(self, condition:statemapping.ActiveLimitCondition, event_name:str)->bool:
         state = self.event_activity_states.get(event_name, None)
         if state is None:
-            print(condition, True)
             return True
         active, started = state
-        x = not active or (datetime.now(timezone.utc) - started).total_seconds() < condition.seconds
-        print(condition, x)
-        return x
+        return not active or (datetime.now(timezone.utc) - started).total_seconds() < condition.seconds
     
     def check_condition_inactive(self, condition:statemapping.InactiveCondition, event_name:str)->bool:
         state = self.event_activity_states.get(event_name, None)
         if state is None:
             state = False, self.__activity_state_default
         active, started = state
-        x = active or (datetime.now(timezone.utc) - started).total_seconds() >= condition.seconds
-        print(condition, x)
-        return x
+        return active or (datetime.now(timezone.utc) - started).total_seconds() >= condition.seconds
     
     def check_event(self, event:statemapping.Event)->bool:
         is_active = True
@@ -164,32 +159,33 @@ class EventNegotiator:
         return is_active
     
     def update_event_activity(self):
-        statemap = self.statemap_callback()
-        if statemap is None:
-            return
-        any_changes = False
-        for event in statemap.events.values():
-            is_active = self.check_event(event)
-            state = self.event_activity_states.get(event.name, None)
-            newstate = None
-            if state is None:
-                if is_active:
-                    newstate = self.event_activity_states[event.name] = is_active, datetime.now(timezone.utc)
-            else:
-                active, _ = state
-                if is_active != active:
-                    newstate = self.event_activity_states[event.name] = is_active, datetime.now(timezone.utc)
-            
-            if newstate is not None:
-                any_changes = True
-                if is_active:
-                    if event not in self.active_queue:
-                        self.active_queue.enqueue(event)
+        with self._update_lock:
+            statemap = self.statemap_callback()
+            if statemap is None:
+                return
+            any_changes = False
+            for event in statemap.events.values():
+                is_active = self.check_event(event)
+                state = self.event_activity_states.get(event.name, None)
+                newstate = None
+                if state is None:
+                    if is_active:
+                        newstate = self.event_activity_states[event.name] = is_active, datetime.now(timezone.utc)
                 else:
-                    self.active_queue.skip(event)
-        
-        if any_changes and self.activity_update_callback:
-            self.activity_update_callback()
+                    active, _ = state
+                    if is_active != active:
+                        newstate = self.event_activity_states[event.name] = is_active, datetime.now(timezone.utc)
+                
+                if newstate is not None:
+                    any_changes = True
+                    if is_active:
+                        if event not in self.active_queue:
+                            self.active_queue.enqueue(event)
+                    else:
+                        self.active_queue.skip(event)
+            
+            if any_changes and self.activity_update_callback:
+                self.activity_update_callback()
 
     def background_task(self):
         while self.keep_running:

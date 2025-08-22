@@ -1,5 +1,4 @@
 from . import event_negotiation, medialist, statemapping, webroutes
-import asyncio
 import events
 import os
 import plugins

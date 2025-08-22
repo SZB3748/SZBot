@@ -25,11 +25,16 @@ There are some extra configs you can specify in `config.json` for this plugin (i
 
 For this plugin to run, make sure that it has been added to `plugins.json` with [`plugin.py`](plugin.py) and [`plugin.json`](plugin.json) specified as the run and meta targets.
 
+### Overlay
+
+You can access the overlay by going to [http://localhost:6742/pngbinds/overlay](http://localhost:6742/pngbinds/overlay).
+
+
 ### Adding States, Transitions, and Media
 
 After running `main.py`, go to [http://localhost:6742/pngbinds/media]. Here, you can add images and gifs to use for the overlay. You'll want to add an asset for the border and some content assets.
 
-Next, go to [http://localhost:6742/pngbinds]. Here, you can add/edit states and the keybinds that will be made to transition between them. Each state has a border and content asset. Transitions have a state, a keybind, an activation mode, and a transition.
+Next, go to [http://localhost:6742/pngbinds](http://localhost:6742/pngbinds). Here, you can add/edit states and the keybinds that will be made to transition between them. Each state has a border and content asset. Transitions have a state, a keybind, an activation mode, and a transition.
 
 ### VLC Plugins
 

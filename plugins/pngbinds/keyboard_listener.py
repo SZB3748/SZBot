@@ -12,6 +12,7 @@ class KeyboardStateMapNavigator(statemapping.StateMapNavigator):
         do_popstate = False
 
         def on_up():
+            not_sent_unhold = True
             try:
                 while not flag.is_set():
                     if keyboard.is_pressed(t.keybind):
@@ -20,6 +21,8 @@ class KeyboardStateMapNavigator(statemapping.StateMapNavigator):
                         flag.set()
             
                 navthread.join()
+                send_keypress(t.keybind, t.mode, hold_start=False)
+                not_sent_unhold = False
 
                 self.pop()
                 if do_popstate and t.pop_destination is not None:
@@ -35,6 +38,9 @@ class KeyboardStateMapNavigator(statemapping.StateMapNavigator):
                         self.change(state.name)
             except (KeyboardInterrupt, SystemExit):
                 flag.set()
+            finally:
+                if not_sent_unhold:
+                    send_keypress(t.keybind, t.mode, hold_start=False)
 
         def navigate_state_changes():
             nonlocal do_popstate
@@ -62,6 +68,7 @@ class KeyboardStateMapNavigator(statemapping.StateMapNavigator):
         navthread = threading.Thread(target=navigate_state_changes, daemon=True)
 
         def on_down():
+            send_keypress(t.keybind, t.mode, hold_start=True)
             self.push(t.destination) #on_down hotkey is removed
             navthread.start()
             upthread.start()
@@ -84,6 +91,7 @@ class KeyboardStateMapNavigator(statemapping.StateMapNavigator):
         downthread = threading.Thread(target=navigate_state_changes, daemon=True)
 
         def on_down():
+            send_keypress(t.keybind, t.mode)
             downthread.start()
 
         return keyboard.add_hotkey(t.keybind, on_down)
@@ -104,6 +112,7 @@ class KeyboardStateMapNavigator(statemapping.StateMapNavigator):
         upthread = threading.Thread(target=navigate_state_changes, daemon=True)
 
         def on_up():
+            send_keypress(t.keybind, t.mode)
             upthread.start()
 
         return keyboard.add_hotkey(t.keybind, on_up, trigger_on_release=True)
@@ -180,6 +189,17 @@ def send_stack(name:str="stack_update"):
         "name": name,
         "data": {
             "stack": stack_to_data(nav.stack)
+        }
+    }
+    ws.send(json.dumps(ev))
+
+def send_keypress(keybind:str, mode:statemapping.TransitionMode, hold_start:bool=None, name:str="key_press"):
+    ev = {
+        "name": name,
+        "data": {
+            "keybind": keybind,
+            "mode": mode.value,
+            "hold_start": hold_start
         }
     }
     ws.send(json.dumps(ev))
