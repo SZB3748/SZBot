@@ -460,6 +460,12 @@ def _config_apply_number(v:int|float, T:type[int|float], tname:str, field:MetaFi
                     raise MetaTypeBadOptionError(f"Type {tname} option \"{option_name}\" must speficy {" | ".join(t.__name__ for t in type_set)} value, got {type(option_value).__name__}: {repr(option_value)}")
                 elif v > option_value:
                     raise ConfigRequirementNotMetException(f"Requirement for {field.key} from option \"{option_name}\" not met: {v} <= {option_value}")
+            elif option_name == "!=":
+                if not isinstance(option_value, type_set):
+                    raise MetaTypeBadOptionError(f"Type {tname} option \"{option_name}\" must speficy {" | ".join(t.__name__ for t in type_set)} value, got {type(option_value).__name__}: {repr(option_value)}")
+                elif v == option_value:
+                    raise ConfigRequirementNotMetException(f"Requirement for {field.key} from option \"{option_name}\" not met: {v} != {option_value}")
+
             else:
                 raise MetaTypeBadOptionError(f"Type {tname} does not have option: {option_name}")
         return v
