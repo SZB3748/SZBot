@@ -19,9 +19,9 @@ TEMPATES_DIR = os.path.join(DIR, "templates")
 web_loaded = False
 web_loaded_callback = lambda: web_loaded
 
-musicpages_parent = Blueprint("musicparent", __name__, static_folder=STATIC_DIR, static_url_path="/static/music")
-musicpages = Blueprint("music", __name__, url_prefix="/music", template_folder=TEMPATES_DIR)
-musicoverlays = Blueprint("musicoverlay", __name__, url_prefix="/music/overlay", template_folder=TEMPATES_DIR)
+musicpages_parent = Blueprint("musicparent", __name__, template_folder=TEMPATES_DIR, static_folder=STATIC_DIR, static_url_path="/static/music")
+musicpages = Blueprint("music", __name__, url_prefix="/music")
+musicoverlays = Blueprint("musicoverlay", __name__, url_prefix="/music/overlay")
 musicapi = Blueprint("musicapi", __name__, url_prefix="/music")
 
 @musicpages.get("/")
