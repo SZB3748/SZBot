@@ -189,8 +189,6 @@ def api_configs_meta():
                     combined[name] = json.load(f)
             elif meta_type == "inline":
                 combined[name] = meta_value
-    from pprint import pprint
-    pprint(combined)
     return combined
 
 

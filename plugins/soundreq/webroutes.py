@@ -1,5 +1,5 @@
 from . import soundrequesting
-from flask import Blueprint, Flask, request, send_file
+from flask import Blueprint, request, send_file
 import os
 from web import add_bp_if_new, serve_when_loaded
 
