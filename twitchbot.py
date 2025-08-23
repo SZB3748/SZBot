@@ -35,6 +35,7 @@ def define_endpoints(host:str, port:int):
 parser = argparse.ArgumentParser(description="SZBot twitchbot program.")
 parser.add_argument("-d", "--addr", default=f"{web.HOST}:{web.PORT}", help="The address main.py is listening on.")
 parser.add_argument("-p", "--plugin-configs", default=config.PLUGIN_FILE, help="Path to the plugin config file to use.")
+parser.add_argument("-c", "--configs", default=config.CONFIG_FILE, help="Path to the config file to use.")
 
 def get_args()->tuple[tuple[str, int], str]:
     args = parser.parse_args()
@@ -63,7 +64,7 @@ def get_args()->tuple[tuple[str, int], str]:
         host = addr_arg.strip().lower()
         addr_arg = "127.0.0.1" if host == "localhost" else host, web.PORT
     
-    return addr_arg, args.plugin_configs
+    return addr_arg, args.configs, args.plugin_configs
 
 
 def ratelimit(max_times:int, duration:timedelta, limited_callback:Callable[[commands.Context, datetime], Awaitable[None]]|None=None):
@@ -388,7 +389,8 @@ async def main():
     await bot.start(load_tokens=False)
 
 if __name__ == "__main__":
-    addr, pconfig_path = get_args()
+    addr, config_path, pconfig_path = get_args()
+    config.CONFIG_FILE = config_path
     define_endpoints(*addr)
 
     #assign __main__ over twitchbot so importing twitchbot imports __main__ instead

@@ -5,13 +5,15 @@ import os
 from typing import Any
 
 DIR = os.path.dirname(__file__)
-CONFIG_FILE = os.path.join(DIR, "config.json")
+DEFAULT_CONFIG_FILE = CONFIG_FILE = os.path.join(DIR, "config.json")
 PLUGIN_FILE = os.path.join(DIR, "plugins.json")
 OAUTH_TWITCH_FILE = os.path.join(DIR, "oauth_twitch.json")
 
 _cached_contents:dict[str, tuple[datetime, Any]] = {}
 
-def read(path:str=CONFIG_FILE, use_cache:bool=True)->dict[str]:
+def read(path:str=None, use_cache:bool=True)->dict[str]:
+    if path is None:
+        path = CONFIG_FILE
     if os.path.isfile(path):
         mtime = datetime.fromtimestamp(os.path.getmtime(path))
 
@@ -30,7 +32,9 @@ def read(path:str=CONFIG_FILE, use_cache:bool=True)->dict[str]:
     else:
         return {}
 
-def write(new_configs:dict[str]|None=None, config_updates:dict[str]|None=None, path:str=CONFIG_FILE, use_cache:bool=True):
+def write(new_configs:dict[str]|None=None, config_updates:dict[str]|None=None, path:str=None, use_cache:bool=True):
+    if path is None:
+        path = CONFIG_FILE
     if os.path.isfile(path):
         with open(path, "r+") as f:
             contents = f.read()

@@ -13,6 +13,7 @@ parser = argparse.ArgumentParser(description="SZBot main program.")
 parser.add_argument("-d", "--addr", default=f"{web.HOST}:{web.PORT}", help="Address to host the flask app on. Can be `host:port`, `host`, or `port`.")
 parser.add_argument("--remote-api", default=None, help="The IP/Domain:Port to connect to for any remote behavior. May be required to run depending on plugins.")
 parser.add_argument("-p", "--plugin-configs", default=config.PLUGIN_FILE, help="Path to the plugin config file to use.")
+parser.add_argument("-c", "--configs", default=config.CONFIG_FILE, help="Path to the config file to use.")
 parser.add_argument("-C", "--core-component", action="append", default=[], help="Set modes for core components with <name>=<mode> syntax. These modes can be normal|remote|off")
 
 def get_args()->tuple[tuple[str, int], str|None, str, dict[str, str|None]]:
@@ -56,7 +57,7 @@ def get_args()->tuple[tuple[str, int], str|None, str, dict[str, str|None]]:
             print("Core component must be in the <name>=<mode> format, got:", expr)
             exit(-1)
     
-    return addr, args.remote_api, args.plugin_configs, components
+    return addr, args.remote_api, args.configs, args.plugin_configs, components
 
 def run(addr:tuple[str, int]=(web.HOST, web.PORT), remote_api_addr:str=None, pconfig_path:str=config.PLUGIN_FILE, core_components:dict[str, str|None]={}):
     print("reading plugin list")
@@ -113,10 +114,11 @@ if __name__ == "__main__":
         print("You must create an oauth_twitch.json file with your twitch application's Client-Id and Client-Secret.")
     elif "Token" not in identity:
         try:
-            addr, _, _, _ = get_args()
+            addr, *_ = get_args()
             twitch_reauth.get_auth_token(oauth, addr)
         except KeyboardInterrupt:
             pass
     else:
-        addr, remote_api_addr, pconfig_path, core_components = get_args()
+        addr, remote_api_addr, config_path, pconfig_path, core_components = get_args()
+        config.CONFIG_FILE = config_path
         run(addr, remote_api_addr, pconfig_path, core_components)
