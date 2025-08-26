@@ -40,7 +40,7 @@ def on_load(ctx:plugins.LoadEvent):
         webroutes.add_routes(web.app, web.api, m_interface == plugins.COMPONENT_MODE_NORMAL, m_overlay == plugins.COMPONENT_MODE_NORMAL, m_api == plugins.COMPONENT_MODE_NORMAL)
         rinterface = m_interface == plugins.COMPONENT_MODE_REMOTE
         roverlay = m_overlay == plugins.COMPONENT_MODE_REMOTE
-        vmusicpages_parent = webroutes.Blueprint("proxy_musicparent", __name__, static_folder=webroutes.musicpages_parent.static_folder, static_url_path=webroutes.musicpages_parent.static_url_path)
+        vmusicpages_parent = webroutes.Blueprint("proxy_musicparent", __name__, static_folder=webroutes.musicpages_parent.static_folder, template_folder=webroutes.musicpages_parent.template_folder, static_url_path=webroutes.musicpages_parent.static_url_path)
         if rinterface:
             web.create_component_proxy(ctx.remote_api_addr, vmusicpages_parent, webroutes.musicpages.name, webroutes.musicpages.url_prefix, socket=False)
         if roverlay:
@@ -79,10 +79,10 @@ def on_load(ctx:plugins.LoadEvent):
 
 def on_twitch_bot_load(ctx:plugins.TwitchBotLoadEvent):
     global bot
-    bot = ctx.bot
     m_commands = ctx.plugin.get_component_mode(COMPONENT_TWITCHBOT_COMMANDS)
     assert m_commands != plugins.COMPONENT_MODE_REMOTE, "Twitch bot commands has no remote mode."
     if m_commands == plugins.COMPONENT_MODE_NORMAL:
+        bot = ctx.bot
         print("Adding songqueue twitch commands")
         twitchcommands.add_commands(bot)
 
@@ -114,10 +114,8 @@ def on_unload(ctx:plugins.UnloadEvent):
 def on_twitch_bot_unload(ctx:plugins.TwitchBotUnloadEvent):
     global bot
     if bot is not None:
-        m_commands = ctx.plugin.get_component_mode(COMPONENT_TWITCHBOT_COMMANDS)
-        if m_commands == plugins.COMPONENT_MODE_NORMAL:
-            print("Removing songqueue twitch commands")
-            twitchcommands.remove_commands(bot)
+        print("Removing songqueue twitch commands")
+        twitchcommands.remove_commands(bot)
         bot = None
 
 oauth = config.read(path=playlist.OAUTH_YOUTUBE_FILE)

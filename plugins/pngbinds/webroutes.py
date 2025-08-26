@@ -84,7 +84,7 @@ def event_stack_update(event:events.Event):
         state = statemap.states.get(statename, None)
         transitions = statemap.transitions.get(statename, [])
         stack = statemapping.NavigatorStackFrame(state, transitions, stack)
-    changed = ((stack is None) ^ (nav_stack is None)) or stack.state != nav_stack.state
+    changed = not (stack is None or nav_stack is None) and stack.state != nav_stack.state
     nav_stack = stack
     if changed:
         if event_negotiator is not None:

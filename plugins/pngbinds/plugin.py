@@ -14,6 +14,7 @@ COMPONENT_INTERFACE = "interface"
 COMPONENT_OVERLAY = "overlay"
 COMPONENT_API = "api"
 COMPONENT_LISTENER = "listener"
+COMPONENT_EVENTS = "events"
 #COMPONENT_TWITCHBOT_COMMANDS = "twitchbot:commands"
 
 keyboard_listener_proc:subprocess.Popen = None
@@ -40,12 +41,13 @@ def on_load(ctx:plugins.LoadEvent):
     m_overlay = ctx.plugin.get_component_mode(COMPONENT_OVERLAY)
     m_api = ctx.plugin.get_component_mode(COMPONENT_API)
     m_listener = ctx.plugin.get_component_mode(COMPONENT_LISTENER)
+    m_events = ctx.plugin.get_component_mode(COMPONENT_EVENTS)
 
     if ctx.is_start:
         webroutes.add_routes(web.app, web.api, m_interface == plugins.COMPONENT_MODE_NORMAL, m_overlay == plugins.COMPONENT_MODE_NORMAL, m_api == plugins.COMPONENT_MODE_NORMAL)
         rinterface = m_interface == plugins.COMPONENT_MODE_REMOTE
         roverlay = m_overlay == plugins.COMPONENT_MODE_REMOTE
-        vpngbindspages_parent = webroutes.Blueprint("proxy_pngbindsparent", __name__, static_folder=webroutes.pngbindspages_parent.static_folder, static_url_path=webroutes.pngbindspages_parent.static_url_path)
+        vpngbindspages_parent = webroutes.Blueprint("proxy_pngbindsparent", __name__, static_folder=webroutes.pngbindspages_parent.static_folder, template_folder=webroutes.pngbindspages_parent.template_folder, static_url_path=webroutes.pngbindspages_parent.static_url_path)
         if rinterface:
             web.create_component_proxy(ctx.remote_api_addr, vpngbindspages_parent, webroutes.pngbindspages.name, webroutes.pngbindspages.url_prefix, socket=False)
         if roverlay:
@@ -54,10 +56,12 @@ def on_load(ctx:plugins.LoadEvent):
             web.add_bp_if_new(web.app, vpngbindspages_parent)
         if m_api == plugins.COMPONENT_MODE_REMOTE:
             web.create_component_proxy(ctx.remote_api_addr, web.api, webroutes.pngbindsapi.name, webroutes.pngbindsapi.url_prefix)
-        
-    event_negotiator = webroutes.event_negotiator = event_negotiation.EventNegotiator(lambda: webroutes.nav_stack, lambda: webroutes.statemap, webroutes.dispatch_state_change_event)
-    webroutes.event_negotiator_thread = threading.Thread(target=event_negotiator.background_task)
-    webroutes.event_negotiator_thread.start()
+    
+    assert m_events != plugins.COMPONENT_MODE_REMOTE, "PNG Binds event negotiator has no remote mode."
+    if m_events == plugins.COMPONENT_MODE_NORMAL:
+        event_negotiator = webroutes.event_negotiator = event_negotiation.EventNegotiator(lambda: webroutes.nav_stack, lambda: webroutes.statemap, webroutes.dispatch_state_change_event)
+        webroutes.event_negotiator_thread = threading.Thread(target=event_negotiator.background_task)
+        webroutes.event_negotiator_thread.start()
 
     if m_listener == plugins.COMPONENT_MODE_NORMAL:
         keyboard_listener_proc = run_keyboard_listener(f"{ctx.host_addr[0]}:{ctx.host_addr[1]}", ctx.host_addr[1] == 443)
@@ -73,6 +77,4 @@ def on_unload(ctx:plugins.UnloadEvent):
         webroutes.dispatch_state_change_event()
         keyboard_listener_proc.terminate()
     if webroutes.event_negotiator:
-        if webroutes.event_negotiator._loop is not None:
-            webroutes.event_negotiator._loop.close()
         webroutes.event_negotiator_thread.join(0.5)
