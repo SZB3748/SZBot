@@ -41,6 +41,13 @@ def request_sound():
     soundrequesting.invoke_handler()
     return "", 201
 
+@soundreqapi.post("/end")
+@serve_when_loaded(web_loaded_callback)
+def end_sound():
+    soundrequesting.sound_done.set()
+    return "", 200
+
+
 def add_routes(api:Blueprint, add_api=True):
     if add_api:
         add_bp_if_new(api, soundreqapi)

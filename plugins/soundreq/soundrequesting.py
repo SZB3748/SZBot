@@ -3,6 +3,7 @@ import events
 import json
 import os
 import plugins
+import requests
 import threading
 import time
 import traceback
@@ -86,6 +87,7 @@ def handler_target(sound_keys:list[tuple[str, str|None, str|None]]=None):
 
 def invoke_handler():
     global queue_handler
+    print("DEBUG:", queue_handler)
     if queue_handler is None:
         queue_handler = threading.Thread(target=handler_target, args=(popall_queue(),), daemon=True)
         queue_handler.start()
@@ -135,6 +137,11 @@ class SoundRequestPlayer:
         vlc.libvlc_audio_output_device_list_release(mods)
         return None, None
     
+    def _end_reached(self, _):
+        self.vlc_player.set_media(None)
+        s = "s"*self.api_secure
+        requests.post(f"http{s}://{self.api_url_host}/api/soundreq/end")
+    
     def ws_on_open(self, ws:websocket.WebSocket):
         self.init_vlc()
         configs_parent = get_configs()
@@ -143,7 +150,7 @@ class SoundRequestPlayer:
             device, _ = self.get_device(configs["Output-Device"])
             vlc.libvlc_audio_output_device_set(self.vlc_player, None, device)
         event_manager = self.vlc_player.event_manager()
-        event_manager.event_attach(vlc.EventType.MediaPlayerEndReached, lambda _: self.vlc_player.set_media(None))
+        event_manager.event_attach(vlc.EventType.MediaPlayerEndReached, self._end_reached)
 
     def ws_on_close(self, ws:websocket.WebSocket, status_code:int, msg:str|bytearray|memoryview):
         print(f"Sound request player connection closed ({status_code}):", msg)
