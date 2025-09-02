@@ -1,19 +1,26 @@
 from . import soundrequesting, twitchcommands, webroutes
+
+import os
 import plugins
+import subprocess
+import sys
 from threading import Thread
 import twitchbot
 import web
+
+DIR = os.path.dirname(__file__)
+PLAYER_FILE = os.path.join(DIR, "soundplayer_process.py")
 
 COMPONENT_API = "api"
 COMPONENT_TWITCHBOT_COMMANDS = "twitchbot:commands"
 COMPONENT_SOUNDPLAYER = "soundplayer"
 
 bot:twitchbot.Bot = None
-playerthread:Thread = None
+playerprocess:subprocess.Popen = None
 player:soundrequesting.SoundRequestPlayer = None
 
 def on_load(ctx:plugins.LoadEvent):
-    global playerthread, player
+    global playerprocess, player
     
     soundrequesting.meta = ctx.plugin.meta
     webroutes.web_loaded = True
@@ -28,10 +35,16 @@ def on_load(ctx:plugins.LoadEvent):
 
     assert m_soundplayer != plugins.COMPONENT_MODE_REMOTE, "Sound Player has no remote mode."
     if m_soundplayer == plugins.COMPONENT_MODE_NORMAL:
-        player = soundrequesting.SoundRequestPlayer(f"{ctx.host_addr[0]}:{ctx.host_addr[1]}", ctx.host_addr[1] == 443)
-        playerthread = Thread(target=player.start, daemon=True)
+        args = [sys.executable, PLAYER_FILE, f"{ctx.host_addr[0]}:{ctx.host_addr[1]}"]
+        c = soundrequesting.get_configs()
+        if "Sound-Request" in c:
+            configs = c["Sound-Request"]
+            if "Output-Device" in configs:
+                args.append(configs["Output-Device"])
+
+
         print("Starting sound player")
-        playerthread.start()
+        playerprocess = subprocess.Popen(args)
 
 def on_twitch_bot_load(ctx:plugins.TwitchBotLoadEvent):
     global bot
@@ -43,7 +56,7 @@ def on_twitch_bot_load(ctx:plugins.TwitchBotLoadEvent):
         twitchcommands.add_commands(bot)
 
 def on_unload(ctx:plugins.UnloadEvent):
-    global playerthread, player
+    global playerprocess, player
     
     webroutes.web_loaded = False
 
@@ -62,15 +75,10 @@ def on_unload(ctx:plugins.UnloadEvent):
         else:
             print("Sound request handler stopped")
     
-    if playerthread is not None:
-        print("Wainting for sound player to stop...")
-        playerthread.join(5)
-        if playerthread.is_alive():
-            print("Sound player failed to stop after 5 seconds")
-        else:
-            print("Sound player stopped")
+    if playerprocess is not None:
+        playerprocess.terminate()
         
-    playerthread = None
+    playerprocess = None
     player = None
 
 def on_twitch_bot_unload(ctx:plugins.TwitchBotUnloadEvent):
