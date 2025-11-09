@@ -1,7 +1,7 @@
 import aiohttp
 from datetime import datetime, timedelta
 from twitchio.ext import commands
-from twitchbot import API_ENDPOINT, ratelimit
+from twitchbot import annotate, API_ENDPOINT, ratelimit
 
 REQUEST_SOUND_RATELIMIT_DURATION = timedelta(minutes=1)
 
@@ -9,7 +9,9 @@ async def request_sound_limited(ctx:commands.Context, time:datetime):
     duration = (REQUEST_SOUND_RATELIMIT_DURATION - (datetime.now() - time)).total_seconds()
     await ctx.send(f"{ctx.author.mention} wait {duration} seconds before using this command")
 
+REQUEST_SOUND_CMD = "sound"
 @ratelimit(5, REQUEST_SOUND_RATELIMIT_DURATION, limited_callback=request_sound_limited)
+@annotate(command_name=REQUEST_SOUND_CMD)
 async def request_sound(ctx:commands.Context, name:str):
     """Requests that the song with the given name be played."""
     async with aiohttp.ClientSession() as session:
@@ -17,6 +19,7 @@ async def request_sound(ctx:commands.Context, name:str):
             if not r.ok:
                 await ctx.send("Failed to request for sound to be played.")
 
+@annotate()
 async def list_sounds(ctx:commands.Context):
     """List names of all available sounds."""
     async with aiohttp.ClientSession() as session:
@@ -30,7 +33,7 @@ async def list_sounds(ctx:commands.Context):
 
 
 command_list = {
-    "sound": request_sound,
+    REQUEST_SOUND_CMD: request_sound,
     "listsounds": list_sounds
 }
 

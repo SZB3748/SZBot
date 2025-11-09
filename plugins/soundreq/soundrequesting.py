@@ -1,4 +1,3 @@
-from .soundplayer import SoundRequestPlayer
 import config
 import events
 import os
@@ -68,8 +67,6 @@ def handler_target(sound_keys:list[tuple[str, str|None, str|None]]=None):
             sound_done.clear()
             print("Playing Sound", key)
             events.dispatch(events.Event("soundreq:play_sound", {"success": True, "key":key, "sound": info}))
-            print("waiting", sound_done.is_set())
-            print("x", sound_done.wait())
             
             print("Stopped Sound", key)
 

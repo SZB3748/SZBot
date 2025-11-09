@@ -20,6 +20,8 @@ png_binds.json
 pngbinds-media/
 pngbinds_media.json
 
+#DEBUG
+TEST_BTRACK
 
 #Exclude non-builtin plugins
 plugins/*

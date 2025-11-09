@@ -1,7 +1,8 @@
 import aiohttp
 from twitchio.ext import commands
-from twitchbot import API_ENDPOINT
+from twitchbot import annotate, API_ENDPOINT
 
+@annotate()
 async def current_song(ctx:commands.Context):
     """Gets info on the song that's currently playing."""
     async with aiohttp.ClientSession() as session:
@@ -17,6 +18,7 @@ async def current_song(ctx:commands.Context):
             else:
                 await ctx.send("Failed to get song info")
 
+@annotate()
 async def add_song(ctx:commands.Context, url:str):
     """Adds the song at the given youtube link to the song queue."""
     async with aiohttp.ClientSession() as session:
@@ -32,7 +34,7 @@ async def add_song(ctx:commands.Context, url:str):
             else:
                 await ctx.send("Failed to add song")
 
-
+@annotate(requires_moderator=True)
 async def skip_song(ctx:commands.Context, count:int=1, purge:bool=False):
     """Skips songs in the song queue."""
     if not ctx.author.moderator: #also works for broadcaster
@@ -51,7 +53,7 @@ async def skip_song(ctx:commands.Context, count:int=1, purge:bool=False):
             else:
                 await ctx.send("Failed to skip song")
 
-
+@annotate(requires_moderator=True)
 async def pause_song(ctx:commands.Context):
     """Pauses the current song."""
     if not ctx.author.moderator:
@@ -63,7 +65,7 @@ async def pause_song(ctx:commands.Context):
             else:
                 await ctx.send("Failed to pause")
 
-
+@annotate(requires_moderator=True)
 async def play_song(ctx:commands.Context):
     """Resumes playing the current song."""
     if not ctx.author.moderator:
@@ -76,6 +78,7 @@ async def play_song(ctx:commands.Context):
                 await ctx.send("Failed to resume play")
 
 
+@annotate(requires_moderator=True)
 async def music_persistence(ctx:commands.Context, state:bool=True):
     """Changes the persistence state of the music overlay."""
     if not ctx.author.moderator:
@@ -87,33 +90,7 @@ async def music_persistence(ctx:commands.Context, state:bool=True):
         await ctx.send("Invalid music persistent state (true/false)")
 
 
-async def btrack(ctx:commands.Context, url:str=None, index:int=None):
-    """Controls the queue's B-Track."""
-    if not ctx.author.moderator:
-        return
-    
-    async with aiohttp.ClientSession() as session:
-        if url is None:
-            async with session.get(f"{API_ENDPOINT}/music/b-track") as r:
-                if r.ok:
-                    j = await r.json()
-                    if isinstance(j, dict):
-                        url = j.get("url", None)
-                        if url is not None:
-                            await ctx.send(url)
-                            return
-                    await ctx.send("No B-Track set")
-                else:
-                    await ctx.send("Failed to get B-Track status")
-        else:
-            d = {}
-            if index is not None:
-                d["index"] = int(index)
-            if url != "~":
-                d["url"] = url
-            await session.post(f"{API_ENDPOINT}/music/b-track", data=d)
-
-
+@annotate(requires_moderator=True)
 async def ban_song(ctx:commands.Context, id:str):
     """Ban the given song ID. Also extracts the ID from a youtube link."""
     if not ctx.author.moderator:
@@ -133,7 +110,6 @@ command_list = {
     "pausesong": pause_song,
     "playsong": play_song,
     "musicpersist": music_persistence,
-    "btrack": btrack,
     "bansong": ban_song
 }
 
