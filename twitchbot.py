@@ -15,6 +15,8 @@ from twitchio.ext import commands
 import web
 import websocket
 
+twitchio.eventsub
+
 API_BASE = ""
 API_ENDPOINT = ""
 API_WS_ENDPOINT = f""
@@ -165,7 +167,8 @@ OAUTH_SCOPES:set[str] = {
 OAUTH_CHANNEL_SCOPES:set[str] = {
     "user:read:chat",
     "user:bot",
-    "channel:bot"
+    "channel:bot",
+    "channel:read:redemptions"
 }
 
 def get_command_signature(prefix:str, name:str, a:CommandAnnotation)->str:
@@ -245,6 +248,7 @@ class Bot(commands.AutoBot):
 
     async def setup_hook(self):
         self.add_listener(self.event_message)
+        self.add_listener(self.event_custom_redemption_add)
         await self.add_component(CoreComponent(self))
 
     async def add_token(self, token:str, refresh:str)->twitchio.authentication.ValidateTokenPayload:
@@ -290,6 +294,10 @@ class Bot(commands.AutoBot):
         if isinstance(payload.exception, commands.ArgumentError):
             await payload.context.send("Bad command usage. Use !help <command_name> to view command usage details.")
             print("command error:", type(payload.exception).__name__, payload.exception)
+
+    async def event_custom_redemption_add(self, payload:twitchio.ChannelPointsRedemptionAdd):
+        ... #TODO determine which reward was redeemed and handle it
+        print(payload.reward.id, payload.reward.title, payload.reward, payload.user, payload.broadcaster)
 
 
 class CoreComponent(commands.Component):
@@ -405,10 +413,13 @@ def init_bot(old_bot:Bot|None=None):
     channels = oauth.get("channels", None)
 
     bot_id, ids = get_init_ids(client_id, client_secret, bot_name, list(channels.keys()) if isinstance(channels, dict) else None)
-    subs = [twitchio.eventsub.ChatMessageSubscription(broadcaster_user_id=user.id, user_id=bot_id) for user in ids]
+    subs = []
+    for user in ids:
+        subs.append(twitchio.eventsub.ChatMessageSubscription(broadcaster_user_id=user.id, user_id=bot_id))
+        if user.broadcaster_type in ("affiliate", "partner"):
+            subs.append(twitchio.eventsub.ChannelPointsRedeemAddSubscription(broadcaster_user_id=user.id))
 
     bot = Bot(client_id, client_secret, bot_id, c["Prefix"], subs)
-
 
     if old_bot is not None:
         old_bot.close()
