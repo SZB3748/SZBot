@@ -1,4 +1,4 @@
-from . import soundrequesting, twitchcommands, webroutes
+from . import soundplayer, soundrequesting, twitchcommands, webroutes
 
 import os
 import plugins
@@ -17,7 +17,7 @@ COMPONENT_SOUNDPLAYER = "soundplayer"
 
 bot:twitchbot.Bot = None
 playerprocess:subprocess.Popen = None
-player:soundrequesting.SoundRequestPlayer = None
+player:soundplayer.SoundRequestPlayer = None
 
 def on_load(ctx:plugins.LoadEvent):
     global playerprocess, player
