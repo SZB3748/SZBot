@@ -39,7 +39,7 @@ def request_sound():
     channel = request.form.get("channel", None)
     soundrequesting.add_queue(key, user, channel)
     soundrequesting.invoke_handler()
-    return (soundrequesting.get_sound(key) or "") if request.args.get("getname") else "", 201
+    return (soundrequesting.get_sound(key) or "") if request.args.get("getname") else "", 201, {"Content-Type": "text/plain"}
 
 @soundreqapi.post("/end")
 @serve_when_loaded(web_loaded_callback)

@@ -15,8 +15,6 @@ from twitchio.ext import commands
 import web
 import websocket
 
-twitchio.eventsub
-
 API_BASE = ""
 API_ENDPOINT = ""
 API_WS_ENDPOINT = f""

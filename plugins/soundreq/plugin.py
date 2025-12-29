@@ -4,7 +4,6 @@ import os
 import plugins
 import subprocess
 import sys
-from threading import Thread
 import twitchbot
 import web
 
