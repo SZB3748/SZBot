@@ -28,8 +28,8 @@ def get_sound_list():
     if "Sounds" in configs:
         sounds = configs["Sounds"]
         if isinstance(sounds, dict):
-            return sounds
-    return {}
+            return sounds, 200
+    return {}, 200
 
 @soundreqapi.post("request")
 @serve_when_loaded(web_loaded_callback)

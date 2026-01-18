@@ -27,7 +27,7 @@ async def list_sounds(ctx:commands.Context):
             if r.ok:
                 data = await r.json()
                 if isinstance(data, dict):
-                    await ctx.send(f"Sounds: {", ".join(data.keys())}")
+                    await ctx.send(f"Sounds: {", ".join(k for k,v in data.items() if not v.get("hidden",False))}")
             else:
                 await ctx.send("Failed to get sound list.")
 
