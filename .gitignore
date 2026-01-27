@@ -28,3 +28,4 @@ plugins/*
 !plugins/songqueue/
 !plugins/soundreq/
 !plugins/pngbinds/
+!plugins/microphone/

@@ -1,0 +1,94 @@
+{
+    "name": "Microphone",
+    "description": "Provides functionality to other plugins for using the microphone.",
+    "configs": {
+        "Microphone": {
+            "description": "Collection of configurations for the Microphone plugin.",
+            "types": {
+                "object": {
+                    "fields": {
+                        "Devices": {
+                            "name": "Devices Initialization",
+                            "description": "List of microphones for the plugin to initialize and handle. (Changes to entries do not take effect until the plugin is reloaded or the bot gets restarted)",
+                            "types": {
+                                "list": {
+                                    "types": {
+                                        "object": {
+                                            "fields": {
+                                                "name": {
+                                                    "description": "Name of the device to use for the mircophone. If left blank, the default microphone will be used.",
+                                                    "types": {
+                                                        "string": {
+                                                            ">=": 1
+                                                        },
+                                                        "null": "exclude"
+                                                    },
+                                                    "optional": true
+                                                },
+                                                "enabled": {
+                                                    "description": "Whether or not initialize this microphone when starting up the bot.",
+                                                    "types": {
+                                                        "boolean": true,
+                                                        "null": "exclude"
+                                                    },
+                                                    "optional": true
+                                                },
+                                                "format": {
+                                                    "description": "Format to store the frames in. Exclude to use the default format.",
+                                                    "types": {
+                                                        "string": {
+                                                            "pattern": "float32|int32|int24|int16|int8|uint8"
+                                                        },
+                                                        "null": "exclude"
+                                                    },
+                                                    "optional": true
+                                                },
+                                                "channels": {
+                                                    "description": "Number of channels for the microphone to use. Exclude to use default number of channels.",
+                                                    "types": {
+                                                        "integer": {
+                                                            ">": 0
+                                                        },
+                                                        "null": "exclude"
+                                                    },
+                                                    "optional": true
+                                                },
+                                                "rate": {
+                                                    "description": "Sample rate for the microphone to use (in Hz). Exclude to use the default sample rate.",
+                                                    "types": {
+                                                        "integer": {
+                                                            ">": 0
+                                                        },
+                                                        "null": "exclude"
+                                                    },
+                                                    "optional": true
+                                                },
+                                                "frames_per_buffer": {
+                                                    "name": "frames per buffer",
+                                                    "description": "The number of frames to store in the buffer. Exclude to use the default count.",
+                                                    "types": {
+                                                        "integer": {
+                                                            ">": 0
+                                                        },
+                                                        "null": "exclude"
+                                                    },
+                                                    "optional": true
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "optional": true
+        }
+    },
+    "components": {
+        "interface": ["normal", "remote", null],
+        "api": ["normal", "remote", null],
+        "handler": ["normal", null]
+    }
+}
