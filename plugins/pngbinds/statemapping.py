@@ -1,5 +1,3 @@
-import aiohttp
-import asyncio
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 import io
@@ -140,7 +138,7 @@ class StateMatchCondition(EventCondition):
     def names(self, value:list[str]):
         self.data["names"] = value
 
-    def handle(self, negotiator:"EventNegotiator", event:Self)->bool:
+    def handle(self, negotiator:"EventNegotiator", event:"Event")->bool:
         stack = negotiator.navstack_callback()
         if stack is None or stack.state is None:
             return False
@@ -177,7 +175,7 @@ class MediaMatchCondition(EventCondition):
         if "location" in self.data:
             del self.data["location"]
     
-    def handle(self, negotiator:"EventNegotiator", event:Self)->bool:
+    def handle(self, negotiator:"EventNegotiator", event:"Event")->bool:
         stack = negotiator.navstack_callback()
         if stack is None or stack.state is None:
             return False
@@ -206,14 +204,14 @@ class IdleCondition(DurationConditionType):
     """Condition that is met when no keybinds have been entered for the given amount of seconds."""
     CATEGORY_NAME = CONDITION_CATEGORY_KEYBINDS_IDLE
 
-    def handle(self, negotiator:"EventNegotiator", event:Self)->bool:
+    def handle(self, negotiator:"EventNegotiator", event:"Event")->bool:
         return not negotiator.keybind_holding and (datetime.now(timezone.utc) - negotiator.last_keybind_trigger).total_seconds() >= self.seconds
 
 class ActiveLimitCondition(DurationConditionType):
     """Condition that is not met when all of an event's conditions have been met for more than the given amount of seconds."""
     CATEGORY_NAME = CONDITION_CATEGORY_ACTIVE_LIMIT
 
-    def handle(self, negotiator:"EventNegotiator", event:Self)->bool:
+    def handle(self, negotiator:"EventNegotiator", event:"Event")->bool:
         state = negotiator.event_activity_states.get(event.name, None)
         if state is None:
             return True
@@ -224,7 +222,7 @@ class InactiveCondition(DurationConditionType):
     """Condition that is met when all of an event's conditions haven't been met for more than the given amount of seconds."""
     CATEGORY_NAME = CONDITION_CATEGORY_INACTIVE
 
-    def check_condition_inactive(self, negotiator:"EventNegotiator", event:Self)->bool:
+    def handle(self, negotiator:"EventNegotiator", event:"Event")->bool:
         state = negotiator.event_activity_states.get(event.name, None)
         if state is None:
             state = False, negotiator.__activity_state_default
@@ -311,7 +309,7 @@ class MicActivityCondition(EventCondition):
         if "below" in self.data:
             del self.data["below"]
 
-    def handle(self, negotiator:"EventNegotiator", event:Self)->bool:
+    def handle(self, negotiator:"EventNegotiator", event:"Event")->bool:
         a = self.above
         b = self.below
         volume:int = mic_get_volume(self.mic_id)
