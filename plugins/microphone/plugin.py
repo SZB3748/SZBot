@@ -53,8 +53,8 @@ def on_unload(ctx:plugins.UnloadEvent):
         handler_thread = None
         webroutes.main_handler.do_handle = False
         print("Waiting for microphone handler to stop...")
-        old.join(5)
+        old.join(0.5)
         if old.is_alive():
-            print("Microphone handler failed to stop after 5 seconds")
+            print("Microphone handler failed to stop after 0.5 seconds")
         else:
             print("Microphone handler stopped")

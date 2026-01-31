@@ -9,17 +9,19 @@ import sys
 import threading
 import traceback
 from typing import Any, Generator
-from uuid import UUID, uuid4
+from uuid import UUID, uuid4, uuid5
 
 DIR = os.path.dirname(__file__)
 INPUT_PROC_FILE = os.path.join(DIR, "handler_input_proc.py")
+
+NS_UUID = UUID("95c379e4-1b9f-40f8-b130-fc61d1362c52")
 
 DEFAULT_MIC_FORMAT = pyaudio.paInt16
 DEFAULT_MIC_CHANNELS = 2
 DEFAULT_MIC_RATE = 44100
 DEFAULT_MIC_CHUNK = 1024
 
-__format_map = {
+_format_map = {
     "float32": pyaudio.paFloat32,
     "int32": pyaudio.paInt32,
     "int24": pyaudio.paInt24,
@@ -27,6 +29,7 @@ __format_map = {
     "int8": pyaudio.paInt8,
     "uint8": pyaudio.paUInt8
 }
+_rev_format_map = {v:k for k,v in _format_map.items()}
 
 Frame = tuple[bytes, int, int]
 
@@ -52,10 +55,10 @@ class AudioBucket:
             self.audio_ready.set()
 
 class Microphone:
-    def __init__(self, name:str, enabled:bool, format:int, channels:int, rate:int, frames_per_buffer:int):
+    def __init__(self, name:str, enabled:bool, format:int|str, channels:int, rate:int, frames_per_buffer:int):
         self.name = name
         self.enabled = enabled
-        self.format = format
+        self.format = _format_map[format] if isinstance(format, str) else format
         self.channels = channels
         self.rate = rate
         self.frames_per_buffer = frames_per_buffer
@@ -66,7 +69,7 @@ class Microphone:
         return {
             "name": self.name,
             "enabled": self.enabled,
-            "format": self.format,
+            "format": _rev_format_map[self.format],
             "channels": self.channels,
             "rate": self.rate,
             "frames_per_buffer": self.frames_per_buffer,
@@ -95,7 +98,9 @@ class MicrophoneHandler:
         self.bucket_map.clear()
         self.has_buckets.clear()
         default_info = pya.get_default_input_device_info()
-        device_infos = {info["name"]:info for i in range(pya.get_device_count()) if (info:=pya.get_device_info_by_index(i)).get("maxInputChannels",0) > 0}
+        device_infos:dict[str,pyaudio._PaDeviceInfo] = {info["name"]:info for i in range(pya.get_device_count()) if (info:=pya.get_device_info_by_index(i)).get("maxInputChannels",0) > 0}
+        names:dict[str, int] = {}
+        mics:list[Microphone] = []
         for entry in d:
             if "name" in entry:
                 name = entry["name"]
@@ -110,13 +115,18 @@ class MicrophoneHandler:
                 info = default_info
             enabled = entry.get("enabled", True)
             if "format" in entry:
-                format = __format_map[entry["format"]]
+                format = _format_map[entry["format"]]
             else:
                 format = DEFAULT_MIC_FORMAT
             channels = entry.get("channels", min(DEFAULT_MIC_CHANNELS, info["maxInputChannels"]))
             rate = entry.get("rate", DEFAULT_MIC_RATE)
             frames_per_buffer = entry.get("frames_per_buffer", DEFAULT_MIC_CHUNK)
-            self.mics[uuid4()] = Microphone(name=name, enabled=enabled, format=format, channels=channels, rate=rate, frames_per_buffer=frames_per_buffer)
+            names[name] = names.get(name, -1) + 1
+            mics.append(Microphone(name=name, enabled=enabled, format=format, channels=channels, rate=rate, frames_per_buffer=frames_per_buffer))
+        
+        for mic in mics:
+            self.mics[uuid5(NS_UUID, f"{mic.name}\n{names[mic.name]}")] = mic
+
 
     def start_stream(self, micid:UUID, mic:Microphone):
         self.proc.stdin.write(f"{json.dumps({"name":INST_STREAM_START, "data":{"id":str(micid), **mic.__getstate__()}})}\n")
@@ -169,8 +179,8 @@ class MicrophoneHandler:
         if not self.buckets:
             self.has_buckets.clear()
 
-    def add_mic(self, mic:Microphone):
-        id = uuid4()
+    def add_mic(self, mic:Microphone, index:int=0):
+        id = uuid5(NS_UUID, f"{mic.name}\n{index}")
         self.mics[id] = mic
         if mic.enabled and self.do_handle:
             return self.start_stream(id, mic)
@@ -180,7 +190,10 @@ class MicrophoneHandler:
         q = queue.Queue()
         def queue_thread_handler():
             while self.do_handle:
-                q.put(json.loads(self.proc.stdout.readline()))
+                line = self.proc.stdout.readline()
+                if not line:
+                    return
+                q.put(json.loads(line))
         queue_thread = threading.Thread(target=queue_thread_handler, daemon=True)
         queue_thread.start()
 
@@ -223,5 +236,5 @@ class MicrophoneHandler:
             self.handle_buckets()
         finally:
             self.proc.terminate()
-            self.proc.wait(1)
+            self.proc.wait(0.5)
             self.proc.kill()

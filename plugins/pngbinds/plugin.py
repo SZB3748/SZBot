@@ -1,4 +1,4 @@
-from . import event_negotiation, medialist, statemapping, webroutes
+from . import medialist, statemapping, webroutes
 import events
 import os
 import plugins
@@ -18,6 +18,7 @@ COMPONENT_EVENTS = "events"
 #COMPONENT_TWITCHBOT_COMMANDS = "twitchbot:commands"
 
 keyboard_listener_proc:subprocess.Popen = None
+microphone_read_thread:threading.Thread = None
 
 def run_keyboard_listener(api_host_address:str, secure_api:bool=False):
     s = "s" * secure_api
@@ -29,7 +30,7 @@ def create_navigator(statemap:statemapping.StateMap, default_state:str,
     return statemapping.StateMapNavigator(statemap, default_state, on_push, on_pop, on_change)
 
 def on_load(ctx:plugins.LoadEvent):
-    global keyboard_listener_proc
+    global keyboard_listener_proc, microphone_read_thread
 
     if not os.path.isdir(medialist.MEDIA_DIR):
         os.mkdir(medialist.MEDIA_DIR)
@@ -42,6 +43,22 @@ def on_load(ctx:plugins.LoadEvent):
     m_api = ctx.plugin.get_component_mode(COMPONENT_API)
     m_listener = ctx.plugin.get_component_mode(COMPONENT_LISTENER)
     m_events = ctx.plugin.get_component_mode(COMPONENT_EVENTS)
+
+    microphone = ctx.plugin_list.get("microphone", None)
+    if microphone is not None and microphone.module is not None:
+        statemapping.EVENT_CONDITION_TYPES[statemapping.MicActivityCondition.CATEGORY_NAME] = statemapping.MicActivityCondition
+        microphone_m_api = microphone.get_component_mode(microphone.module.COMPONENT_API)
+        if microphone_m_api == plugins.COMPONENT_MODE_NORMAL:
+            _args = f"{ctx.host_addr[0]}:{ctx.host_addr[1]}", ctx.host_addr[1] == 443
+        elif microphone_m_api == plugins.COMPONENT_MODE_REMOTE:
+            _args = ctx.remote_api_addr, ctx.remote_api_addr.endswith(":443")
+        else:
+            _args = None
+        if _args is not None:
+            statemapping.mic_volumes_run = True
+            microphone_read_thread = threading.Thread(target=statemapping.mic_volume_background_runner, args=_args, daemon=True)
+            microphone_read_thread.start()
+
 
     if ctx.is_start:
         webroutes.add_routes(web.app, web.api, m_interface == plugins.COMPONENT_MODE_NORMAL, m_overlay == plugins.COMPONENT_MODE_NORMAL, m_api == plugins.COMPONENT_MODE_NORMAL)
@@ -59,7 +76,7 @@ def on_load(ctx:plugins.LoadEvent):
     
     assert m_events != plugins.COMPONENT_MODE_REMOTE, "PNG Binds event negotiator has no remote mode."
     if m_events == plugins.COMPONENT_MODE_NORMAL:
-        event_negotiator = webroutes.event_negotiator = event_negotiation.EventNegotiator(lambda: webroutes.nav_stack, lambda: webroutes.statemap, webroutes.dispatch_state_change_event)
+        event_negotiator = webroutes.event_negotiator = statemapping.EventNegotiator(lambda: webroutes.nav_stack, lambda: webroutes.statemap, webroutes.dispatch_state_change_event)
         webroutes.event_negotiator_thread = threading.Thread(target=event_negotiator.background_task)
         webroutes.event_negotiator_thread.start()
 
@@ -70,7 +87,13 @@ def on_load(ctx:plugins.LoadEvent):
         keyboard_listener_proc = run_keyboard_listener(ctx.remote_api_addr, ctx.remote_api_addr.endswith(":443"))
 
 def on_unload(ctx:plugins.UnloadEvent):
+    global microphone_read_thread
     webroutes.web_loaded = False
+    if statemapping.mic_volumes_run:
+        statemapping.mic_volumes_run = False
+        if statemapping._mic_volumes_proc is not None:
+            statemapping._mic_volumes_proc.stdout.close()
+        microphone_read_thread.join(0.5)
     if keyboard_listener_proc is not None:
         webroutes.nav_stack = None
         webroutes.keyevents.dispatch(events.Event("cleanup"))

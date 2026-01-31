@@ -1,4 +1,4 @@
-from . import event_negotiation, medialist, statemapping
+from . import medialist, statemapping
 import config
 from datetime import datetime, timedelta, timezone
 import events
@@ -24,7 +24,7 @@ web_loaded_callback = lambda: web_loaded
 meta:plugins.Meta = None
 nav_stack:statemapping.NavigatorStackFrame = None
 statemap:statemapping.StateMap = None
-event_negotiator:event_negotiation.EventNegotiator = None
+event_negotiator:statemapping.EventNegotiator = None
 event_negotiator_thread:threading.Thread = None
 keyevents = events.EventBucketContainer()
 keylisteners = events.EventListenerCollection()

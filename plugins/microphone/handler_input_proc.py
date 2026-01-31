@@ -6,13 +6,21 @@ import queue
 import sys
 import threading
 import traceback
-from typing import Any
 from uuid import UUID
 
 INST_STREAM_START   = "stream_start"
 INST_STREAM_STOP    = "stream_stop"
 INST_END            = "end"
 INST_FRAME          = "frame"
+
+_format_map = {
+    "float32": pyaudio.paFloat32,
+    "int32": pyaudio.paInt32,
+    "int24": pyaudio.paInt24,
+    "int16": pyaudio.paInt16,
+    "int8": pyaudio.paInt8,
+    "uint8": pyaudio.paUInt8
+}
 
 streams:dict[UUID, pyaudio.Stream] = {}
 
@@ -61,7 +69,7 @@ if __name__ == "__main__":
                     index = get_device_index(pya, name, channels)
                     if index is None:
                         continue
-                    stream = pya.open(rate=data["rate"], channels=channels, format=data["format"], input=True, input_device_index=index, frames_per_buffer=frames_per_buffer)
+                    stream = pya.open(rate=data["rate"], channels=channels, format=_format_map[data["format"]], input=True, input_device_index=index, frames_per_buffer=frames_per_buffer)
                     if stream is None:
                         continue
                     streams[id] = stream, frames_per_buffer
