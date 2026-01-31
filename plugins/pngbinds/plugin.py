@@ -44,23 +44,24 @@ def on_load(ctx:plugins.LoadEvent):
     m_listener = ctx.plugin.get_component_mode(COMPONENT_LISTENER)
     m_events = ctx.plugin.get_component_mode(COMPONENT_EVENTS)
 
-    microphone = ctx.plugin_list.get("microphone", None)
-    if microphone is not None and microphone.module is not None:
-        statemapping.EVENT_CONDITION_TYPES[statemapping.MicActivityCondition.CATEGORY_NAME] = statemapping.MicActivityCondition
-        microphone_m_api = microphone.get_component_mode(microphone.module.COMPONENT_API)
-        if microphone_m_api == plugins.COMPONENT_MODE_NORMAL:
-            _args = f"{ctx.host_addr[0]}:{ctx.host_addr[1]}", ctx.host_addr[1] == 443
-        elif microphone_m_api == plugins.COMPONENT_MODE_REMOTE:
-            _args = ctx.remote_api_addr, ctx.remote_api_addr.endswith(":443")
-        else:
-            _args = None
-        if _args is not None:
-            statemapping.mic_volumes_run = True
-            microphone_read_thread = threading.Thread(target=statemapping.mic_volume_background_runner, args=_args, daemon=True)
-            microphone_read_thread.start()
+    
 
 
     if ctx.is_start:
+        microphone = ctx.plugin_list.get("microphone", None)
+        if microphone is not None and microphone.module is not None:
+            statemapping.EVENT_CONDITION_TYPES[statemapping.MicActivityCondition.CATEGORY_NAME] = statemapping.MicActivityCondition
+            microphone_m_api = microphone.get_component_mode(microphone.module.COMPONENT_API)
+            if microphone_m_api == plugins.COMPONENT_MODE_NORMAL:
+                _args = f"{ctx.host_addr[0]}:{ctx.host_addr[1]}", ctx.host_addr[1] == 443
+            elif microphone_m_api == plugins.COMPONENT_MODE_REMOTE:
+                _args = ctx.remote_api_addr, ctx.remote_api_addr.endswith(":443")
+            else:
+                _args = None
+            if _args is not None:
+                statemapping.mic_volumes_run = True
+                microphone_read_thread = threading.Thread(target=statemapping.mic_volume_background_runner, args=_args, daemon=True)
+                microphone_read_thread.start()
         webroutes.add_routes(web.app, web.api, m_interface == plugins.COMPONENT_MODE_NORMAL, m_overlay == plugins.COMPONENT_MODE_NORMAL, m_api == plugins.COMPONENT_MODE_NORMAL)
         rinterface = m_interface == plugins.COMPONENT_MODE_REMOTE
         roverlay = m_overlay == plugins.COMPONENT_MODE_REMOTE
