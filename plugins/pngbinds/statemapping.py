@@ -421,6 +421,7 @@ class StateMap:
     def dump(self, f:io.IOBase, **kwargs):
         json.dump(self.__getstate__(), f, **kwargs)
 
+RemoveCallback = Callable[[], None]
 
 class NavigatorStackFrame:
 
@@ -430,7 +431,7 @@ class NavigatorStackFrame:
         self.state = state
         self.transitions = transitions
         self.prev = prev
-        self.keybinds:set[Callable[[], None]] = set()
+        self.keybinds:set[RemoveCallback] = set()
 
 OnPushCallback = Callable[[NavigatorStackFrame|None, NavigatorStackFrame], None]
 OnPopCallback = Callable[[NavigatorStackFrame, NavigatorStackFrame|None], None]
@@ -512,13 +513,13 @@ class StateMapNavigator:
         if self.stack is None and self.default_state is not None:
             self.push(self.default_state)
 
-    def hook_mode_hold(frame:NavigatorStackFrame, t:Transition):
+    def hook_mode_hold(self, frame:NavigatorStackFrame, t:Transition)->RemoveCallback|None:
         raise NotImplementedError
     
-    def hook_mode_down(frame:NavigatorStackFrame, t:Transition):
+    def hook_mode_down(self, frame:NavigatorStackFrame, t:Transition)->RemoveCallback|None:
         raise NotImplementedError
     
-    def hook_mode_up(frame:NavigatorStackFrame, t:Transition):
+    def hook_mode_up(self, frame:NavigatorStackFrame, t:Transition)->RemoveCallback|None:
         raise NotImplementedError
     
     def event_can_interrupt(self):
@@ -633,14 +634,18 @@ class EventNegotiator:
         if not event.conditions:
             return False
         is_active = True
+        some_success = False
         for condition in event.conditions:
             try:
-                condition_type = EVENT_CONDITION_TYPES[condition.name]
+                condition_type = EVENT_CONDITION_TYPES.get(condition.name,None)
+                if condition_type is None:
+                    continue
                 condition = condition_type.cast(condition)
                 is_active &= condition.handle(self, event)
+                some_success = True
             except Exception as e:
                 traceback.print_exception(e)
-        return is_active
+        return some_success and is_active
     
     def update_event_activity(self):
         with self._update_lock:
