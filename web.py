@@ -153,7 +153,7 @@ def api_events(ws:Server):
     bucket = events.new_bucket()
     try:
         while ws.connected:
-            ws.receive(0)
+            ws.receive()
             for event in bucket.dump():
                 ws.send(event.to_json())
     except KeyboardInterrupt:
@@ -258,7 +258,7 @@ def create_endpoint_proxy(addr:str, routes:list[str], bp:Blueprint, normal=True,
             def send_to_remote():
                 try:
                     while ws.connected and client.keep_running: 
-                        msg = ws.receive(0)
+                        msg = ws.receive()
                         if msg is not None:
                             client.send(msg, websocket.ABNF.OPCODE_BINARY if isinstance(msg, bytes) else websocket.ABNF.OPCODE_TEXT)
                 except KeyboardInterrupt:

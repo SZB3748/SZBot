@@ -232,7 +232,7 @@ def keybinds_events(ws:Server):
 
     try:
         while ws.connected:
-            msg = ws.receive(0)
+            msg = ws.receive(0.001)
             if isinstance(msg, (str, bytes)):
                 try:
                     data = json.loads(msg)

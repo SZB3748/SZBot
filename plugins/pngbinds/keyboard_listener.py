@@ -480,7 +480,6 @@ def parse_keybind_string(s:str)->Keybind|None:
                 order.append(key)
         if order:
             rtv.append(order)
-    print(s, rtv)
     return rtv
 
 
@@ -677,7 +676,6 @@ def pynput_on_press(rkey:pynput.keyboard.Key|pynput.keyboard.KeyCode|None):
             return
         _pynput_current_keys[key] = datetime.now(timezone.utc)
     for id, keybind in list(_pynput_holds.items()):
-        print(keybind)
         if not evaluate_keybind(keybind):
             continue
         frame, t = _pynput_all_binds[id]
