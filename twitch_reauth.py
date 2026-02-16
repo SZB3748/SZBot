@@ -1,6 +1,5 @@
 import argparse
 import config
-import plugins
 import twitchbot
 from urllib.parse import quote
 import web
@@ -28,7 +27,7 @@ def get_auth_token(oauth:dict[str], addr:tuple[str, int]=DEFAULT_ADDR, redirect:
     try:
         web.serve(host, port)
     except OSError:
-        print("Webserevr is already running, or had oter issues which prevented it from starting.")
+        print("Webserver is already running, or had other issues which prevented it from starting.")
 
 
 if __name__ == "__main__":

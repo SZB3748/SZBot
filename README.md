@@ -17,8 +17,9 @@ Very creative name.
 
 ### Files
 
-1. Install requirements.txt: `pip -r requirements.txt`
+1. Install requirements.txt: `pip install -r requirements.txt`
    - Currently this also includes packages for the built-in plugins as well ( `pngbinds`, `songqueue`, and `soundreq` )
+   - If using Python 3.13 or later, modify the `requirements.txt` file to install `audioop-lts` for the `microphone` plugin.
 2. Create a `oauth_twitch.json` file. It should look something like:
 ```json
 {
