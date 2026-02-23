@@ -46,9 +46,11 @@ PLUGINS_DIR = "plugins"
 class PluginException(Exception):
     """Base class for Plugin Exceptions."""
 
-class PluginLoadException(Exception):
+class PluginLoadException(PluginException):
     """Failed to load the plugin."""
 
+class MissingDependencyException(PluginException):
+    """Exception is missing a dependency."""
 
 class ConfigMetaException(Exception):
     """Base class for Plugin Config Metadata Exceptions."""

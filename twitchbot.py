@@ -1,6 +1,7 @@
 import aiohttp
 import argparse
 import asyncio
+import command_triggers
 import config
 from datetime import datetime, timedelta
 import events
@@ -66,58 +67,19 @@ def get_args()->tuple[tuple[str, int], str]:
     
     return addr_arg, args.configs, args.plugin_configs
 
-class CommandAnnotation:
-    def __init__(self, spec:inspect.Signature, doc:str,
-                 requires_admin:bool=False, requires_artist:bool=False, requires_broadcaster:bool=False, requires_founder:bool=False,
-                 requires_moderator:bool=False, requires_no_audio:bool=False, requires_no_video:bool=False, requires_prime:bool=False, requires_staff:bool=False,
-                 requires_subscriber:bool=False, requires_turbo:bool=False, requires_verified:bool=False, requires_vip:bool=False):
-        self.spec = spec
-        self.doc = doc
-        self.requires_admin = requires_admin
-        self.requires_artist = requires_artist
-        self.requires_broadcaster = requires_broadcaster
-        self.requires_founder = requires_founder
-        self.requires_moderator = requires_moderator
-        self.requires_no_audio = requires_no_audio
-        self.requires_no_video = requires_no_video
-        self.requires_prime = requires_prime
-        self.requires_staff = requires_staff
-        self.requires_subscriber = requires_subscriber
-        self.requires_turbo = requires_turbo
-        self.requires_verified = requires_verified
-        self.requires_vip = requires_vip
 
-    def meets_requirements(self, author:twitchio.Chatter|twitchio.PartialUser):
-        return not (
-            self.requires_admin and not author.admin or self.requires_artist and not author.artist or
-            self.requires_broadcaster and not author.broadcaster or self.requires_founder and not author.founder or
-            self.requires_moderator and not author.moderator or self.requires_no_audio and not author.no_audio or
-            self.requires_no_video and not author.no_video or self.requires_prime and not author.prime or
-            self.requires_staff and not author.staff or self.requires_subscriber and not author.subscriber or
-            self.requires_turbo and not author.turbo or self.requires_verified and not author._is_verified or
-            self.requires_vip and not author.vip
-        )
-
-annotate_info:dict[str, CommandAnnotation] = {} #command_name: CommandAnnotation
-_annotate_pre:dict[Callable, CommandAnnotation] = {} #func: CommandAnnotation
-
-def annotate(requires_admin:bool=False, requires_artist:bool=False, requires_broadcaster:bool=False, requires_founder:bool=False,
-                 requires_moderator:bool=False, requires_no_audio:bool=False, requires_no_video:bool=False, requires_prime:bool=False, requires_staff:bool=False,
-                 requires_subscriber:bool=False, requires_turbo:bool=False, requires_verified:bool=False, requires_vip:bool=False, command_name:str|None=None, **kwargs):
-    def decor(f:Callable):
-        a = CommandAnnotation(inspect.signature(f), f.__doc__ or "", requires_admin, requires_artist, requires_broadcaster, requires_founder, requires_moderator, requires_no_audio, requires_no_video, requires_prime, requires_staff, requires_subscriber, requires_turbo, requires_verified, requires_vip, **kwargs)
-        if command_name is None:
-            _annotate_pre[f] = a
-        else:
-            annotate_info[command_name] = a
-        return f
-    return decor
-
-def ratelimit(max_times:int, duration:timedelta, limited_callback:Callable[[commands.Context, datetime], Awaitable[None]]|None=None):
-    users:dict[twitchio.PartialUser|twitchio.Chatter, list[datetime]] = {}
-
+def ratelimit(max_times:int, duration:timedelta, limited_callback:Callable[[commands.Context, datetime], Awaitable[None]]|None=None, channel_list:set[str]|None=None, is_whitelist:bool=True):
+    channels:dict[twitchio.PartialUser, dict[twitchio.PartialUser|twitchio.Chatter, list[datetime]]] = {}
     def decor(f:Callable[..., Awaitable]):
         async def wrapper(ctx:commands.Context, *args, **kwargs):
+            if bool(ctx.channel.id in channel_list) != bool(is_whitelist):
+                return
+            
+            if ctx.channel in channels:
+                users = channels[ctx.channel]
+            else:
+                users = channels[ctx.channel] = {}
+            
             if not ctx.author.moderator:
                 ctx.author.admin
                 now = datetime.now()
@@ -142,6 +104,7 @@ def ratelimit(max_times:int, duration:timedelta, limited_callback:Callable[[comm
         
         wrapper.__name__ = f.__name__
         wrapper.__doc__ = f.__doc__
+        wrapper.__wrapped__ = f
         return wrapper
     
     return decor
@@ -169,34 +132,6 @@ OAUTH_CHANNEL_SCOPES:set[str] = {
     "channel:read:redemptions"
 }
 
-def get_command_signature(prefix:str, name:str, a:CommandAnnotation)->str:
-    usage_hint = [prefix + name]
-    if "ctx" in a.spec.parameters:
-        param_items = list(a.spec.parameters.keys())
-        start_index = param_items.index("ctx") + 1
-    else:
-        start_index = 0
-
-    params = list(a.spec.parameters.values())
-    for i in range(start_index, len(params)):
-        param = params[i]
-        if param.default is inspect.Parameter.empty:
-            surround = "<>"
-            default_hint = ""
-        else:
-            surround = "[]"
-            default_hint = "" if param.default is None else f" = {value_names.get(param.default, param.default)}"
-        
-        if param.annotation is inspect.Parameter.empty:
-            type_hint = ""
-        else:
-            type_name = str(getattr(param.annotation, "__name__", param.annotation))
-            type_hint = f" :{type_names.get(type_name, type_name)}"
-
-        usage_hint.append(f"{surround[0]}{param.name}{type_hint}{default_hint}{surround[1]}")
-    
-    return " ".join(usage_hint)
-
 class Bot(commands.AutoBot):
     def __init__(self, client_id, client_secret, bot_id, prefix:str|Callable[[Self, twitchio.ChatMessage], str], subs:list[twitchio.eventsub.SubscriptionPayload]):
         super().__init__(
@@ -207,7 +142,24 @@ class Bot(commands.AutoBot):
             subscriptions=subs,
         )
         self.links_commands:set[str] = set()
+        self.command_triggers:dict[str, command_triggers.Command] = {}
         self.subs = subs
+
+    def add_command(self, command:command_triggers.Command|commands.Command):
+        if isinstance(command, command_triggers.Command):
+            self.command_triggers[command.name] = command
+            x = command.to_twitch_command()
+        else:
+            x = command
+        print(x, command.callback, x._params, command.signature.generate_str("", ""))
+        return super().add_command(x)
+    
+    def remove_command(self, name:str|command_triggers.Command):
+        if isinstance(name, command_triggers.Command):
+            name = name.name
+        if name in self.command_triggers:
+            del self.command_triggers[name]
+        return super().remove_command(name)
 
     def update_link_commands(self):
         def newfunc(name:str):
@@ -232,14 +184,12 @@ class Bot(commands.AutoBot):
                 for name in sym_difference:
                     if name in links:
                         cb = newfunc(name)
-                        self.add_command(commands.Command(name=name, callback=cb))
-                        annotate_info[name] = CommandAnnotation(inspect.signature(cb), cb.__doc__)
+                        ct = command_triggers.CallbackCommand.new(cb, name)
+                        self.add_command(ct)
                         self.links_commands.add(name)
                     elif name in self.links_commands:
                         self.remove_command(name)
                         self.links_commands.remove(name)
-                        if name in annotate_info:
-                            del annotate_info[name]
                 return
         for name in self.links_commands:
             self.remove_command(name)
@@ -264,10 +214,6 @@ class Bot(commands.AutoBot):
         config.write(config_updates={"channels": channels}, path=config.OAUTH_TWITCH_FILE)
 
     async def event_ready(self):
-        for name, c in self.commands.items():
-            a = _annotate_pre.get(c.callback, None)
-            if a is not None:
-                annotate_info[name] = a
         oauth = config.read(path=config.OAUTH_TWITCH_FILE)
         channels = oauth.get("channels",None)
         if isinstance(channels, dict):
@@ -301,40 +247,47 @@ class Bot(commands.AutoBot):
 class CoreComponent(commands.Component):
     def __init__(self, bot:Bot):
         self.bot = bot
+        for attr in type(self).__dict__.values():
+            if isinstance(attr, command_triggers.CallbackCommand):
+                self.bot.add_command(command_triggers.CallbackCommand(
+                    attr.name,
+                    attr.description,
+                    attr.signature,
+                    attr.permissions,
+                    attr.callback,
+                    bind=self
+                ))
 
-    @commands.command(name="help")
-    @annotate()
+    @command_triggers.CallbackCommand.create("help")
     async def help_command(self, ctx:commands.Context, command_name:str=None):
         """Lists and describes commands."""
         if command_name is None:
             #exclude commands that user does not meet requirements for
-            names = [name for name in bot.commands.keys() if (a := annotate_info.get(name, None)) is None or a.meets_requirements(ctx.author)]
+            names = [name for name, ct in self.bot.command_triggers.items() if ct.permissions.meets_requirements(ctx.author)]
             await ctx.send("Commands: " + ", ".join(names))
-        elif command_name not in bot.commands:
+        elif command_name not in self.bot.commands:
             await ctx.send(f"Command {command_name} does not exist.")
         else:
-            a = annotate_info.get(command_name, None)
-            if a is None:
+            ct = self.bot.command_triggers.get(command_name, None)
+            if ct is None:
                 await ctx.send(f"Command {command_name} has no help info.")
-            elif not a.meets_requirements(ctx.author):
+            elif not ct.permissions.meets_requirements(ctx.author):
                 await ctx.send(f"You cannot use this command.")
             else:
-                signature = get_command_signature(ctx.prefix, command_name, a)
+                signature = ct.signature.generate_str("!", command_name)
                 r = []
-                if a.doc:
-                    r.append(a.doc)
+                if ct.description:
+                    r.append(ct.description)
                 r.append(f"Usage: {signature}")
                 await ctx.send(" ".join(r))
 
-    @commands.command(name="links")
-    @annotate()
+    @command_triggers.CallbackCommand.create("links")
     async def links_command(self, ctx:commands.Context):
         """Lists names of all link commands."""
         if bot.links_commands:
             await ctx.send(", ".join(name for name in bot.links_commands))
 
-    @commands.command(name="pload")
-    @annotate(requires_moderator=True)
+    @command_triggers.CallbackCommand.create("pload", permissions=command_triggers.CommandPermissions(requires_moderator=True))
     async def plugin_load(self, ctx:commands.Context, name:str):
         """Loads a plugin with the give name."""
         if not ctx.author.moderator:
@@ -354,8 +307,7 @@ class CoreComponent(commands.Component):
                 print(f"[fail] /api/plugins/load name={name} ({r.status})")
         await ctx.send(f"Failed to load plugin {name}")
 
-    @commands.command(name="punload")
-    @annotate(requires_moderator=True)
+    @command_triggers.CallbackCommand.create("punload", permissions=command_triggers.CommandPermissions(requires_moderator=True))
     async def plugin_unload(self, ctx:commands.Context, name:str):
         """Unloads a plugin with the given name."""
         if not ctx.author.moderator:
