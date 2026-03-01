@@ -153,7 +153,7 @@ def api_events(ws:Server):
     bucket = events.new_bucket()
     try:
         while ws.connected:
-            ws.receive()
+            bucket.wait()
             for event in bucket.dump():
                 ws.send(event.to_json())
     except KeyboardInterrupt:

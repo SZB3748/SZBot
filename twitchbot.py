@@ -5,7 +5,6 @@ import command_triggers
 import config
 from datetime import datetime, timedelta
 import events
-import inspect
 import json
 import plugins
 import threading
@@ -129,7 +128,7 @@ OAUTH_CHANNEL_SCOPES:set[str] = {
     "user:read:chat",
     "user:bot",
     "channel:bot",
-    "channel:read:redemptions"
+    "channel:manage:redemptions"
 }
 
 class Bot(commands.AutoBot):

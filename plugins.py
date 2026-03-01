@@ -7,7 +7,7 @@ import sys
 from types import ModuleType
 from typing import Any, Callable
 
-from twitchbot import Bot
+from twitchio.ext.commands import Bot
 
 MetaTypeOptions = dict[str]
 MetaTypeAllowed = bool

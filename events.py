@@ -20,14 +20,20 @@ class EventBucket:
         self.id = id
         self.queue = [] if queue is None else queue
         self.lock = threading.Lock()
+        self._event = threading.Event()
 
     def __len__(self):
         return len(self.queue)
+
+    def wait(self, timeout:float|None=None):
+        """Wait for an event to be added to the bucket."""
+        return self._event.wait(timeout)
 
     def push(self, *events:Event):
         """Add an event to the bucket."""
         with self.lock:
             self.queue.extend(events)
+            self._event.set()
 
     def dump(self)->Generator[Event, None, None]:
         """Returns a generator to handle the events with. After iterating over all the events, the bucket is emptied."""
@@ -36,11 +42,13 @@ class EventBucket:
                 for event in self.queue:
                     yield event
                 self.queue.clear()
+                self._event.clear()
 
     def clear(self):
         """Clears all the events in the bucket without handling them."""
         with self.lock:
             self.queue.clear()
+            self._event.clear()
 
 
 class EventBucketContainer:
