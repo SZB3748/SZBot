@@ -71,33 +71,32 @@ def ratelimit(max_times:int, duration:timedelta, limited_callback:Callable[[comm
     channels:dict[twitchio.PartialUser, dict[twitchio.PartialUser|twitchio.Chatter, list[datetime]]] = {}
     def decor(f:Callable[..., Awaitable]):
         async def wrapper(ctx:commands.Context, *args, **kwargs):
-            if bool(ctx.channel.id in channel_list) != bool(is_whitelist):
-                return
-            
-            if ctx.channel in channels:
-                users = channels[ctx.channel]
-            else:
-                users = channels[ctx.channel] = {}
-            
-            if not ctx.author.moderator:
-                ctx.author.admin
-                now = datetime.now()
-                if ctx.author in users:
-                    times = users[ctx.author]
-                    i = 0
-                    for t in times:
-                        if now - t >= duration:
-                            i += 1
-                    if i > 0:
-                        times = users[ctx.author] = times[i:]
+            if channel_list is None or bool(ctx.channel.id in channel_list) == bool(is_whitelist):
+                if ctx.channel in channels:
+                    users = channels[ctx.channel]
                 else:
-                    times = users[ctx.author] = []
+                    users = channels[ctx.channel] = {}
+            
+                if not ctx.author.moderator:
+                    ctx.author.admin
+                    now = datetime.now()
+                    if ctx.author in users:
+                        times = users[ctx.author]
+                        i = 0
+                        for t in times:
+                            if now - t >= duration:
+                                i += 1
+                        if i > 0:
+                            times = users[ctx.author] = times[i:]
+                    else:
+                        times = users[ctx.author] = []
 
-                if len(times) >= max_times:
-                    await limited_callback(ctx, times[0])
-                    return
-                else:
-                    times.append(now)
+                    if len(times) >= max_times:
+                        if limited_callback:
+                            await limited_callback(ctx, times[0])
+                        return
+                    else:
+                        times.append(now)
                 
             await f(ctx, *args, **kwargs)
         
@@ -382,6 +381,9 @@ def init_bot(old_bot:Bot|None=None):
 def ws_on_open(ws):
     print("connected to events socket")
 
+def ws_on_reconnect(ws):
+    print("reconnected to events socket")
+
 def ws_on_message(ws, msg:str|bytearray|memoryview):
     if isinstance(msg, memoryview):
         msg = msg.tobytes()
@@ -399,7 +401,7 @@ def ws_on_close(ws, status_code, msg:str|bytearray|memoryview):
 
 def ws_run():
     try:
-        ws.run_forever()
+        ws.run_forever(reconnect=5)
     except KeyboardInterrupt:
         pass
 
@@ -426,7 +428,8 @@ if __name__ == "__main__":
     ws = websocket.WebSocketApp(
         f"{API_WS_ENDPOINT}/events",
         on_open=ws_on_open, on_message=ws_on_message,
-        on_error=ws_on_error, on_close=ws_on_close
+        on_error=ws_on_error, on_close=ws_on_close,
+        on_reconnect=ws_on_reconnect
     )
 
     print("reading plugin list")
