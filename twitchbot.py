@@ -210,6 +210,7 @@ class Bot(commands.AutoBot):
         config.write(config_updates={"channels": channels}, path=config.OAUTH_TWITCH_FILE)
 
     async def event_ready(self):
+        await bot.delete_all_eventsub_subscriptions()
         oauth = config.read(path=config.OAUTH_TWITCH_FILE)
         channels = oauth.get("channels",None)
         if isinstance(channels, dict):
