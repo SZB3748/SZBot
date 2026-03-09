@@ -147,11 +147,8 @@ class Bot(commands.AutoBot):
     def add_command(self, command:command_triggers.Command|commands.Command):
         if isinstance(command, command_triggers.Command):
             self.command_triggers[command.name] = command
-            x = command.to_twitch_command()
-        else:
-            x = command
-        print(x, command.callback, x._params, command.signature.generate_str("", ""))
-        return super().add_command(x)
+            command = command.to_twitch_command()
+        return super().add_command(command)
     
     def remove_command(self, name:str|command_triggers.Command):
         if isinstance(name, command_triggers.Command):
