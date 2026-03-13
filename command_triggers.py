@@ -144,7 +144,7 @@ class Command:
         raise NotImplementedError
 
 
-class SimpleCommand(Command):
+class ActionCommand(Command):
     def __init__(self, name:str, description:str, signature:CommandSignature, permissions:CommandPermissions, script:str):
         super().__init__(name, description, signature, permissions)
         self.script = script
