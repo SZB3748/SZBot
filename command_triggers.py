@@ -1,11 +1,14 @@
+import actions
 import inspect
 import twitchio
+import tronix_twitch_integrations as tti
+from tronix import script, utils
 from twitchio.ext import commands
 from typing import Any, Callable, Self
 
 CommandParameter = tuple[str, type|Any]
 EmptyValue = inspect.Parameter.empty
-CommandCallback = Callable[..., None]
+CommandCallback = Callable[...]
 
 type_names = {
     "str": "text",
@@ -126,7 +129,7 @@ class CommandSignature:
         rtypes = {v:k for k,v in type_names.items()}
         rvalues = {v:k for k,v in value_names.items()}
         self.params = [(name, rtypes.get(tname, tname)) for name, tname in d["params"]]
-        self.defaults = {name:rvalues.get(vname, vname) for name, vname in d["defaults"].items()}
+        self.defaults:dict[str] = {name:rvalues.get(vname, vname) for name, vname in d["defaults"].items()}
 
 
 
@@ -145,15 +148,24 @@ class Command:
 
 
 class ActionCommand(Command):
-    def __init__(self, name:str, description:str, signature:CommandSignature, permissions:CommandPermissions, script:str):
+    def __init__(self, name:str, description:str, signature:CommandSignature, permissions:CommandPermissions, action_name:str, action_mapping:actions.CommandActionValueMapping):
         super().__init__(name, description, signature, permissions)
-        self.script = script
-
+        self.action_name = action_name
+        self.action_mapping = action_mapping
 
     def handle(self, *args):
+        action = actions.action_table.get(self.action_name, None)
+        if action is None:
+            ... #TODO exception unknown action
         if not self.signature.is_valid():
             ... #TODO exception invalid signature
-        #TODO extract the arguments from args and kwargs using the command signature, then run the script (whatever that ends up meaning)
+
+        script_scope = {}
+        if args and isinstance(args[0], commands.Context):
+            ctx = args[0]
+            script_scope["twitch_context"] = script.ScriptVariable(utils.wrap_python_value(tti.BotScriptContext(ctx.bot, command_ctx=ctx)))
+            args = args[1:]
+
         if len(args) == len(self.signature.params):
             filled_args = [t(arg) if isinstance(t, type) else arg for (_, t), arg in zip(self.signature.params, args)]
         elif len(args) < len(self.signature.params):
@@ -166,13 +178,21 @@ class ActionCommand(Command):
         else:
             #TODO exception too many arguments
             ...
-        
-        #parameter_scope = {n:v for (n,_),v in zip(self.signature.params, filled_args)}
-        ...
+
+        filled = self.action_mapping.fill_values({n:v for (n,_), v in zip(self.signature.params, filled_args)})
+        script_scope.update(action.collect_script_values(filled))
+        s = script.Script(action.script, script_scope)
+        return actions.script_runner.run_async(s)
     
     def to_twitch_command(self):
-        #TODO generate dummy callback to fool twitchio signature maker
-        cmd = commands.Command(name=self.name, callback=..., aliases=[], bypass_global_guards=False)
+        check = {}
+        _sig_p:list[str] = []
+        for (n, t) in self.signature.params:
+            _sig_p.append(f"{n}:{t.__name__ if isinstance(t, type) else (tt:=type(t)).__new__(tt)}")
+        _sig_s:str = ",".join(_sig_p)
+        exec(f"def _callback({_sig_s}): pass", check)
+
+        cmd = commands.Command(name=self.name, callback=check["_callback"], aliases=[], bypass_global_guards=False)
         cmd._callback = self.handle
         return cmd
 
