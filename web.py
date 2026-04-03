@@ -279,8 +279,11 @@ def create_endpoint_proxy(addr:str, routes:list[str], bp:Blueprint, normal=True,
                 ws.send(msg)
 
             def on_error(cws:websocket.WebSocket, e:Exception):
-                print(f"PROXY WS ERROR ({url}):")
-                traceback.print_exception(e)
+                if isinstance(e, ConnectionRefusedError):
+                    print(f"PROXY WS ERROR ({url}) {type(e).__name__}: {e}")
+                else:
+                    print(f"PROXY WS ERROR ({url}):")
+                    traceback.print_exception(e)
 
             def on_close(cws:websocket.WebSocket, status_code, reason):
                 ws.close(status_code, reason)

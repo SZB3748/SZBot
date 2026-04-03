@@ -122,3 +122,4 @@ if __name__ == "__main__":
         addr, remote_api_addr, config_path, pconfig_path, core_components = get_args()
         config.CONFIG_FILE = config_path
         run(addr, remote_api_addr, pconfig_path, core_components)
+        exit(0)

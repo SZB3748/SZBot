@@ -393,8 +393,11 @@ def ws_on_message(ws, msg:str|bytearray|memoryview):
     events.handle_event(event)
 
 def ws_on_error(ws, e:Exception):
-    print(f"events socket error ({type(e).__name__}):")
-    traceback.print_exception(e)
+    if isinstance(e, ConnectionRefusedError):
+        print(f"events socket error ({type(e).__name__}):", e)
+    else:
+        print(f"events socket error ({type(e).__name__}):")
+        traceback.print_exception(e)
 
 def ws_on_close(ws, status_code, msg:str|bytearray|memoryview):
     print("disconnected from events socket")
@@ -406,7 +409,7 @@ def ws_run():
         pass
 
 async def main():
-    await bot.start(load_tokens=False)
+    await bot.start(load_tokens=False, save_tokens=False)
 
 if __name__ == "__main__":
     addr, config_path, pconfig_path = get_args()

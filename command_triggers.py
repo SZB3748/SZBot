@@ -8,7 +8,7 @@ from typing import Any, Callable, Self
 
 CommandParameter = tuple[str, type|Any]
 EmptyValue = inspect.Parameter.empty
-CommandCallback = Callable[...]
+CommandCallback = Callable[..., Any]
 
 type_names = {
     "str": "text",
