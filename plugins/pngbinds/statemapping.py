@@ -12,8 +12,6 @@ from typing import Callable, Self
 DIR = os.path.dirname(__file__)
 MIC_VOLUME_PROC_FILE = os.path.join(DIR, "microphone_volumecheck_proc.py")
 
-STATEMAP_FILE = "png_binds.json"
-
 class TransitionMode(Enum):
     HOLD = 1
     TRIGGER_DOWN = 2

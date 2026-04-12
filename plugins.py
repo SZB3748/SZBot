@@ -706,7 +706,10 @@ def generate_load_order(plugin_list:dict[str, Plugin])->list[str]:
 
 CORE_COMPONENT_INTERFACE = "interface"
 CORE_COMPONENT_API = "api"
-CORE_COMPONENT_TWITCHBOT_COMMANDS = "twitchbot:commands"
+CORE_COMPONENT_TRONIX = "tronix"
+TWITCHBOT_COMPONENT_COMMANDS = "twitchbot:commands"
+TWITCHBOT_COMPONENT_TRONIX = "twitchbot:tronix"
+
 CORE_CONFIGS_META = dict(
     description="Most basic configurations that are built in to the bot, independent of any plugin.",
     configs={
@@ -714,7 +717,9 @@ CORE_CONFIGS_META = dict(
             key="Prefix",
             name="Twitch Bot Command Prefix",
             description="The command prefix which the twitch bot will operate with.",
-            types={TYPE_NAME_STRING: True}
+            types={
+                TYPE_NAME_STRING: {">":0, "default":"!"}
+            }
         ),
         "Links": dict(
             key="Links",
@@ -784,6 +789,8 @@ CORE_CONFIGS_META = dict(
     components={
         CORE_COMPONENT_INTERFACE: [COMPONENT_MODE_NORMAL, COMPONENT_MODE_REMOTE, COMPONENT_MODE_OFF],
         CORE_COMPONENT_API: [COMPONENT_MODE_NORMAL, COMPONENT_MODE_REMOTE, COMPONENT_MODE_OFF],
-        CORE_COMPONENT_TWITCHBOT_COMMANDS: [COMPONENT_MODE_NORMAL, COMPONENT_MODE_OFF]
+        CORE_COMPONENT_TRONIX: [COMPONENT_MODE_NORMAL, COMPONENT_MODE_REMOTE, COMPONENT_MODE_OFF],
+        TWITCHBOT_COMPONENT_COMMANDS: [COMPONENT_MODE_NORMAL, COMPONENT_MODE_OFF],
+        TWITCHBOT_COMPONENT_TRONIX: [COMPONENT_MODE_NORMAL, COMPONENT_MODE_REMOTE, COMPONENT_MODE_OFF],
     }
 )

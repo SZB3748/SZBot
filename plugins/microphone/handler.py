@@ -1,5 +1,6 @@
 from . import exceptions
 import base64
+import datafile
 import json
 import os
 import pyaudio

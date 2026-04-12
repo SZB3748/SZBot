@@ -1,5 +1,6 @@
 from . import medialist, statemapping
 import config
+import datafile
 from datetime import datetime, timedelta, timezone
 import events
 from flask import Blueprint, Flask, render_template, request, send_file
@@ -17,6 +18,8 @@ DIR = os.path.dirname(__file__)
 STATIC_DIR = os.path.join(DIR, "static")
 TEMPATES_DIR = os.path.join(DIR, "templates")
 STATEMAP_SEND_COOLDOWN = timedelta(seconds=2.5)
+
+STATEMAP_FILE = datafile.makepath("pngbinds.json")
 
 web_loaded = False
 web_loaded_callback = lambda: web_loaded
@@ -58,8 +61,8 @@ def get_config_default_state(meta:plugins.Meta)->str|None:
     return None
 
 def load_statemap():
-    if os.path.isfile(statemapping.STATEMAP_FILE):
-        with open(statemapping.STATEMAP_FILE) as f:
+    if os.path.isfile(STATEMAP_FILE):
+        with open(STATEMAP_FILE) as f:
             return statemapping.StateMap.load(f)
     return statemapping.StateMap()
 
@@ -117,11 +120,11 @@ def statemap_file():
         except (KeyError, TypeError, AttributeError) as e:
             traceback.print_exception(e)
             return "", 422
-        with open(statemapping.STATEMAP_FILE, "w") as f:
+        with open(STATEMAP_FILE, "w") as f:
             statemap.dump(f, indent="    ")
         return "", 200
-    elif os.path.isfile(statemapping.STATEMAP_FILE):
-        return send_file(statemapping.STATEMAP_FILE)
+    elif os.path.isfile(STATEMAP_FILE):
+        return send_file(STATEMAP_FILE)
     else:
         return {}
 

@@ -1,4 +1,9 @@
+import actions
+import aiohttp
+import asyncio
+import base64
 import config
+import datafile
 import events
 from flask import abort, Blueprint, Flask, render_template, request, Response, send_file, stream_with_context
 from flask_sock import Server, Sock
@@ -6,17 +11,20 @@ from gevent.pywsgi import WSGIServer
 import inspect
 import json
 from markupsafe import Markup
+import pickle
 import plugins
 import requests
+from simple_websocket.errors import ConnectionClosed
 import threading
 import traceback
+import tronix
 from typing import Callable, Sequence
 import websocket
 from werkzeug.datastructures import Headers
 
 HOST = "127.0.0.1"
 PORT = 6742
-SECRET_FILE = "secret.txt"
+SECRET_FILE = datafile.makepath("secret.txt")
 API_PROXY_BUFFER_SIZE = 8192
 
 DEFAULT_STYLES_FONT = "\"Fragment Mono\""
@@ -148,6 +156,10 @@ def oauth():
 def configs_page():
     return render_template("configs.html")
 
+@coreinterface.get("/actions")
+def actions_page():
+    return render_template("actions.html")
+
 @sock.route("/events", bp=coreapi)
 def api_events(ws:Server):
     bucket = events.new_bucket()
@@ -223,6 +235,162 @@ class proxy_headers:
                 continue
             yield k, v
 
+@coreapi.post("/action/script/check")
+def api_actions_script_check():
+    help_text = actions.check_script(request.get_data(True))
+    if help_text is None:
+        return "", 200
+    else:
+        return help_text, 200, {"Content-Type":"text/plain"}
+
+@coreapi.get("/action/list")
+def api_actions_list():
+    return send_file(actions.ACTIONS_PATH)
+
+@coreapi.route("/action", methods=["GET", "POST", "DELETE"])
+def api_action_route():
+    name = request.args["name"]
+    if request.method == "POST":
+        data:dict[str] = request.json
+        if not isinstance(data, dict):
+            return "", 400
+        table = actions.load_action_table()
+        action = table.get(name, None)
+        if action is None:
+            table[data.setdefault("name", name)] = action = actions.Action.__new__(actions.Action)
+            data.setdefault("requested_values", {})
+        action.__setstate__(data)
+        actions.save_action_table(table)
+        return "", 200
+    elif request.method == "DELETE":
+        table = actions.load_action_table()
+        if name in table:
+            del table[name]
+            actions.save_action_table(table)
+        return "", 200
+    else: #GET
+        action = actions.load_action_table().get(name, None)
+        if action is None:
+            return "", 400
+        else:
+            return action.__getstate__(), 200
+        
+def api_action_script_run():
+    #TODO handle script exceptions
+    data:dict[str] = request.get_json()
+    rtype = data["type"]
+    
+    scope_s = data.get("scope", None)
+    if isinstance(scope_s, str):
+        scope = pickle.loads(base64.b64decode(scope_s.encode("utf-8")))
+    else:
+        scope = None
+    script = tronix.Script(data["script"], scope)
+
+    if rtype == "run_iter":
+        def gen():
+            riter = actions.script_runner.run_iter(script, data["force_parse"], data["force_compile"])
+            yield len(script.steps).to_bytes(8, byteorder="big", signed=False)
+            for result in riter:
+                if inspect.isawaitable(result):
+                    result = asyncio.run(result)
+                r_b = pickle.dumps(result)
+                yield len(r_b).to_bytes(8, byteorder="big", signed=False)
+                yield r_b
+            scope_b = pickle.dumps(script.scope)
+            yield len(scope_b).to_bytes(8, byteorder="big", signed=False)
+            yield scope_b
+        return gen
+    elif rtype in ("run", "run_async"):
+        asyncio.run(actions.script_runner.run_async(script, data["force_parse"], data["force_compile"]))
+        return pickle.dumps(script.scope), 200, {"Content-Type": "application/octet-stream"}
+    else:
+        return "", 422
+
+class ProxyScriptRunner(tronix.utils.ScriptRunner):
+
+    @staticmethod
+    def update_scope(runner:tronix.utils.ScriptRunner, script:tronix.Script):
+        if isinstance(runner, ProxyScriptRunner) and script._hash in runner.scopes:
+            scope_b = runner.scopes[script._hash]
+            script.scope = pickle.loads(scope_b)
+            return True
+        return False
+    
+    def __init__(self, remote_api_addr:str, secure:bool=False):
+        super().__init__()
+        self.remote_api_addr = remote_api_addr
+        self.secure = secure
+        self.session = requests.Session()
+        self.scopes:dict[bytes,bytes|None] = {}
+
+    def _prep_req(self, session:aiohttp.ClientSession|requests.Session, rtype:str, script:tronix.Script|str, force_parse:bool, force_compile:bool):
+        if isinstance(script, tronix.Script):
+            scope_b = pickle.dumps(script.scope)
+            scope = base64.b64encode(scope_b).decode("utf-8") if script.scope else None
+            h = script._hash
+            script = script.raw
+        else:
+            h = tronix.Script.HASH_FUNC(script.encode("utf-8"), usedforsecurity=False).digest()
+            scope = scope_b = None
+        
+        self.scopes[h] = scope_b
+
+        return session.post(f"http{"s"*self.secure}://{self.remote_api_addr}/api/action/run-proxied", json={
+            "type": rtype,
+            "script": script,
+            "scope": scope,
+            "force_parse": force_parse,
+            "force_compile": force_compile
+        }), h
+
+    def run_iter(self, script:tronix.Script|str, force_parse:bool=False, force_compile:bool=False):
+        r, h = self._prep_req(self.session, "run_iter", script, force_parse, force_compile)
+        if not r.ok:
+            ... #TODO handle not ok
+        count_b = r.raw.read(8)
+        if not count_b:
+            return
+        count = int.from_bytes(count_b, byteorder="big", signed=False)
+        for _ in range(count):
+            size_b = r.raw.read(8)
+            if not size_b:
+                return
+            size = int.from_bytes(size_b, byteorder="big", signed=False)
+            obj_b = r.raw.read(size)
+            if not obj_b:
+                ... #TODO error
+            yield pickle.loads(obj_b)
+        scopelen_b = r.raw.read(8)
+        if not scopelen_b:
+            return
+        scopelen = int.from_bytes(scopelen_b, byteorder="big", signed=False)
+        if scopelen:
+            scope_b = r.raw.read(scopelen)
+            if not scope_b:
+                ... #TODO error
+        else:
+            scope_b = None
+        self.scopes[h] = scope_b
+    
+    def run(self, script:tronix.Script|str, force_parse:bool=False, force_compile:bool=False):
+        r, h = self._prep_req(self.session, "run", script, force_parse, force_compile)
+        if not r.ok:
+            ... #TODO handle not ok
+        scope_b = r.content
+        self.scopes[h] = scope_b if scope_b else None
+
+    async def run_async(self, script:tronix.Script|str, force_parse:bool=False, force_compile:bool=False):
+        async with aiohttp.ClientSession(cookies=requests.utils.dict_from_cookiejar(self.session.cookies), headers=self.session.headers, auth=self.session.auth) as s:
+            rctx, h = self._prep_req(s, "run_async", script, force_parse, force_compile)
+            async with rctx as r:
+                if not r.ok:
+                    ... #TODO handle not ok
+                scope_b = await r.read()
+                self.scopes[h] = scope_b if scope_b else None
+        
+            
+
 _SECURE_PROTOCOLS = {"https", "wss"}
 def process_remote_api(remote_api_addr:str|None)->tuple[str|None, bool]:
     if remote_api_addr is None:
@@ -279,7 +447,7 @@ def create_endpoint_proxy(addr:str, routes:list[str], bp:Blueprint, normal=True,
                 ws.send(msg)
 
             def on_error(cws:websocket.WebSocket, e:Exception):
-                if isinstance(e, ConnectionRefusedError):
+                if isinstance(e, (ConnectionRefusedError, ConnectionClosed)):
                     print(f"PROXY WS ERROR ({url}) {type(e).__name__}: {e}")
                 else:
                     print(f"PROXY WS ERROR ({url}):")
@@ -361,7 +529,7 @@ def create_component_proxy(address:str, dest:Flask|Blueprint, bpname:str, prefix
     add_bp_if_new(dest, vbp)
 
 
-def attach_core(interface_mode:str, api_mode:str, remote_api_addr:str|None=None):
+def attach_core(interface_mode:str, api_mode:str, tronix_mode:str, remote_api_addr:str|None=None):
     global __remote_api_addr
     __remote_api_addr = remote_api_addr
     if interface_mode == plugins.COMPONENT_MODE_NORMAL:
@@ -370,6 +538,8 @@ def attach_core(interface_mode:str, api_mode:str, remote_api_addr:str|None=None)
         create_component_proxy(remote_api_addr, app, "proxy_core_interface", socket=False)
 
     if api_mode == plugins.COMPONENT_MODE_NORMAL:
+        if tronix_mode in (plugins.COMPONENT_MODE_NORMAL, plugins.COMPONENT_MODE_REMOTE):
+            coreapi.post("/action/script/run")(api_action_script_run)
         api.register_blueprint(coreapi)
     elif api_mode == plugins.COMPONENT_MODE_REMOTE:
         vcoreapi = Blueprint("proxy_core_api", __name__)

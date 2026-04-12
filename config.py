@@ -1,13 +1,13 @@
 import copy
+import datafile
 from datetime import datetime
 import json
 import os
 from typing import Any
 
-DIR = os.path.dirname(__file__)
-DEFAULT_CONFIG_FILE = CONFIG_FILE = os.path.join(DIR, "config.json")
-PLUGIN_FILE = os.path.join(DIR, "plugins.json")
-OAUTH_TWITCH_FILE = os.path.join(DIR, "oauth_twitch.json")
+DEFAULT_CONFIG_FILE = CONFIG_FILE = datafile.makepath("config.json")
+PLUGIN_FILE = datafile.makepath("plugins.json")
+OAUTH_TWITCH_FILE = datafile.makepath("oauth_twitch.json")
 
 _cached_contents:dict[str, tuple[datetime, Any]] = {}
 

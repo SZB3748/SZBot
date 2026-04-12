@@ -1,10 +1,9 @@
-from . import handler
+from . import handler, exceptions
 import audioop
 from flask import Blueprint, Flask, request, Response
-from flask_sock import Server
 import os
 from uuid import UUID
-from web import add_bp_if_new, serve_when_loaded, sock
+from web import add_bp_if_new, serve_when_loaded
 
 DIR = os.path.dirname(__file__)
 STATIC_DIR = os.path.join(DIR, "static")
@@ -57,7 +56,7 @@ def route_mic_stream():
     #check in
     try:
         bucket = main_handler.new_bucket(mic_id)
-    except handler.MicDisabledException as e:
+    except exceptions.MicDisabledException as e:
         return f"Mic disabled: {e}", 422
     if bucket is None:
         return "Mic not found from given ID.", 404
@@ -82,7 +81,7 @@ def route_volume_stream():
     #check in
     try:
         bucket = main_handler.new_bucket(mic_id)
-    except handler.MicDisabledException as e:
+    except exceptions.MicDisabledException as e:
         return f"Mic disabled: {e}", 422
     if bucket is None:
         return "Mic not found from given ID.", 404

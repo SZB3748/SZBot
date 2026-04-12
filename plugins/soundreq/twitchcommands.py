@@ -10,7 +10,7 @@ async def request_sound_limited(ctx:commands.Context, time:datetime):
     duration = (REQUEST_SOUND_RATELIMIT_DURATION - (datetime.now() - time)).total_seconds()
     await ctx.send(f"{ctx.author.mention} wait {duration} seconds before using this command")
 
-@command_triggers.CallbackCommand.create("sound")
+@command_triggers.CallbackCommandTrigger.create("sound")
 @ratelimit(5, REQUEST_SOUND_RATELIMIT_DURATION, limited_callback=request_sound_limited)
 @command_triggers.CommandSignature.store()
 async def request_sound(ctx:commands.Context, name:str):
@@ -21,7 +21,7 @@ async def request_sound(ctx:commands.Context, name:str):
                 await ctx.send("Failed to request for sound to be played.")
 
 
-@command_triggers.CallbackCommand.create("listsounds")
+@command_triggers.CallbackCommandTrigger.create("listsounds")
 async def list_sounds(ctx:commands.Context):
     """List names of all available sounds."""
     async with aiohttp.ClientSession() as session:

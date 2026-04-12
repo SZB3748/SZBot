@@ -86,10 +86,24 @@ def run(addr:tuple[str, int]=(web.HOST, web.PORT), remote_api_addr:str=None, pco
         
         interface_mode = core_components.get(plugins.CORE_COMPONENT_INTERFACE, plugins.COMPONENT_MODE_NORMAL)
         api_mode = core_components.get(plugins.CORE_COMPONENT_API, plugins.COMPONENT_MODE_NORMAL)
+        tronix_mode = core_components.get(plugins.CORE_COMPONENT_TRONIX, plugins.COMPONENT_MODE_NORMAL)
     else:
-        interface_mode = api_mode = plugins.COMPONENT_MODE_NORMAL
+        interface_mode = api_mode = tronix_mode = plugins.COMPONENT_MODE_NORMAL
 
-    web.attach_core(interface_mode, api_mode, remote_api_addr)
+    if tronix_mode == plugins.COMPONENT_MODE_NORMAL:
+        print("loading script environment")
+        import tronix.script_builtins, tronix_twitch_integrations
+        tronix.script_builtins.activate()
+        tronix_twitch_integrations.activate()
+        print("loaded script environment")
+    elif tronix_mode == plugins.COMPONENT_MODE_REMOTE:
+        print("setting up proxy script environment")
+        import actions
+        actions.script_runner = web.ProxyScriptRunner(*web.process_remote_api(remote_api_addr))
+        print("set up proxy script environment")
+        
+
+    web.attach_core(interface_mode, api_mode, tronix_mode, remote_api_addr)
 
     print("starting web server")
     e = None
