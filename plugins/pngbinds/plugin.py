@@ -44,9 +44,6 @@ def on_load(ctx:plugins.LoadEvent):
     m_listener = ctx.plugin.get_component_mode(COMPONENT_LISTENER)
     m_events = ctx.plugin.get_component_mode(COMPONENT_EVENTS)
 
-    
-
-
     if ctx.is_start:
         microphone = ctx.plugin_list.get("microphone", None)
         if microphone is not None and microphone.module is not None:
