@@ -1,10 +1,5 @@
-config.json
-plugins.json
 plugin_profiles/
-oauth_twitch.json
-oauth_youtube.json
 .tio.tokens.json
-secret.txt
 QUEUE
 CURRENT
 NEXT
@@ -14,11 +9,7 @@ __pycache__/
 .venv/
 .vscode/
 thumbnails/
-sounds/
-
-png_binds.json
-pngbinds-media/
-pngbinds_media.json
+data/*
 
 #DEBUG
 TEST_BTRACK
