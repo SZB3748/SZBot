@@ -14,4 +14,3 @@ requests
 twitchio
 twitchio[starlette]
 websocket-client
-yt-dlp

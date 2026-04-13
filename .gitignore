@@ -1,22 +1,12 @@
 plugin_profiles/
 .tio.tokens.json
-QUEUE
-CURRENT
-NEXT
-*.part
-*.ytdl
 __pycache__/
 .venv/
 .vscode/
-thumbnails/
 data/*
-
-#DEBUG
-TEST_BTRACK
 
 #Exclude non-builtin plugins
 plugins/*
-!plugins/songqueue/
 !plugins/soundreq/
 !plugins/pngbinds/
 !plugins/microphone/
