@@ -1,9 +1,13 @@
-import tronix
-from tronix import exceptions, script, script_builtins, utils
+from tronix import builtins, exceptions, script, utils
+from tronix.script import ScriptVariable
+from tronix.utils import ScriptFunction, ScriptFunctionParam
 import twitchio
 from twitchio.ext import commands
 
 TWITCH_CONTEXT_VAR_NAME = "twitch_context"
+
+class InvalidTwitchContext(exceptions.TRuntimeException):
+    "Twitch context is not of the expected type."
 
 class BotScriptContext:
     def __init__(self, bot:commands.Bot, command_ctx:commands.Context|None=None, redeem_payload:twitchio.ChannelPointsRedemptionAdd|None=None):
@@ -15,6 +19,9 @@ class _CommandContextType(script.ScriptDataType):
     ...
 
 class _RedeemContextType(script.ScriptDataType):
+    ...
+
+class _TwitchUserType(script.ScriptDataType):
     ...
 
 class _TwitchContextType(script.ScriptDataType):
@@ -34,53 +41,73 @@ class _TwitchContextType(script.ScriptDataType):
         
 
 
-CommandContext = _CommandContextType("CommandContext", _CommandContextType, script.BASE_TYPE)
-RedeemContext = _RedeemContextType("RedeemContext", _RedeemContextType, script.BASE_TYPE)
-TwitchContext = _TwitchContextType("TwitchContext", _TwitchContextType, script.BASE_TYPE)
+TwitchUser = _TwitchUserType("TwitchUser", twitchio.PartialUser, script.BASE_TYPE)
+CommandContext = _CommandContextType("CommandContext", commands.Context, script.BASE_TYPE)
+RedeemContext = _RedeemContextType("RedeemContext", twitchio.ChannelPointsRedemptionAdd, script.BASE_TYPE)
+TwitchContext = _TwitchContextType("TwitchContext", BotScriptContext, script.BASE_TYPE)
 
-async def twitch_send_message(ctx:script.ScriptContext):
+def _get_tctx(ctx:script.ScriptContext):
     ns = ctx.stack.find_name(TWITCH_CONTEXT_VAR_NAME)
     if ns is None:
-        ... #TODO error no twitch context
+        raise exceptions.TMissingName(f"missing twitch context {repr(TWITCH_CONTEXT_VAR_NAME)}")
     tctxv:script.ScriptValue[BotScriptContext] = ns[TWITCH_CONTEXT_VAR_NAME].get()
     if not tctxv.type.issubtype(TwitchContext):
-        ... #TODO error invalid twitch context
-    tctx = tctxv.inner
-    
-    pc = len(ctx.params)
-    if pc < 1:
-        ... #TODO error
-    elif pc > 2:
-        ... #TODO error
-    
-    msg:script.ScriptValue[str] = ctx.params[0].get()
-    if not msg.type.issubtype(script_builtins.String):
-        ... #TODO error type
+        raise InvalidTwitchContext("twitch context is missing or was overriden")
+    return tctxv.inner
 
-    if pc == 1:
-        if tctx.command_ctx is not None:
-            await tctx.command_ctx.send(msg.inner)
-        elif tctx.redeem_payload is not None:
-            await tctx.redeem_payload.broadcaster.send_message(msg.inner, tctx.bot.user)
+async def _resolve_destuser(tctx:BotScriptContext, dest:ScriptVariable[str|int|twitchio.PartialUser]):
+    d = dest.get()
+    if d.type.issubtype(builtins.String):
+        if d.inner.isdigit():
+            destuser = await tctx.bot.fetch_user(id=d.inner)
         else:
-            ... #TODO error missing context to auto-determine message destination
-    else: #pc == 2
-        dest = ctx.params[1].get()
-        if dest.type.issubtype(script_builtins.String):
-            if dest.inner.isdigit():
-                destuser = await tctx.bot.fetch_user(id=dest.inner)
-            else:
-                destuser = await tctx.bot.fetch_user(login=dest.inner)
-        elif dest.type.issubtype(script_builtins.Integer):
-            destuser = await tctx.bot.fetch_user(id=dest.inner)
-        elif isinstance(dest.inner, twitchio.User, twitchio.PartialUser):
-            destuser = dest.inner
-        else:
-            ... #TODO error type
-        await destuser.send_message(msg.inner, tctx.bot.user)
+            destuser = await tctx.bot.fetch_user(login=d.inner)
+    elif d.type.issubtype(builtins.Integer):
+        destuser = await tctx.bot.fetch_user(id=d.inner)
+    else:
+        destuser = d.inner
+    return destuser
+
+f_twitch_send_message = ScriptFunction()
+f_twitch_shoutout = ScriptFunction()
+
+@f_twitch_send_message.overload(ScriptFunctionParam("msg", [builtins.String]), pass_ctx=True)
+async def twitch_send_message_autodest(ctx:script.ScriptContext, msg:ScriptVariable[str]):
+    tctx = _get_tctx(ctx)
+    if tctx.command_ctx is not None:
+        await tctx.command_ctx.send(msg.get().inner)
+    elif tctx.redeem_payload is not None:
+        await tctx.redeem_payload.broadcaster.send_message(msg.get().inner, tctx.bot.user)
+    else:
+        ... #TODO error missing context to auto-determine message destination
+
+@f_twitch_send_message.overload(ScriptFunctionParam("msg", [builtins.String]), ScriptFunctionParam("dest", [builtins.String, builtins.Integer, TwitchUser]), pass_ctx=True)
+async def twitch_send_message_manualdest(ctx:script.ScriptContext, msg:ScriptVariable[str], dest:ScriptVariable[str|int|twitchio.PartialUser]):
+    tctx = _get_tctx(ctx)
+    destuser = await _resolve_destuser(tctx, dest)
+    await destuser.send_message(msg.get().inner, tctx.bot.user)
+
+@f_twitch_shoutout.overload(ScriptFunctionParam("user", [builtins.String, builtins.Integer, TwitchUser]), pass_ctx=True)
+async def twitch_shoutout_autodest(ctx:script.ScriptContext, user:ScriptVariable[str|int|twitchio.PartialUser]):
+    tctx = _get_tctx(ctx)
+    if tctx.command_ctx is not None:
+        await tctx.command_ctx.broadcaster.send_shoutout(to_broadcaster=user)
+    elif tctx.redeem_payload is not None:
+        await tctx.redeem_payload.broadcaster.send_shoutout(to_broadcaster=user)
+    else:
+        ... #TODO error missing context to auto-determine message destination
+
+@f_twitch_shoutout.overload(ScriptFunctionParam("user", [builtins.String, builtins.Integer, TwitchUser]), ScriptFunctionParam("dest", [builtins.String, builtins.Integer, TwitchUser]), pass_ctx=True)
+async def twitch_shoutout_manualdest(ctx:script.ScriptContext, user:ScriptVariable[str|int|twitchio.PartialUser], dest:ScriptVariable[str|int|twitchio.PartialUser]):
+    tctx = _get_tctx(ctx)
+    destuser = await _resolve_destuser(tctx, dest)
+    await destuser.send_shoutout(to_broadcaster=user)
+
 
 def activate():
+    utils.add_type(TwitchUser, constructor=False)
     utils.add_type(CommandContext, constructor=False)
     utils.add_type(RedeemContext, constructor=False)
     utils.add_type(TwitchContext, constructor=False)
-    script.SCRIPT_FUNCTION_TABLE["twitch_send_message"] = twitch_send_message
+    script.SCRIPT_FUNCTION_TABLE["twitch_send_message"] = f_twitch_send_message
+    script.SCRIPT_FUNCTION_TABLE["twitch_shoutout"] = f_twitch_shoutout

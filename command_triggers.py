@@ -224,7 +224,6 @@ class ActionCommandTrigger(CommandTrigger):
             script_scope[tti.TWITCH_CONTEXT_VAR_NAME] = script.ScriptVariable(utils.wrap_python_value(tti.BotScriptContext(ctx.bot, command_ctx=ctx)))
             args = args[1:]
 
-        print(args, command.signature.params)
         if len(args) == len(command.signature.params):
             filled_args = [t(arg) if isinstance(t, type) else arg for (_, t), arg in zip(command.signature.params, args)]
         elif len(args) < len(command.signature.params):

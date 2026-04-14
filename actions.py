@@ -39,19 +39,24 @@ class ActionValueMapping:
         raise NotImplementedError
 
 class CommandActionValueMapping(ActionValueMapping):
-    def __init__(self, parameter_to_requested_name:dict[str,str]):
+    def __init__(self, parameter_to_requested_name:dict[str,str], extra_data:dict[str]):
         self.name_map = parameter_to_requested_name
+        self.extra_data = extra_data
     
     def fill_values(self, args:dict[str]):
-        return {self.name_map[k]:v for k,v in args.items()}
+        d = {self.name_map[k]:v for k,v in args.items()}
+        d.update(self.extra_data)
+        return d
     
     def __getstate__(self):
         return {
-            "name_map": self.name_map
+            "name_map": self.name_map,
+            "extra_data": self.extra_data
         }
     
     def __setstate__(self, d:dict[str]):
         self.name_map:dict[str,str] = d["name_map"]
+        self.extra_data:dict[str] = d["extra_data"]
 
 class RewardActionValueMapping(ActionValueMapping):
     def __init__(self, input_name:str, extra_data:dict[str]):
