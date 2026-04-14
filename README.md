@@ -9,75 +9,38 @@ Very creative name.
 1. Log into the [Twitch Developer Console](https://dev.twitch.tv/console)
 2. "Register a New Application"
    - The name can be whatever
-   - Make sure at least one of the OAuth Redirect URLs is `http://localhost:6742/oauth`. If you change the port number, make sure to replace the `6742`.
+   - Make sure at least one of the OAuth Redirect URLs is `http://localhost:6742/oauth`. If you run the bot with a different port number, make sure to replace the `6742`.
    - I don't know if you have to set the category to Chat Bot, but I did and it works for me ¯\\_(ツ)_/¯.
    - Set the Client Type to Confidential
    - Copy the Client ID and Client Secret, you'll need them in a few steps.
 
-### Youtube Setup
-
-1. Log into the [Google Cloud Console](https://console.cloud.google.com/)
-2. Create a New Project
-   - If you already have other projects, make sure you select the project you just made.
-3. Add the [Youtube Data API v3](https://console.cloud.google.com/marketplace/product/google/youtube.googleapis.com) to your project
-4. Configure your project's OAuth Consent Screen and Client
-   1. Go to your project's [OAuth Overview](https://console.cloud.google.com/auth/overview)
-   2. Go to the "Branding" tab on the left and fill out at least the required fields.
-   3. Go to the "Audience" tab on the left and make sure whatever email(s) you'll be using are added as test users.
-   4. Go to the "Clients" tab on the left and create a new one.
-      - Select the Desktop App type
-   5. Go to the "Data Access" tab on the left and add the `https://www.googleapis.com/auth/youtube` scope.
-   6. Go back to the "Clients" tab and the download button, then DOWNLOAD JSON button
-      - The contents of the file that gets downloaded will be used as the base for the `oauth_youtube.json` file.
-
 
 ### Files
 
-1. Install requirements.txt: `pip -r requirements.txt`
+1. Install requirements.txt: `pip install -r requirements.txt`
+   - Currently this also includes packages for the built-in plugins as well ( `pngbinds`, `songqueue`, and `soundreq` )
+   - If using Python 3.13 or later, modify the `requirements.txt` file to install `audioop-lts` for the `microphone` plugin.
 2. Create a `oauth_twitch.json` file. It should look something like:
 ```json
 {
-    "Client-Id": "YOUR CLIENT ID",
-    "Client-Secret": "YOUR CLIENT SECRET",
-    "Scopes": [
-        //i dont know how many of these are necessary, feel free to experiment
-        "chat:read",
-        "chat:edit",
-        "user:read:chat",
-        "user:write:chat",
-        "user:bot",
-        "channel:bot"
-    ]
-}
-```
-3. Create a `oauth_youtube.json` file. Start with the contents from the file you downloaded and add the other field(s). It should look something like:
-```json
-{
-    "installed": {
-        ...
+    "identity": {
+        "Bot-Name": "YOUR BOT ACCOUNT'S NAME (either make a new account or use your own)",
+        "Client-Id": "YOUR CLIENT ID",
+        "Client-Secret": "YOUR CLIENT SECRET"
     },
-    "scopes": [
-        "https://www.googleapis.com/auth/youtube"
-    ]
+    "channels": {
+        "YOUR CHANNEL": null
+    }
 }
 ```
-4. Create a `config.json` file (if copy-pasting, remove the comments). It should look something like:
+3. Create a `config.json` file (if copy-pasting, remove the `//` comments). It should look something like:
 ```json
 {
     "Prefix": "YOUR PREFIX (usually '!')",
-    "Channels": [
-        "YOUR CHANNEL NAME"
-    ],
     //optionally, you can include these fields:
     "Links": {
-        "link name (creates a command)": "link text"
+        "link name (creates a command)": "text to send when someone uses the command"
     },
-    "B-Track": {
-        "url": "https://youtube.com/watch?playlist=PLAYLIST_ID",
-        "start": 5 //index in playlist to start at (optional, default=1)
-    },
-    "Playlist": "PLAYLIST_ID",
-    "Output-Device": "DEVICE NAME",
     "Style": {
         "text_color": "css color",
         "background_color": "css color",
@@ -85,27 +48,46 @@ Very creative name.
         "secondary_foreground_color": "css color",
         "fonts": ["css font name"]
     }
-
 }
 ```
-5. Create a `secret.txt` file. Just put a bunch of random keyboard spam in it, or do some research if you want to put a bit more thought into it.
-6. Run `main.py`. It will detect that your `oauth.json` file doesn't contain a token and begin the process of generating one. Link your twitch account when it asks to. If you get redirected to a page that says "Restart", then you can restart the server.
+4. If using any plugins (including the built-in ones), create a `plugins.json` file (if copy-pasting, remove the `//` comments). It should look something like:
+```json
+{
+    "plugin_key": {
+        "run": {
+            "type": "path",
+            "value": "PATH/TO/plugin.py"
+        },
+        "meta": {
+            "type": "path",
+            "value": "PATH/TO/plugin.json (usually next to plugin.py)"
+        },
+        //optional fields:
+        "loaded": true,   //if the plugin should run when the bot starts
+        "enabled": true,  //if the plugin should be able to run at all
+        "components": {
+            "component name (see plugin for details)": "mode name (see plugin for details)"
+        }
+    },
+    ...
+}
+```
+5. Create a `secret.txt` file. You can just put a bunch of random keyboard spam in it, or do some research if you want to put a bit more thought into it.
+6. Get the OAuth tokens for the twitch bot.
+    - Run `twitch_reauth.py` and make sure to link with the account you plan for the bot to send messages through
+    - Run `twitch_reauth.py -s channel` and link with the account (channel) you want your bot to act in
 
+## Built-In Plugins
 
-### Creating a Playlist
+Plugins that are included with the source code for SZBot, but still need to be added to `plugins.json` to run. It is recommended you use the folder name for each plugin as its keyname in `plugins.json`.
 
-Run the `playlist.py` file and fill out the inputs it asks for. It will create a playlist and display the ID. Put that ID into `config.json` under the `Playlist` field.
+- [PNG Binds](plugins/pngbinds/README.md)
+- [Song Queue](plugins/songqueue/README.md)
+- [Sound Request](plugins/soundreq/README.md)
 
 ## Running
 
-- To run the music queue and web interface, run `main.py`.
-- To run the twitch bot, run `bot.py`.
-   - If you haven't generated a token yet, make sure you run `main.py` first.
+- To run the main program, run `main.py`
+- To run the twitch bot, run `main.py` then `twitchbot.py`
 
-
-### VLC Plugins
-
-If you get a bunch of warnings about dlls when running `main.py`, then run this command:
-
-- Windows (Admin): `"C:\Program Files\VideoLAN\VLC\vlc-cache-gen.exe" "C:\Program Files\VideoLAN\VLC\plugins"`
-- Linux: Haven't tested
+For more info on customizing how these files are run, add the `-h` argument when running either of them.

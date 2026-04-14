@@ -1,4 +1,5 @@
 aiohttp
+#audioop-lts #uncomment for 3.13+
 Flask
 flask-sock
 gevent
@@ -6,6 +7,10 @@ google-api-python-client
 google-auth-httplib2
 google-auth-oauthlib
 MarkupSafe
+PyAudio
+pynput
 python-vlc
 requests
-yt-dlp
+twitchio
+twitchio[starlette]
+websocket-client

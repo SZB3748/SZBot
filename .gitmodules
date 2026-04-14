@@ -1,0 +1,3 @@
+[submodule "tronix"]
+	path = tronix
+	url = https://github.com/SZB3748/TronixLang

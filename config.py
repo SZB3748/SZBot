@@ -1,16 +1,19 @@
 import copy
+import datafile
 from datetime import datetime
 import json
 import os
 from typing import Any
 
-CONFIG_FILE = "config.json"
-OAUTH_TWITCH_FILE = "oauth_twitch.json"
-OAUTH_YOUTUBE_FILE = "oauth_youtube.json"
+DEFAULT_CONFIG_FILE = CONFIG_FILE = datafile.makepath("config.json")
+PLUGIN_FILE = datafile.makepath("plugins.json")
+OAUTH_TWITCH_FILE = datafile.makepath("oauth_twitch.json")
 
 _cached_contents:dict[str, tuple[datetime, Any]] = {}
 
-def read(path:str=CONFIG_FILE, use_cache:bool=True)->dict[str]:
+def read(path:str=None, use_cache:bool=True)->dict[str]:
+    if path is None:
+        path = CONFIG_FILE
     if os.path.isfile(path):
         mtime = datetime.fromtimestamp(os.path.getmtime(path))
 
@@ -29,7 +32,9 @@ def read(path:str=CONFIG_FILE, use_cache:bool=True)->dict[str]:
     else:
         return {}
 
-def write(new_configs:dict[str]|None=None, config_updates:dict[str]|None=None, path:str=CONFIG_FILE, use_cache:bool=True):
+def write(new_configs:dict[str]|None=None, config_updates:dict[str]|None=None, path:str=None, use_cache:bool=True):
+    if path is None:
+        path = CONFIG_FILE
     if os.path.isfile(path):
         with open(path, "r+") as f:
             contents = f.read()

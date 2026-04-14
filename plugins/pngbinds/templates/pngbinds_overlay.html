@@ -1,0 +1,22 @@
+{% extends "overlay.html" %}
+
+{% block styles %}
+<link rel="stylesheet" type="text/css" href="/static/pngbinds/css/overlay.css">
+{% endblock %}
+{% block scripts %}
+<script src="/static/pngbinds/js/mediautil.js"></script>
+<script src="/static/pngbinds/js/statesutil.js"></script>
+<script src="/static/pngbinds/js/overlay.js"></script>
+{% endblock %}
+{% block body %}
+<div id="whole-container">
+    <div id="content-container">
+        <div id="content-margin">
+            <div id="content-div"></div>
+        </div>
+    </div>
+    <div id="border-container">
+        <img id="border-image">
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,35 @@
+{
+    "name": "PNG Binds",
+    "description": "Creates an overlay which displays different images, and allows for transitions between these images when set keybinds are pressed.",
+    "configs": {
+        "PNG-Binds": {
+            "name": "PNG Binds Configs",
+            "description": "Collection of configurations for the PNG Binds plugin.",
+            "types": {
+                "object": {
+                    "fields": {
+                        "Default-State": {
+                            "name": "Default State Name",
+                            "description": "Name of the default state in the state map.",
+                            "types": {
+                                "string": {
+                                    ">=": 1
+                                },
+                                "null": "exclude"
+                            },
+                            "optional": true
+                        }
+                    }
+                }
+            },
+            "optional": true
+        }
+    },
+    "components": {
+        "interface": ["normal", "remote", null],
+        "overlay": ["normal", "remote", null],
+        "api": ["normal", "remote", null],
+        "listener": ["normal", "remote", null],
+        "events": ["normal", null]
+    }
+}

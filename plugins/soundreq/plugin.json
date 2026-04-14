@@ -1,0 +1,64 @@
+{
+    "name": "Sound Request",
+    "description": "Allows for users to request sounds to be played.",
+    "configs": {
+        "Sound-Request": {
+            "name": "Sound Request Configs",
+            "description": "Collection of configurations for the Sound Request plugin.",
+            "types": {
+                "object": {
+                    "fields": {
+                        "Sounds": {
+                            "name": "Sound Info",
+                            "description": "Configurations for the sounds in use.",
+                            "types": {
+                                "object": {
+                                    "anyfield": {
+                                        "object": {
+                                            "fields": {
+                                                "file": {
+                                                    "name": "File",
+                                                    "types": {
+                                                        "string": {
+                                                            ">": 0
+                                                        }
+                                                    }
+                                                },
+                                                "name": {
+                                                    "name": "Song Name",
+                                                    "types": {
+                                                        "string": true,
+                                                        "null": "exclude"
+                                                    },
+                                                    "optional": true
+                                                }
+                                            }
+                                        },
+                                        "null": "exclude"
+                                    }
+                                },
+                                "null": "exclude"
+                            },
+                            "optional": true
+                        },
+                        "Output-Device": {
+                            "name": "Output Device",
+                            "description": "Name of the output device to play audio to. Default is the desktop audio device. VB-Cable and Voicemeeter (or something similar) is recommended.",
+                            "types": {
+                                "string": true,
+                                "null": "exclude"
+                            },
+                            "optional": true
+                        }
+                    }
+                }
+            },
+            "optional": true
+        }        
+    },
+    "components": {
+        "api": ["normal", "remote", null],
+        "twitchbot:commands": ["normal", null],
+        "soundplayer": ["normal", null]
+    }
+}

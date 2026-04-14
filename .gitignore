@@ -1,9 +1,12 @@
-config.json
-oauth_twitch.json
-oauth_youtube.json
-secret.txt
-QUEUE
-CURRENT
-NEXT
+plugin_profiles/
+.tio.tokens.json
 __pycache__/
-thumbnails/
+.venv/
+.vscode/
+data/*
+
+#Exclude non-builtin plugins
+plugins/*
+!plugins/soundreq/
+!plugins/pngbinds/
+!plugins/microphone/

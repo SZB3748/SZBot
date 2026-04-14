@@ -1,29 +1,36 @@
-from gevent import monkey
-
-monkey.patch_all() #this complains about being called too late, so now it gets called first
-
+import actions
+import aiohttp
+import asyncio
+import base64
 import config
-from datetime import timedelta
+import datafile
 import events
-from flask import Flask, render_template, request, send_from_directory
+from flask import abort, Blueprint, Flask, render_template, request, Response, send_file, stream_with_context
 from flask_sock import Server, Sock
 from gevent.pywsgi import WSGIServer
+import inspect
 import json
 from markupsafe import Markup
-import os
+import pickle
+import plugins
 import requests
-import songqueue
-import string
-import subprocess
+from simple_websocket.errors import ConnectionClosed
+import threading
+import traceback
+import tronix
+from typing import Callable, Sequence
+import websocket
+from werkzeug.datastructures import Headers
 
 HOST = "127.0.0.1"
 PORT = 6742
-SECRET_FILE = "secret.txt"
+SECRET_FILE = datafile.makepath("secret.txt")
+API_PROXY_BUFFER_SIZE = 8192
 
 DEFAULT_STYLES_FONT = "\"Fragment Mono\""
-DEFAULT_STYLES_BG_COLOR = "#000"
-DEFAULT_STYLES_TEXT_COLOR = "#fff"
-DEFAULT_STYLES_FG_COLOR = "#7f0"
+DEFAULT_STYLES_BG_COLOR = "#000000"
+DEFAULT_STYLES_TEXT_COLOR = "#ffffff"
+DEFAULT_STYLES_FG_COLOR = "#77ff00"
 DEFAULT_STYLES_FG2_COLOR = "#041f00"
 DEFAULT_STYLES = f"""\
     font-family: {DEFAULT_STYLES_FONT};
@@ -71,37 +78,50 @@ def load_config_styles_css()->str:
 }}
 </style>""")
 
+__host_addr = None
+__remote_api_addr = None
+__pconfig_path = None
+
+def serve_when_loaded(loaded_callback:Callable[[], bool], unloaded_error_code:int=404):
+    def decor(f:Callable):
+        def wrapper(*args, **kwargs):
+            if loaded_callback():
+                return f(*args, **kwargs)
+            elif unloaded_error_code:
+                abort(unloaded_error_code)
+            else: # ==0
+                return "", 200
+        wrapper.__name__ = f.__name__
+        wrapper.__doc__ = f.__doc__
+        return wrapper
+    return decor
+
+
 app = Flask(__name__)
+api = Blueprint("api", __name__, url_prefix="/api")
+coreinterface = Blueprint("core_interface", __name__)
+coreapi = Blueprint("core_api", __name__)
 app.jinja_env.globals["load_config_styles"] = load_config_styles_css
 app.url_map.strict_slashes = False
+app.jinja_env.auto_reload = True
 app.config["TEMPLATES_AUTO_RELOAD"] = True
 with open(SECRET_FILE) as f:
     app.secret_key = f.read()
 sock = Sock(app)
 
-@app.get("/")
+@coreinterface.get("/")
 def index():
     return render_template("index.html")
-
-@app.get("/music")
-def music_interface():
-    return render_template("music.html")
-
-@app.get("/music/overlay")
-def music_overlay():
-    return render_template("music_overlay.html")
-
-@app.get("/music/thumbnail/<name>")
-def music_thumbnail(name:str):
-    return send_from_directory(songqueue.THUMBNAILS_DIR, name)
 
 @app.get("/oauth")
 def oauth():
     code = request.args["code"]
-    configs = config.read(path=config.OAUTH_TWITCH_FILE)
+    oauth = config.read(path=config.OAUTH_TWITCH_FILE)
+    identity:dict = oauth["identity"]
+    client_id = identity["Client-Id"]
     r = requests.post("https://id.twitch.tv/oauth2/token", data={
-        "client_id": configs["Client-Id"],
-        "client_secret": configs["Client-Secret"],
+        "client_id": client_id,
+        "client_secret": identity["Client-Secret"],
         "code": code,
         "grant_type": "authorization_code",
         "redirect_uri": request.base_url
@@ -110,223 +130,437 @@ def oauth():
         print("oauth failure")
         return r.text, r.status_code
     d = r.json()
-    config.write(config_updates={"Token": d["access_token"], "Refresh-Token": d["refresh_token"]}, path=config.OAUTH_TWITCH_FILE)
-    return "Restart", 200
+    token = d["access_token"]
+    refresh = d["refresh_token"]
+    r2 = requests.get("https://api.twitch.tv/helix/users", headers={"Client-Id": client_id, "Authorization": f"Bearer {token}"})
+    if not r2.ok:
+        print("user identify failure")
+        return r2.text, r2.status_code
+    u = r2.json()
+    login = u["data"][0]["login"]
+    if login == str(identity["Bot-Name"]).lower():
+        identity.update({"Token": token, "Refresh-Token": refresh})
+        config.write(config_updates={"identity": identity}, path=config.OAUTH_TWITCH_FILE)
+        return "Authenticated bot identity, restart bot.", 200
+    else:
+        channels = oauth.get("channels",None)
+        tdata = {"token": token, "refresh_token": refresh}
+        if isinstance(channels, dict):
+            channels[login] = tdata
+        else:
+            channels = {login: tdata}
+        config.write(config_updates={"channels": channels}, path=config.OAUTH_TWITCH_FILE)
+        return "Authenticated user channel, you can close this tab.", 200
 
-def _v_to_dict(v:songqueue.QueuedSong)->dict[str]:
-    return {
-        "id": v.video_id,
-        "duration": songqueue.format_duration(v.duration),
-        "start": v.start,
-        "title": v.title,
-        "thumbnail": v.thumbnail
-    }
+@coreinterface.get("/configs")
+def configs_page():
+    return render_template("configs.html")
 
-@app.get("/api/music/queue")
-def api_music_queue_get():
-    queue_list = []
-    with open(songqueue.QUEUE_FILE) as f:
-        for line in f:
-            if all(c in string.whitespace for c in line):
-                continue
-            id, duration_s, thumbnail, start_s, title = (line[:-1] if line.endswith("\n") else line).split(" ", 4)
-            queue_list.append({
-                "id": id,
-                "duration": duration_s,
-                "start": int(start_s),
-                "title": title,
-                "thumbnail": thumbnail
-            })
-    return json.dumps({
-        "current": None if songqueue.current_song is None else _v_to_dict(songqueue.current_song),
-        "next": None if songqueue.next_song is None else _v_to_dict(songqueue.next_song),
-        "queue": queue_list
-    }), 200, {"Content-Type": "application/json"}
+@coreinterface.get("/actions")
+def actions_page():
+    return render_template("actions.html")
 
-@app.post("/api/music/queue/push")
-def api_music_queue_push():
-    url = request.form["url"]
-    v = songqueue.get_song(url)
-    if v is None:
-        events.dispatch(songqueue.QueuedSongEvent(-1, False, video_id=url, title="", duration=timedelta(seconds=0), thumbnail="", start=0))
-        return "", 403
-    pos = songqueue.push_queue(v)
-    events.dispatch(songqueue.QueuedSongEvent.new(pos, True, v))
-    return str(pos), 200
-
-@sock.route("/api/music/events")
-def api_music_listen(ws:Server):
+@sock.route("/events", bp=coreapi)
+def api_events(ws:Server):
     bucket = events.new_bucket()
     try:
         while ws.connected:
-            ws.receive(0)
+            bucket.wait()
             for event in bucket.dump():
                 ws.send(event.to_json())
+    except KeyboardInterrupt:
+        ws.close()
     finally:
         events.remove_bucket(bucket)
 
-@app.post("/api/music/overlay/persistent")
-def api_music_set_overlay_persistent():
-    value = request.form.get("value", "false").strip().lower() == "true"
-    events.dispatch(events.Event("overlay_persistence_change", {"value": value}))
+@coreapi.post("/events/dispatch")
+def api_events_dispatch():
+    batch:list[dict[str]] = json.loads(request.form["batch"])
+    if not isinstance(batch, list):
+        return "", 422
+    events.dispatch(*(events.Event(**data) for data in batch if isinstance(data, dict)))
     return "", 200
 
-@app.post("/api/music/queue/skip")
-def api_music_queue_skip():
-    count_s = request.form.get("count", "1")
-    purge_s = request.form.get("purge", "false").strip().lower().replace("false", "")
-    npurge = not purge_s
-
-    if not count_s.isdigit():
-        return "Invalid count", 422
-    count = int(count_s)
-    pre_skipped = 0
-    if count > 0:
-        if songqueue.current_song is not None:
-            songqueue.save_current_to_playlist = False
-            if npurge:
-                songqueue.add_to_playlist(songqueue.current_song.video_id)
-            songqueue.current_song = None
-            #NOTE: cannot remove CURRENT_FILE here, as it is being used by the vlc player; current file is removed on its own during normal operation
-            pre_skipped += 1
+@coreapi.route("/configs", methods=["GET", "PUT"])
+def api_configs():
+    if request.method == "PUT":
+        data = request.get_json()
+        config.write(data, path=config.CONFIG_FILE)
+        return "", 200
     else:
-        return "0", 200, {"Content-Type": "application/json"}
-    if count > 1:
-        if songqueue.next_song is not None:
-            if npurge:
-                songqueue.add_to_playlist(songqueue.next_song.video_id)
-            songqueue.next_song = None
-            if os.path.isfile(songqueue.NEXT_FILE):
-                os.remove(songqueue.NEXT_FILE)
-            pre_skipped += 1
-    elif pre_skipped: #count == 1 and current was skipped
-        songqueue.song_done.set()
-        return "1", 200, {"Content-Type": "application/json"}
+        return send_file(config.CONFIG_FILE)
 
-    with open(songqueue.QUEUE_FILE, "r+") as f:
-        content = f.read()
-        cutoff = 0
-        skip_count = pre_skipped #to get to this point, the current and/or next songs may have been skipped
-        for _ in range(count - pre_skipped):
-            index = content.find("\n", cutoff)
-            if index < 0:
-                break
-            if npurge:
-                space_index = content.find(" ", cutoff, index)
-                if space_index > 0:
-                    songqueue.add_to_playlist(content[cutoff:space_index])
-            cutoff = index+1
-            if all(content[i] in string.whitespace for i in range(cutoff, index)):
-                skip_count += 1
-        
-        if cutoff > 0:
-            f.seek(0)
-            f.truncate()
-            try:
-                new_content = content[cutoff:]
-                if any(c not in string.whitespace for c in new_content):
-                    f.write(new_content)
-                    songqueue.queue_populated.set()
-                else:
-                    songqueue.queue_populated.clear()
-            except:
-                f.write(content)
-                raise
-            finally:
-                songqueue.song_done.set()
-        else:
-            songqueue.song_done.set()
-    return str(skip_count), 200, {"Content-Type": "application/json"}
+@coreapi.get("/configs/meta")
+def api_configs_meta():
+    combined = {"": plugins.CORE_CONFIGS_META}
+    for name, plugin in plugins.shared_plugins_list.items(): #if plugins.shared_plugins_list is None, raises an AttributeError and results in a 500
+        if plugin.module is not None: #is enabled
+            meta_type, meta_value = plugin.meta_target
+            if meta_type == "path":
+                with open(meta_value) as f:
+                    combined[name] = json.load(f)
+            elif meta_type == "inline":
+                combined[name] = meta_value
+    return combined
 
-@app.route("/api/music/playerstate", methods=["GET", "POST"])
-def api_music_playerstate():
-    if songqueue.current_song is None:
-        rtv = "{\"state\": null}"
-    else:
-        if request.method == "POST":
-            state = request.form["state"]
-            if state == "play":
-                songqueue.vlc_player.play()
-            elif state == "pause":
-                songqueue.vlc_player.pause()
-            else:
-                return "Invalid playerstate.", 422
-            events.dispatch(events.Event("change_playerstate", {
-                "state": state,
-                "position": songqueue.vlc_player.get_position() * songqueue.vlc_player.get_length()
-            }))
-        else:
-            state = "play" if songqueue.vlc_player.is_playing() else "pause"
-        rtv = json.dumps({
-            "state": state,
-            "position": songqueue.vlc_player.get_position() * songqueue.vlc_player.get_length()
-        })
-    return rtv, 200, {"Content-Type": "application/json"}
 
-@app.post("/api/music/seek")
-def api_musics_seek():
-    if songqueue.current_song is None:
-        return
-    seconds_s = request.form["seconds"]
-    if not seconds_s.isdigit():
-        return "Invalid seconds", 422
-    seconds = float(seconds_s)
-    if os.path.isfile(songqueue.CURRENT_FILE):
-        song = songqueue.vlc_instance.media_new(songqueue.CURRENT_FILE)
-        song.add_option(f"start-time={seconds}")
-        was_playing = songqueue.vlc_player.is_playing()
-        events.dispatch(events.Event("change_playerstate", {
-            "state": "play" if was_playing else "pause",
-            "position": seconds * 1000
-        }))
-        songqueue.vlc_player.set_media(song)
-        if was_playing:
-            songqueue.vlc_player.play()
+@coreapi.post("/plugins/load")
+def api_load_plugin():
+    name = request.form["name"]
+    plugin = plugins.shared_plugins_list.get(name, None)
+    if plugin is None:
+        return "", 404
+    plugin.load(plugins.LoadEvent(plugins.shared_plugins_list, plugin, __pconfig_path, False, __host_addr, __remote_api_addr))
     return "", 200
 
-@app.route("/api/music/b-track", methods=["GET", "POST"])
-def api_music_b_track():
-    configs = config.read()
-    current_b_track = configs.get("B-Track", None)
-    index = songqueue.b_track_index
+@coreapi.post("/plugins/unload")
+def api_unload_plugin():
+    name = request.form["name"]
+    plugin = plugins.shared_plugins_list.get(name, None)
+    if plugin is None:
+        return "", 404
+    plugin.unload(plugins.UnloadEvent(plugins.shared_plugins_list, plugin, False, None))
+    return "", 200
 
+class proxy_headers:
+    def __init__(self, base:Headers, exclude:Sequence[str], exclude_prefix:tuple[str, ...]=()):
+        self.base = base
+        self.exclude = exclude
+        self.exclude_prefix = exclude_prefix
+
+    def items(self):
+        for k, v in self.base.items():
+            kl = k.lower()
+            if kl in self.exclude or kl.startswith(self.exclude_prefix):
+                continue
+            yield k, v
+
+@coreapi.post("/action/script/check")
+def api_actions_script_check():
+    help_text = actions.check_script(request.get_data(True))
+    if help_text is None:
+        return "", 200
+    else:
+        return help_text, 200, {"Content-Type":"text/plain"}
+
+@coreapi.get("/action/list")
+def api_actions_list():
+    return send_file(actions.ACTIONS_PATH)
+
+@coreapi.route("/action", methods=["GET", "POST", "DELETE"])
+def api_action_route():
+    name = request.args["name"]
     if request.method == "POST":
-        url = request.form["url"]
-        if "index" in request.form:
-            index_s = request.form["index"]
-            if not index_s.isdigit():
-                return "Invalid index", 422
-            index = int(index_s)
-            if index not in songqueue.b_track_order:
-                index = songqueue.b_track_index
-
-        if isinstance(current_b_track, dict):
-            start = current_b_track.get("start", 1)
+        data:dict[str] = request.json
+        if not isinstance(data, dict):
+            return "", 400
+        table = actions.load_action_table()
+        action = table.get(name, None)
+        if action is None:
+            table[data.setdefault("name", name)] = action = actions.Action.__new__(actions.Action)
+            data.setdefault("requested_values", {})
+        action.__setstate__(data)
+        actions.save_action_table(table)
+        return "", 200
+    elif request.method == "DELETE":
+        table = actions.load_action_table()
+        if name in table:
+            del table[name]
+            actions.save_action_table(table)
+        return "", 200
+    else: #GET
+        action = actions.load_action_table().get(name, None)
+        if action is None:
+            return "", 400
         else:
-            start = 1
-
-        p = subprocess.Popen(["yt-dlp", url, "-I0", "-O", "playlist:playlist_count"], stdout=subprocess.PIPE)
-        out, _ = p.communicate()
-        if p.returncode:
-            return "Failed to get playlist info.", 500
+            return action.__getstate__(), 200
         
-        config.write(config_updates={
-            "B-Track": {"url": url, "start": start} if url else None
-        })
-        songqueue.b_track_playlist = url
-        songqueue.b_track_index = songqueue.b_track_order.index(index)
-        songqueue.b_track_length = int(out)
-    elif isinstance(current_b_track, dict) and current_b_track:
-        url = current_b_track["url"]
+def api_action_script_run():
+    #TODO handle script exceptions
+    data:dict[str] = request.get_json()
+    rtype = data["type"]
+    
+    scope_s = data.get("scope", None)
+    if isinstance(scope_s, str):
+        scope = pickle.loads(base64.b64decode(scope_s.encode("utf-8")))
     else:
-        url = None
+        scope = None
+    script = tronix.Script(data["script"], scope)
 
-    return json.dumps({
-        "url": url,
-        "index": index
-    }), 200, {"Content-Type": "application/json"}
+    if rtype == "run_iter":
+        def gen():
+            riter = actions.script_runner.run_iter(script, data["force_parse"], data["force_compile"])
+            yield len(script.steps).to_bytes(8, byteorder="big", signed=False)
+            for result in riter:
+                if inspect.isawaitable(result):
+                    result = asyncio.run(result)
+                r_b = pickle.dumps(result)
+                yield len(r_b).to_bytes(8, byteorder="big", signed=False)
+                yield r_b
+            scope_b = pickle.dumps(script.scope)
+            yield len(scope_b).to_bytes(8, byteorder="big", signed=False)
+            yield scope_b
+        return gen
+    elif rtype in ("run", "run_async"):
+        asyncio.run(actions.script_runner.run_async(script, data["force_parse"], data["force_compile"]))
+        return pickle.dumps(script.scope), 200, {"Content-Type": "application/octet-stream"}
+    else:
+        return "", 422
+
+class ProxyScriptRunner(tronix.utils.ScriptRunner):
+
+    @staticmethod
+    def update_scope(runner:tronix.utils.ScriptRunner, script:tronix.Script):
+        if isinstance(runner, ProxyScriptRunner) and script._hash in runner.scopes:
+            scope_b = runner.scopes[script._hash]
+            script.scope = pickle.loads(scope_b)
+            return True
+        return False
+    
+    def __init__(self, remote_api_addr:str, secure:bool=False):
+        super().__init__()
+        self.remote_api_addr = remote_api_addr
+        self.secure = secure
+        self.session = requests.Session()
+        self.scopes:dict[bytes,bytes|None] = {}
+
+    def _prep_req(self, session:aiohttp.ClientSession|requests.Session, rtype:str, script:tronix.Script|str, force_parse:bool, force_compile:bool):
+        if isinstance(script, tronix.Script):
+            scope_b = pickle.dumps(script.scope)
+            scope = base64.b64encode(scope_b).decode("utf-8") if script.scope else None
+            h = script._hash
+            script = script.raw
+        else:
+            h = tronix.Script.HASH_FUNC(script.encode("utf-8"), usedforsecurity=False).digest()
+            scope = scope_b = None
+        
+        self.scopes[h] = scope_b
+
+        return session.post(f"http{"s"*self.secure}://{self.remote_api_addr}/api/action/run-proxied", json={
+            "type": rtype,
+            "script": script,
+            "scope": scope,
+            "force_parse": force_parse,
+            "force_compile": force_compile
+        }), h
+
+    def run_iter(self, script:tronix.Script|str, force_parse:bool=False, force_compile:bool=False):
+        r, h = self._prep_req(self.session, "run_iter", script, force_parse, force_compile)
+        if not r.ok:
+            ... #TODO handle not ok
+        count_b = r.raw.read(8)
+        if not count_b:
+            return
+        count = int.from_bytes(count_b, byteorder="big", signed=False)
+        for _ in range(count):
+            size_b = r.raw.read(8)
+            if not size_b:
+                return
+            size = int.from_bytes(size_b, byteorder="big", signed=False)
+            obj_b = r.raw.read(size)
+            if not obj_b:
+                ... #TODO error
+            yield pickle.loads(obj_b)
+        scopelen_b = r.raw.read(8)
+        if not scopelen_b:
+            return
+        scopelen = int.from_bytes(scopelen_b, byteorder="big", signed=False)
+        if scopelen:
+            scope_b = r.raw.read(scopelen)
+            if not scope_b:
+                ... #TODO error
+        else:
+            scope_b = None
+        self.scopes[h] = scope_b
+    
+    def run(self, script:tronix.Script|str, force_parse:bool=False, force_compile:bool=False):
+        r, h = self._prep_req(self.session, "run", script, force_parse, force_compile)
+        if not r.ok:
+            ... #TODO handle not ok
+        scope_b = r.content
+        self.scopes[h] = scope_b if scope_b else None
+
+    async def run_async(self, script:tronix.Script|str, force_parse:bool=False, force_compile:bool=False):
+        async with aiohttp.ClientSession(cookies=requests.utils.dict_from_cookiejar(self.session.cookies), headers=self.session.headers, auth=self.session.auth) as s:
+            rctx, h = self._prep_req(s, "run_async", script, force_parse, force_compile)
+            async with rctx as r:
+                if not r.ok:
+                    ... #TODO handle not ok
+                scope_b = await r.read()
+                self.scopes[h] = scope_b if scope_b else None
+        
+            
+
+_SECURE_PROTOCOLS = {"https", "wss"}
+def process_remote_api(remote_api_addr:str|None)->tuple[str|None, bool]:
+    if remote_api_addr is None:
+        return None, False
+    
+    schemeIndex = remote_api_addr.find("://")
+    pathIndex = remote_api_addr.find("/")
+    if schemeIndex >= 0:
+        scheme = remote_api_addr[:schemeIndex]
+        secure_scheme = scheme.strip().lower() in _SECURE_PROTOCOLS
+    else:
+        secure_scheme = False
+    remote_api_addr = remote_api_addr[schemeIndex+1:(len(remote_api_addr) if pathIndex < 0 else pathIndex)].strip().lower()
+    # using localhost can cause significant slowdowns for the
+    # API proxy on Windows. cite: https://stackoverflow.com/a/75425128
+    if remote_api_addr.startswith("localhost:"):
+        remote_api_addr = remote_api_addr.replace("localhost", "127.0.0.1", 1)
+    return remote_api_addr, secure_scheme or remote_api_addr.split(":",1) == "443"
 
 
-def serve():
-    server = WSGIServer((HOST, PORT), app)
+def create_endpoint_proxy(addr:str, routes:list[str], bp:Blueprint, normal=True, socket=True, endpoint_name:str|None=None):
+    processed_api_addr, secure = process_remote_api(addr)
+
+    s = "s" * secure
+    proxy_host = f"http{s}://{processed_api_addr}/"
+    proxy_host_ws = f"ws{s}://{processed_api_addr}/"
+
+    if socket:
+        EXCLUDE_SOCK_HEADERS = {"host", "upgrade", "connection"}
+        def ws_proxy(ws:Server, path:str):
+            url = request.url.replace(request.host_url, proxy_host_ws, 1)
+            print("PROXY WS:", url)
+            def send_to_remote():
+                try:
+                    while ws.connected and client.keep_running: 
+                        msg = ws.receive()
+                        if msg is not None:
+                            client.send(msg, websocket.ABNF.OPCODE_BINARY if isinstance(msg, bytes) else websocket.ABNF.OPCODE_TEXT)
+                except KeyboardInterrupt:
+                    ws.close()
+                finally:
+                    client.close()
+            
+            send_thread = threading.Thread(target=send_to_remote, daemon=True)
+
+            def on_open(cws:websocket.WebSocket):
+                send_thread.start()
+
+            def on_message(cws:websocket.WebSocket, msg:str|bytearray|memoryview):
+                if isinstance(msg, memoryview):
+                    msg = msg.tobytes()
+                elif isinstance(msg, bytearray):
+                    msg = bytes(msg)
+                ws.send(msg)
+
+            def on_error(cws:websocket.WebSocket, e:Exception):
+                if isinstance(e, (ConnectionRefusedError, ConnectionClosed)):
+                    print(f"PROXY WS ERROR ({url}) {type(e).__name__}: {e}")
+                else:
+                    print(f"PROXY WS ERROR ({url}):")
+                    traceback.print_exception(e)
+
+            def on_close(cws:websocket.WebSocket, status_code, reason):
+                ws.close(status_code, reason)
+
+            client = websocket.WebSocketApp(
+                url=url,
+                header=[
+                    f"{k}: {v}" for k,v in request.headers.items()
+                    if (kl := k.lower()) not in EXCLUDE_SOCK_HEADERS and not kl.startswith("sec-websocket-")
+                ],
+                on_open=on_open,
+                on_message=on_message,
+                on_error=on_error,
+                on_close=on_close
+            )
+
+            client.run_forever()
+
+        if endpoint_name is not None:
+            ws_proxy.__name__ = endpoint_name
+
+        if routes:
+            for i in range(len(routes)-1, 0, -1):
+                ws_proxy = sock.route(routes[i], bp=bp)(ws_proxy)
+            ws_proxy = sock.route(routes[0], bp=bp, defaults={"path": ""})(ws_proxy)
+
+    if normal:
+        methods = ["GET", "HEAD", "POST", "PUT", "DELETE", "CONNECT", "OPTIONS", "TRACE", "PATCH"]
+        def normal_proxy(path:str):
+            url = request.url.replace(request.host_url, proxy_host, 1)
+            print("PROXY:", url)
+            resp = requests.request(
+                method=request.method,
+                url=url,
+                headers=proxy_headers(request.headers, ("host",)),
+                data=request.get_data(),
+                cookies=request.cookies,
+                allow_redirects=False,
+                stream=True
+            )
+            excluded_headers = {"content-encoding", "content-length", "transfer-encoding", "connection"}
+            headers = [(n, v) for n, v in resp.raw.headers.items() if n.lower() not in excluded_headers]
+            
+            return Response(stream_with_context(resp.iter_content(chunk_size=API_PROXY_BUFFER_SIZE)), resp.status_code, headers)
+        
+        if endpoint_name is not None:
+            normal_proxy.__name__ = endpoint_name
+
+        if routes:
+            for i in range(len(routes)-1, 0, -1):
+                normal_proxy = bp.route(routes[i], methods=methods)(normal_proxy)
+            normal_proxy = bp.route(routes[0], methods=methods, defaults={"path": ""})(normal_proxy)
+    
+def add_bp_if_new(t:Flask|Blueprint, bp:Blueprint):
+    if isinstance(t, Flask):
+        it = t.blueprints.values()
+    else:
+        it = (b for b, _ in t._blueprints)
+
+    for b in it:
+        if b == bp:
+            return False
+    t.register_blueprint(bp)
+    return True
+
+def create_component_proxy(address:str, dest:Flask|Blueprint, bpname:str, prefix:str|None=None, proxy_routes=["/", "/<path:path>"], normal:bool=True, socket:bool=True):
+    frame = inspect.currentframe()
+    iname = __name__
+    if frame is not None:
+        frame = frame.f_back
+        if frame is not None:
+            iname = frame.f_globals["__name__"]
+    vbp = Blueprint(bpname, iname, url_prefix=prefix)
+    create_endpoint_proxy(address, proxy_routes, vbp, normal=normal, socket=socket)
+    add_bp_if_new(dest, vbp)
+
+
+def attach_core(interface_mode:str, api_mode:str, tronix_mode:str, remote_api_addr:str|None=None):
+    global __remote_api_addr
+    __remote_api_addr = remote_api_addr
+    if interface_mode == plugins.COMPONENT_MODE_NORMAL:
+        app.register_blueprint(coreinterface)
+    elif interface_mode == plugins.COMPONENT_MODE_REMOTE:
+        create_component_proxy(remote_api_addr, app, "proxy_core_interface", socket=False)
+
+    if api_mode == plugins.COMPONENT_MODE_NORMAL:
+        if tronix_mode in (plugins.COMPONENT_MODE_NORMAL, plugins.COMPONENT_MODE_REMOTE):
+            coreapi.post("/action/script/run")(api_action_script_run)
+        api.register_blueprint(coreapi)
+    elif api_mode == plugins.COMPONENT_MODE_REMOTE:
+        vcoreapi = Blueprint("proxy_core_api", __name__)
+        for p in ["/configs", "/configs/meta", "/plugins/load", "/plugins/unload", "/events/dispatch"]:
+            create_endpoint_proxy(remote_api_addr, [p], vcoreapi, socket=False, endpoint_name=p[1:].replace("/", "_"))
+        create_endpoint_proxy(remote_api_addr, ["/events"], vcoreapi, normal=False, endpoint_name="events")
+        api.register_blueprint(vcoreapi)
+        #replace default_container.dispatch so that all events for the default event system get sent to the remote instance
+        def proxy_dispatch(*e:events.Event):
+            batch = [{"name":event.name, "data":event.data} for event in e]
+            r = requests.post(f"http{"s"*(__host_addr[1]==443)}://{__host_addr[0]}:{__host_addr[1]}/api/events/dispatch", data={"batch":json.dumps(batch)})
+            r.raise_for_status()
+        events.default_container.dispatch = proxy_dispatch
+
+
+def serve(host:str=HOST, port:int=PORT, pconfig_path:str=config.PLUGIN_FILE):
+    global __host_addr, __pconfig_path
+
+    __host_addr = host, port
+    __pconfig_path = pconfig_path
+
+    app.register_blueprint(api)
+    server = WSGIServer((host, port), app)
     server.serve_forever()

@@ -1,0 +1,44 @@
+.media-image {
+    max-height: 150px;
+    max-width: 150px;
+}
+
+.media-item {
+    display: flex;
+    align-items: center;
+}
+
+.media-item > * {
+    margin: 0 0.5rem;
+}
+
+.media-item > :first-child {
+    width: 100px;
+    margin-right: 1rem;
+}
+
+.media-item > :last-child {
+    margin-left: auto;
+}
+
+#media-upload > * {
+    margin: 0.5rem 0;
+}
+
+#upload-name {
+    margin-left: 1rem;
+}
+
+.delete-button {
+    border: none;
+    padding: 0.2rem 0.2rem 0.1rem 0.2rem;
+    border-radius: 15%;
+    
+}
+
+.delete-button > img {
+    width: 1.2rem;
+    height: 1.2rem;
+    filter: invert(1);
+    content: url(/static/pngbinds/img/trash.svg);
+}
