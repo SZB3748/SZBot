@@ -1,12 +1,15 @@
+import actions
 import aiohttp
 import argparse
 import asyncio
+import base64
 import command_triggers
 import config
 from datetime import datetime, timedelta
-import events
 import inspect
 import json
+import os
+import pickle
 import plugins
 import rewards
 from simple_websocket.errors import ConnectionClosed
@@ -15,6 +18,7 @@ import traceback
 from typing import Awaitable, Callable, Self
 import twitchio
 from twitchio.ext import commands
+import uuid
 import web
 import websocket
 
@@ -179,6 +183,7 @@ class Bot(commands.AutoBot):
         self.redeem_handlers:dict[rewards.RewardIdentifierKey, rewards.RedeemHandler] = {}
         self.subs = subs
         self.use_core_commands = use_core_commands
+        self._loop = None
 
     def add_command(self, command:command_triggers.CommandTrigger|commands.Command):
         if isinstance(command, command_triggers.CommandTrigger):
@@ -290,6 +295,7 @@ class Bot(commands.AutoBot):
         config.write(config_updates={"channels": channels}, path=config.OAUTH_TWITCH_FILE)
 
     async def event_ready(self):
+        self._loop = asyncio.get_running_loop()
         await bot.delete_all_eventsub_subscriptions()
         oauth = config.read(path=config.OAUTH_TWITCH_FILE)
         channels = oauth.get("channels",None)
@@ -498,29 +504,85 @@ def init_bot(old_bot:Bot|None=None):
     return bot
 
 
+_arl_tasks:dict[uuid.UUID, asyncio.Task] = {}
+_arl_tasks_lock = threading.Lock()
+
+async def _action_runner_local_task(ws:websocket.WebSocket, task_id:uuid.UUID, scripts:list[tuple[uuid.UUID, actions.tronix.Script, *tuple]]):
+    results = await actions.run_scripts(*scripts)
+    ws.send(json.dumps({
+        "instruction": "done",
+        "scripts": {
+            str(uid): success
+            for uid, success, *_ in results
+        }
+    }))
+    with _arl_tasks_lock:
+        _arl_tasks.pop(task_id,None)
+
 def ws_on_open(ws):
-    print("connected to events socket")
+    print("connected to script env switch")
 
 def ws_on_reconnect(ws):
-    print("reconnected to events socket")
+    print("reconnected to script env switch")
 
-def ws_on_message(ws, msg:str|bytearray|memoryview):
+def ws_on_message(ws:websocket.WebSocket, msg:str|bytearray|memoryview):
     if isinstance(msg, memoryview):
         msg = msg.tobytes()
-    print("events socket message:", msg)
     data = json.loads(msg)
-    event = events.Event(**data)
-    events.handle_event(event)
+    if not isinstance(data, dict):
+        return
+    instruction = data["instruction"]
+    if instruction == "run":
+        assert bot._loop is not None, "Twitchbot _loop was not set"
+        scripts = data.get("scripts",None)
+        if isinstance(scripts, list):
+            add_run = []
+            for sdata in scripts:
+                if not isinstance(sdata, dict):
+                    continue
+                env = sdata["env"]
+                if env is None:
+                    continue
+                elif env == actions.current_environment_name:
+                    script = sdata["script"]
+                    if isinstance(script, dict):
+                        uid = uuid.UUID(sdata["uid"])
+                        scope = pickle.loads(base64.b64decode(script["scope"]))
+                        s = tronix.Script(script["content"], scope)
+                        add_run.append((uid, s, env))
+                else:
+                    uid = uuid.UUID(sdata["uid"])
+                    script = sdata["script"]
+                    with actions._env_switch_queue_lock:
+                        q = actions._env_switch_queue.get(env,None)
+                        if q is None:
+                            actions._env_switch_queue[env] = q = []
+                        q.append((uid, env, script, actions._env_switch_done_entry())) #NOTE idk if i wanna be making a _env_switch_done_entry here
+            if add_run:
+                with _arl_tasks_lock:
+                    task_id = uuid.uuid4()
+                    _arl_tasks[task_id] = asyncio.ensure_future(_action_runner_local_task(ws, task_id, add_run), bot._loop)
+
+    elif instruction == "done":
+        scripts = data.get("scripts",None)
+        if isinstance(scripts, dict):
+            for id_s, success in scripts.items():
+                uid = uuid.UUID(id_s)
+                de = actions._env_switch_done.get(uid,None)
+                if de is not None:
+                    de.mark_done(bool(success))
+    elif instruction == "error":
+        ...
 
 def ws_on_error(ws, e:Exception):
     if isinstance(e, (ConnectionRefusedError, ConnectionClosed)):
-        print(f"events socket error ({type(e).__name__}):", e)
+        print(f"script env switch error ({type(e).__name__}):", e)
     else:
-        print(f"events socket error ({type(e).__name__}):")
+        print(f"script env switch error ({type(e).__name__}):")
         traceback.print_exception(e)
 
 def ws_on_close(ws, status_code, msg:str|bytearray|memoryview):
-    print("disconnected from events socket")
+    print("disconnected from script env switch")
 
 def ws_run():
     try:
@@ -532,6 +594,8 @@ async def main():
     await bot.start(load_tokens=False, save_tokens=False)
 
 if __name__ == "__main__":
+    actions.current_environment_name = actions.generate_environment_name("twitchbot")
+
     addr, config_path, pconfig_path, components = get_args()
     config.CONFIG_FILE = config_path
     define_endpoints(*addr)
@@ -549,7 +613,7 @@ if __name__ == "__main__":
         exit(-1)
 
     ws = websocket.WebSocketApp(
-        f"{API_WS_ENDPOINT}/events",
+        f"{API_WS_ENDPOINT}/api/actions/script/env-switch?name={actions.current_environment_name}",
         on_open=ws_on_open, on_message=ws_on_message,
         on_error=ws_on_error, on_close=ws_on_close,
         on_reconnect=ws_on_reconnect
@@ -571,24 +635,19 @@ if __name__ == "__main__":
 
     if components:
         commands_mode = components.get(plugins.TWITCHBOT_COMPONENT_COMMANDS, plugins.COMPONENT_MODE_NORMAL)
-        tronix_mode = components.get(plugins.TWITCHBOT_COMPONENT_TRONIX, plugins.COMPONENT_MODE_REMOTE)
+        tronix_mode = components.get(plugins.TWITCHBOT_COMPONENT_TRONIX, plugins.COMPONENT_MODE_NORMAL)
     else:
-        commands_mode = plugins.COMPONENT_MODE_NORMAL
-        tronix_mode = plugins.COMPONENT_MODE_REMOTE
+        commands_mode = tronix_mode = plugins.COMPONENT_MODE_NORMAL
     
     bot.use_core_commands = commands_mode == plugins.COMPONENT_MODE_NORMAL
 
+    assert tronix_mode != plugins.COMPONENT_MODE_REMOTE, "Twitchbot tronix has no remote mode."
     if tronix_mode == plugins.COMPONENT_MODE_NORMAL:
         print("loading script environment")
         import tronix.script_builtins, tronix_twitch_integrations
         tronix.script_builtins.activate()
         tronix_twitch_integrations.activate()
         print("loaded script environment")
-    elif tronix_mode == plugins.COMPONENT_MODE_REMOTE:
-        print("setting up proxy script environment")
-        import actions
-        actions.script_runner = web.ProxyScriptRunner(f"{addr[0]}:{addr[1]}", addr[1]==443)
-        print("set up proxy script environment")
 
     print("starting events socket connection")
     ws_thread = threading.Thread(target=ws_run)

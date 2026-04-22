@@ -1,6 +1,5 @@
 from . import exceptions
 import base64
-import datafile
 import json
 import os
 import pyaudio
@@ -9,7 +8,7 @@ import subprocess
 import sys
 import threading
 import traceback
-from typing import Any, Generator
+from typing import Generator
 from uuid import UUID, uuid4, uuid5
 
 DIR = os.path.dirname(__file__)
@@ -76,6 +75,16 @@ class Microphone:
             "frames_per_buffer": self.frames_per_buffer,
             "is_on": self.is_on
         }
+    
+    def __setstate__(self, d:dict[str]):
+        self.name = str(d["name"])
+        self.enabled = bool(d["enabled"])
+        format = d["format"]
+        self.format = _format_map[format] if isinstance(format, str) else int(format)
+        self.channels = int(d["channels"])
+        self.rate = int(d["rate"])
+        self.frames_per_buffer = int(d["frames_per_buffer"])
+        self.is_on = bool(d["is_on"])
 
 INST_STREAM_START   = "stream_start"
 INST_STREAM_STOP    = "stream_stop"
@@ -101,7 +110,6 @@ class MicrophoneHandler:
         default_info = pya.get_default_input_device_info()
         device_infos:dict[str,pyaudio._PaDeviceInfo] = {info["name"]:info for i in range(pya.get_device_count()) if (info:=pya.get_device_info_by_index(i)).get("maxInputChannels",0) > 0}
         names:dict[str, int] = {}
-        mics:list[Microphone] = []
         for entry in d:
             if "name" in entry:
                 name = entry["name"]
@@ -122,12 +130,8 @@ class MicrophoneHandler:
             channels = entry.get("channels", min(DEFAULT_MIC_CHANNELS, info["maxInputChannels"]))
             rate = entry.get("rate", DEFAULT_MIC_RATE)
             frames_per_buffer = entry.get("frames_per_buffer", DEFAULT_MIC_CHUNK)
-            names[name] = names.get(name, -1) + 1
-            mics.append(Microphone(name=name, enabled=enabled, format=format, channels=channels, rate=rate, frames_per_buffer=frames_per_buffer))
-        
-        for mic in mics:
-            self.mics[uuid5(NS_UUID, f"{mic.name}\n{names[mic.name]}")] = mic
-
+            names[name] = nameindex = names.get(name, -1) + 1
+            self.mics[uuid5(NS_UUID, f"{name}\n{nameindex}")] = Microphone(name=name, enabled=enabled, format=format, channels=channels, rate=rate, frames_per_buffer=frames_per_buffer)
 
     def start_stream(self, micid:UUID, mic:Microphone):
         self.proc.stdin.write(f"{json.dumps({"name":INST_STREAM_START, "data":{"id":str(micid), **mic.__getstate__()}})}\n")
@@ -180,8 +184,8 @@ class MicrophoneHandler:
         if not self.buckets:
             self.has_buckets.clear()
 
-    def add_mic(self, mic:Microphone, index:int=0):
-        id = uuid5(NS_UUID, f"{mic.name}\n{index}")
+    def add_mic(self, mic:Microphone, nameindex:int=0):
+        id = uuid5(NS_UUID, f"{mic.name}\n{nameindex}")
         self.mics[id] = mic
         if mic.enabled and self.do_handle:
             return self.start_stream(id, mic)

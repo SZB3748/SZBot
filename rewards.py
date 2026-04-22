@@ -86,12 +86,19 @@ class ActionRedeemHandler(RedeemHandler):
         action = actions.load_action_table().get(self.action_name, None)
         if action is None:
             ... #TODO exception unknown action
-        script_scope = {"twitch_context": script.ScriptVariable(utils.wrap_python_value(tti.BotScriptContext(bot, redeem_payload=payload)))}
+        script_scope = {}
         if self.action_mapping is not None:
             filled_values = self.action_mapping.fill_values(payload.user_input)
             script_scope.update(action.collect_script_values(filled_values))
         s = script.Script(action.script, script_scope)
-        return actions.script_runner.run_async(s)
+        if action.script_environment is None or actions.match_environment_name(action.script_environment, actions.current_environment_name):
+            s.scope.setdefault(tti.TWITCH_CONTEXT_VAR_NAME, script.ScriptVariable(utils.wrap_python_value(tti.BotScriptContext(bot, redeem_payload=payload))))
+            return actions.script_runner.run_async(s)
+        else:
+            uid, *_ = actions.enqueue_script(s, action.script_environment)
+            async def _wait():
+                await actions.wait_script_finish_async(uid)
+            return _wait()
     
 
 class CallbackRedeemHandler(RedeemHandler):

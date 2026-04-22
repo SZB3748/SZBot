@@ -11,14 +11,17 @@ from gevent.pywsgi import WSGIServer
 import inspect
 import json
 from markupsafe import Markup
+import os
 import pickle
 import plugins
 import requests
 from simple_websocket.errors import ConnectionClosed
 import threading
+import time
 import traceback
 import tronix
 from typing import Callable, Sequence
+import uuid
 import websocket
 from werkzeug.datastructures import Headers
 
@@ -90,7 +93,7 @@ def serve_when_loaded(loaded_callback:Callable[[], bool], unloaded_error_code:in
             elif unloaded_error_code:
                 abort(unloaded_error_code)
             else: # ==0
-                return "", 200
+                return "", 204
         wrapper.__name__ = f.__name__
         wrapper.__doc__ = f.__doc__
         return wrapper
@@ -179,16 +182,20 @@ def api_events_dispatch():
     if not isinstance(batch, list):
         return "", 422
     events.dispatch(*(events.Event(**data) for data in batch if isinstance(data, dict)))
-    return "", 200
+    return "", 204
 
 @coreapi.route("/configs", methods=["GET", "PUT"])
 def api_configs():
-    if request.method == "PUT":
+    if request.method == "HEAD":
+        return "", 204, {"MTIME":os.stat(config.CONFIG_FILE).st_mtime_ns}
+    elif request.method == "PUT":
         data = request.get_json()
         config.write(data, path=config.CONFIG_FILE)
-        return "", 200
+        return "", 204
     else:
-        return send_file(config.CONFIG_FILE)
+        r = send_file(config.CONFIG_FILE)
+        r.headers["MTIME"] = os.stat(config.CONFIG_FILE).st_mtime_ns
+        return r
 
 @coreapi.get("/configs/meta")
 def api_configs_meta():
@@ -211,7 +218,7 @@ def api_load_plugin():
     if plugin is None:
         return "", 404
     plugin.load(plugins.LoadEvent(plugins.shared_plugins_list, plugin, __pconfig_path, False, __host_addr, __remote_api_addr))
-    return "", 200
+    return "", 204
 
 @coreapi.post("/plugins/unload")
 def api_unload_plugin():
@@ -220,7 +227,7 @@ def api_unload_plugin():
     if plugin is None:
         return "", 404
     plugin.unload(plugins.UnloadEvent(plugins.shared_plugins_list, plugin, False, None))
-    return "", 200
+    return "", 204
 
 class proxy_headers:
     def __init__(self, base:Headers, exclude:Sequence[str], exclude_prefix:tuple[str, ...]=()):
@@ -239,7 +246,7 @@ class proxy_headers:
 def api_actions_script_check():
     help_text = actions.check_script(request.get_data(True))
     if help_text is None:
-        return "", 200
+        return "", 204
     else:
         return help_text, 200, {"Content-Type":"text/plain"}
 
@@ -261,13 +268,13 @@ def api_action_route():
             data.setdefault("requested_values", {})
         action.__setstate__(data)
         actions.save_action_table(table)
-        return "", 200
+        return "", 204
     elif request.method == "DELETE":
         table = actions.load_action_table()
         if name in table:
             del table[name]
             actions.save_action_table(table)
-        return "", 200
+        return "", 204
     else: #GET
         action = actions.load_action_table().get(name, None)
         if action is None:
@@ -307,6 +314,172 @@ def api_action_script_run():
     else:
         return "", 422
 
+
+def remote_api_script_env_handler():
+    import websocket
+
+    def ws_on_open(ws):
+        print("connected to script env switch")
+
+    def ws_on_reconnect(ws):
+        print("reconnected to script env switch")
+
+    def ws_on_message(ws, msg:str|bytearray|memoryview):
+        if isinstance(msg, memoryview):
+            msg = msg.tobytes()
+        data = json.loads(msg)
+        _handle_env_switch_instruction(data)
+
+    def ws_on_error(ws, e:Exception):
+        if isinstance(e, (ConnectionRefusedError, ConnectionClosed)):
+            print(f"script env switch error: ({type(e).__name__}):", e)
+        else:
+            print(f"script env switch error: error ({type(e).__name__}):")
+            traceback.print_exception(e)
+
+    def ws_on_close(ws, status_code, msg:str|bytearray|memoryview):
+        print("disconnected from script env switch")
+
+    wsa = websocket.WebSocketApp(
+        f"ws{"s"*(__host_addr[1]==443)}:{__host_addr[0]}:{__host_addr[1]}/api/action/script/env-switch",
+        on_open=ws_on_open, on_message=ws_on_message,
+        on_error=ws_on_error, on_close=ws_on_close,
+        on_reconnect=ws_on_reconnect
+    )
+    try:
+        wsa.run_forever(reconnect=5)
+    except KeyboardInterrupt:
+        pass
+
+_rapi_script_env_thread = threading.Thread(target=remote_api_script_env_handler, daemon=True)
+
+_arl_queue:list[tuple[uuid.UUID, tronix.Script, str]] = []
+_arl_queue_lock = threading.Lock()
+_arl_ready = asyncio.Event()
+
+_arl_done:dict[str,list[tuple[uuid.UUID, bool]]] = {}
+_arl_done_lock = threading.Lock()
+
+async def action_runner_local_loop():
+    while True:
+        await _arl_ready.wait()
+        with _arl_queue_lock:
+            queued = _arl_queue.copy()
+            _arl_queue.clear()
+            _arl_ready.clear()
+        results = await actions.run_scripts(*queued)
+        with _arl_done_lock:
+            for uid, success, env, *_ in results:
+                _arl_done[env] = (uid, success)
+
+def action_runner_local_handler():
+    loop = asyncio.new_event_loop()
+    loop.run_forever(action_runner_local_loop())
+
+_arl_thread = threading.Thread(target=action_runner_local_handler, daemon=True)
+def start_action_runner_local():
+    _arl_thread.start()
+    return _arl_thread
+
+def _handle_env_switch_instruction(data:dict[str]):
+    instruction = data["instruction"]
+    if instruction == "run":
+        scripts = data.get("scripts",None)
+        if isinstance(scripts, list):
+            add_run = []
+            for sdata in scripts:
+                if not isinstance(sdata, dict):
+                    continue
+                env = sdata["env"]
+                if env is None:
+                    continue
+                elif env == actions.current_environment_name:
+                    script = sdata["script"]
+                    if isinstance(script, dict):
+                        uid = uuid.UUID(sdata["uid"])
+                        scope = pickle.loads(base64.b64decode(script["scope"]))
+                        s = tronix.Script(script["content"], scope)
+                        add_run.append((uid, s, env))
+                else:
+                    uid = uuid.UUID(sdata["uid"])
+                    script = sdata["script"]
+                    with actions._env_switch_queue_lock:
+                        q = actions._env_switch_queue.get(env,None)
+                        if q is None:
+                            actions._env_switch_queue[env] = q = []
+                        q.append((uid, env, script, actions._env_switch_done_entry())) #NOTE idk if i wanna be making a _env_switch_done_entry here
+            if add_run:
+                with _arl_queue_lock:
+                    _arl_queue.extend(add_run)
+                    _arl_ready.set()
+    elif instruction == "done":
+        scripts = data.get("scripts",None)
+        if isinstance(scripts, dict):
+            for id_s, success in scripts.items():
+                uid = uuid.UUID(id_s)
+                de = actions._env_switch_done.get(uid,None)
+                if de is not None:
+                    de.mark_done(bool(success))
+    elif instruction == "error":
+        ...
+
+def sock_action_environment_switch(ws:Server):
+    environment_name = request.args["name"]
+    with actions._env_switch_queue_lock:
+        if environment_name not in actions._env_switch_queue:
+            actions._env_switch_queue[environment_name] = []
+    
+    try:
+        while ws.connected:
+            msg = ws.receive(0.001)
+            if isinstance(msg, (str, bytes)):
+                try:
+                    data = json.loads(msg)
+                except json.JSONDecodeError:
+                    print("pngbinds:\tapi /events message invalid json:", msg)
+                else:
+                    if isinstance(data, dict):
+                        try:
+                            _handle_env_switch_instruction(data)
+                        except Exception as e:
+                            traceback.print_exception(e)
+            with actions._env_switch_queue_lock:
+                q = actions._env_switch_queue.get(environment_name,None)
+                if q:
+                    ws.send(json.dumps({
+                        "instruction": "run",
+                        "scripts": [
+                            {
+                                "uid": str(uid),
+                                "env": env_name,
+                                "script": {
+                                    "content": s.raw,
+                                    "scope": _scope_to_b64(s.scope)
+                                } if isinstance(s, tronix.Script) else s
+                            } for uid, env_name, s, *_ in q
+                        ]
+                    }))
+                    q.clear()
+            with _arl_done_lock:
+                q = _arl_done.get(environment_name,None)
+                if q:
+                    ws.send(json.dumps({
+                        "instruction": "done",
+                        "scripts": {
+                            str(uid): success
+                            for uid, success in q
+                        }
+                    }))
+                    q.clear()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        if ws.connected:
+            ws.close()
+
+def _scope_to_b64(scope):
+    return base64.b64encode(pickle.dumps(scope)).decode("utf-8") if scope else None
+
 class ProxyScriptRunner(tronix.utils.ScriptRunner):
 
     @staticmethod
@@ -326,8 +499,11 @@ class ProxyScriptRunner(tronix.utils.ScriptRunner):
 
     def _prep_req(self, session:aiohttp.ClientSession|requests.Session, rtype:str, script:tronix.Script|str, force_parse:bool, force_compile:bool):
         if isinstance(script, tronix.Script):
-            scope_b = pickle.dumps(script.scope)
-            scope = base64.b64encode(scope_b).decode("utf-8") if script.scope else None
+            if script.scope:
+                scope_b = pickle.dumps(script.scope)
+                scope = base64.b64encode(scope_b).decode("utf-8")
+            else:
+                scope = scope_b = None
             h = script._hash
             script = script.raw
         else:
@@ -537,15 +713,22 @@ def attach_core(interface_mode:str, api_mode:str, tronix_mode:str, remote_api_ad
     elif interface_mode == plugins.COMPONENT_MODE_REMOTE:
         create_component_proxy(remote_api_addr, app, "proxy_core_interface", socket=False)
 
+    tronix_enabled = tronix_mode in (plugins.COMPONENT_MODE_NORMAL, plugins.COMPONENT_MODE_REMOTE)
+
     if api_mode == plugins.COMPONENT_MODE_NORMAL:
-        if tronix_mode in (plugins.COMPONENT_MODE_NORMAL, plugins.COMPONENT_MODE_REMOTE):
+        if tronix_enabled:
             coreapi.post("/action/script/run")(api_action_script_run)
+            sock.route("/acount/script/env-switch", bp=api)(sock_action_environment_switch)
+            _arl_thread.start()
         api.register_blueprint(coreapi)
     elif api_mode == plugins.COMPONENT_MODE_REMOTE:
         vcoreapi = Blueprint("proxy_core_api", __name__)
-        for p in ["/configs", "/configs/meta", "/plugins/load", "/plugins/unload", "/events/dispatch"]:
+        if tronix_enabled:
+            _arl_thread.start()
+            _rapi_script_env_thread.start()
+        for p in ["/configs", "/configs/meta", "/plugins/load", "/plugins/unload", "/events/dispatch", "/action/script/check", "/action/script/run", "/acount/script/env-switch/dispatch", "/action/list", "/action"]:
             create_endpoint_proxy(remote_api_addr, [p], vcoreapi, socket=False, endpoint_name=p[1:].replace("/", "_"))
-        create_endpoint_proxy(remote_api_addr, ["/events"], vcoreapi, normal=False, endpoint_name="events")
+        create_endpoint_proxy(remote_api_addr, ["/events", "/acount/script/env-switch"], vcoreapi, normal=False, endpoint_name="events")
         api.register_blueprint(vcoreapi)
         #replace default_container.dispatch so that all events for the default event system get sent to the remote instance
         def proxy_dispatch(*e:events.Event):

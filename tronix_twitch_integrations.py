@@ -70,6 +70,8 @@ async def _resolve_destuser(tctx:BotScriptContext, dest:ScriptVariable[str|int|t
 
 f_twitch_send_message = ScriptFunction()
 f_twitch_shoutout = ScriptFunction()
+f_twitch_timeout = ScriptFunction()
+f_twitch_ban = ScriptFunction()
 
 @f_twitch_send_message.overload(ScriptFunctionParam("msg", [builtins.String]), pass_ctx=True)
 async def twitch_send_message_autodest(ctx:script.ScriptContext, msg:ScriptVariable[str]):

@@ -2,8 +2,10 @@ from gevent import monkey
 
 monkey.patch_all() #must be called first
 
+import actions
 import argparse
 import config
+import os
 import plugins
 import traceback
 import twitch_reauth
@@ -92,9 +94,9 @@ def run(addr:tuple[str, int]=(web.HOST, web.PORT), remote_api_addr:str=None, pco
 
     if tronix_mode == plugins.COMPONENT_MODE_NORMAL:
         print("loading script environment")
-        import tronix.script_builtins, tronix_twitch_integrations
+        import tronix.script_builtins, tronix_integrations
         tronix.script_builtins.activate()
-        tronix_twitch_integrations.activate()
+        tronix_integrations.activate(api_mode, *web.process_remote_api(remote_api_addr))
         print("loaded script environment")
     elif tronix_mode == plugins.COMPONENT_MODE_REMOTE:
         print("setting up proxy script environment")
@@ -122,6 +124,7 @@ def run(addr:tuple[str, int]=(web.HOST, web.PORT), remote_api_addr:str=None, pco
     print("unloaded plugins")
 
 if __name__ == "__main__":
+    actions.current_environment_name = actions.generate_environment_name("main")
     oauth = config.read(path=config.OAUTH_TWITCH_FILE)
     identity = oauth.get("identity", None)
     if not (isinstance(identity, dict) and "Client-Id" in identity and "Client-Secret" in identity):

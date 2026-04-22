@@ -221,8 +221,9 @@ class ActionCommandTrigger(CommandTrigger):
         script_scope = {}
         if args and isinstance(args[0], commands.Context):
             ctx = args[0]
-            script_scope[tti.TWITCH_CONTEXT_VAR_NAME] = script.ScriptVariable(utils.wrap_python_value(tti.BotScriptContext(ctx.bot, command_ctx=ctx)))
             args = args[1:]
+        else:
+            ctx = None
 
         if len(args) == len(command.signature.params):
             filled_args = [t(arg) if isinstance(t, type) else arg for (_, t), arg in zip(command.signature.params, args)]
@@ -239,7 +240,16 @@ class ActionCommandTrigger(CommandTrigger):
         filled = self.action_mapping.fill_values({n:v for (n,_), v in zip(command.signature.params, filled_args)})
         script_scope.update(action.collect_script_values(filled))
         s = script.Script(action.script, script_scope)
-        return actions.script_runner.run_async(s)
+        
+        if action.script_environment is None or actions.match_environment_name(action.script_environment, actions.current_environment_name):
+            if ctx is not None:
+                script_scope.setdefault(tti.TWITCH_CONTEXT_VAR_NAME, script.ScriptVariable(utils.wrap_python_value(tti.BotScriptContext(ctx.bot, command_ctx=ctx))))
+            return actions.script_runner.run_async(s)
+        else:
+            uid, *_ = actions.enqueue_script(s, action.script_environment)
+            async def _wait():
+                await actions.wait_script_finish_async(uid)
+            return _wait()
     
     def to_twitch_command(self):
         command = load_commands().get(self.name, None)
