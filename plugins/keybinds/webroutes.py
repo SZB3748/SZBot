@@ -1,14 +1,11 @@
 from . import keybind, keybind_triggers
-import asyncio
+import actions
 import events
 from flask import Blueprint, Flask, render_template
 from flask_sock import Server
-import inspect
 import json
 import os
 import plugins
-import threading
-from uuid import UUID, uuid4
 from web import add_bp_if_new, serve_when_loaded, sock
 
 DIR = os.path.dirname(__file__)
@@ -24,42 +21,6 @@ keyevents = events.EventBucketContainer()
 keylisteners = events.EventListenerCollection()
 keys_buckets = events.EventBucketContainer()
 
-_run_trigger = True
-_run_trigger_loop = None
-_run_triggers_queue:list[keybind_triggers.KeyBindTrigger] = []
-_run_triggers_queue_lock = threading.Lock()
-_run_triggers_queue_ready = asyncio.Event()
-
-_run_triggers_futures:dict[UUID, asyncio.Future] = {}
-_run_triggers_futures_lock = asyncio.Lock()
-
-async def _run_triggers(id, triggers:list[keybind_triggers.KeyBindTrigger]):
-    try:
-        await asyncio.gather(*(c for kbt in triggers if inspect.isawaitable(c:=kbt.handle())))
-    finally:
-        async with _run_triggers_futures_lock:
-            _run_triggers_futures.pop(id,None)
-
-async def run_triggers_loop():
-    _loop = asyncio.get_running_loop()
-    while _run_trigger:
-        await _run_triggers_queue_ready.wait()
-        if not _run_trigger:
-            return
-        with _run_triggers_queue_lock:
-            triggers = _run_triggers_queue.copy()
-            _run_triggers_queue.clear()
-            _run_triggers_queue_ready.clear()
-        uid = uuid4()
-        async with _run_triggers_futures_lock:
-            _run_triggers_futures[uid] = asyncio.ensure_future(_run_triggers(uid, triggers), loop=_loop)
-
-def run_triggers_thread_handler():
-    global _run_trigger_loop
-    _run_triggers_queue_ready.clear()
-    _run_trigger_loop = loop = asyncio.new_event_loop()
-    loop.run_until_complete(run_triggers_loop())
-
 def send_keybinds(merged:dict[str,keybind_triggers.KeyBindTrigger]): #TODO keybinds type and serialization to tuple[str,int]
     binds = set()
     for t in merged.values():
@@ -73,17 +34,15 @@ def event_key_press(event:events.Event):
     mode = keybind.KeyBindMode(event.data["mode"])
     keys_buckets.dispatch(event)
     print("keybinds: press", keys, mode.name)
-    triggers:list[keybind_triggers.KeyBindTrigger] = []
+    triggers:list[tuple[keybind_triggers.KeyBindTrigger, tuple, dict]] = []
     for kbt in keybind_triggers.merge_keybind_triggers().values():
         if mode != kbt.kb.mode:
             continue
         onames = keybind.parse_keybind_string(kbt.kb.keys)
         if names == onames:
-            triggers.append(kbt)
+            triggers.append((kbt, (), {}))
     if triggers:
-        with _run_triggers_queue_lock:
-            _run_triggers_queue.extend(triggers)
-            _run_trigger_loop.call_soon_threadsafe(_run_triggers_queue_ready.set)
+        actions.enqueue_triggers(triggers)
 
 @keylisteners.listener("failed_keybinds")
 def event_keybind_fail(event:events.Event):

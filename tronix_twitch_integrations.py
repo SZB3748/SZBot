@@ -1,6 +1,6 @@
 from tronix import builtins, exceptions, script, utils
 from tronix.script import ScriptVariable
-from tronix.utils import ScriptFunction, ScriptFunctionParam
+from tronix.utils import ScriptFunction
 import twitchio
 from twitchio.ext import commands
 
@@ -24,6 +24,9 @@ class _RedeemContextType(script.ScriptDataType):
 class _TwitchUserType(script.ScriptDataType):
     ...
 
+class _TwitchMessageType(script.ScriptDataType):
+    ...
+
 class _TwitchContextType(script.ScriptDataType):
     def getattr(self, obj:script.ScriptValue[BotScriptContext], name:str):
         if name == "command":
@@ -42,6 +45,7 @@ class _TwitchContextType(script.ScriptDataType):
 
 
 TwitchUser = _TwitchUserType("TwitchUser", twitchio.PartialUser, script.BASE_TYPE)
+TwitchMessage = _TwitchMessageType("TwitchMessage", twitchio.ChatMessage, script.BASE_TYPE)
 CommandContext = _CommandContextType("CommandContext", commands.Context, script.BASE_TYPE)
 RedeemContext = _RedeemContextType("RedeemContext", twitchio.ChannelPointsRedemptionAdd, script.BASE_TYPE)
 TwitchContext = _TwitchContextType("TwitchContext", BotScriptContext, script.BASE_TYPE)
@@ -88,7 +92,6 @@ async def twitch_send_message_autodest(ctx:script.ScriptContext, msg:ScriptVaria
 
 @f_twitch_send_message.overload(("msg", builtins.String), ("dest", _UserUnion), pass_ctx=True)
 async def twitch_send_message_manualdest(ctx:script.ScriptContext, msg:ScriptVariable[str], dest:ScriptVariable[str|int|twitchio.PartialUser]):
-    print(msg, dest)
     tctx = _get_tctx(ctx)
     destuser = await _resolve_destuser(tctx, dest)
     if destuser is None:

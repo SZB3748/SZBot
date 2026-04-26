@@ -28,16 +28,16 @@ class KeyBindActionValueMapping(actions.ActionValueMapping):
         return {
             "trigger_name": self.trigger_name,
             "keybind_name": self.keybind_name,
-            "extra_data": self.extra_data
+            "extra_data": actions.extra_data_serialize(self.extra_data)
         }
     
     def __setstate__(self, d:dict[str]):
         self.trigger_name = str(d["trigger_name"])
         self.keybind_name = str(d["keybind_name"])
-        self.extra_data:dict[str] = d["extra_data"]
+        self.extra_data:dict[str] = actions.extra_data_deserialize(d["extra_data"])
 
 
-class KeyBindTrigger:
+class KeyBindTrigger(actions.Trigger):
     def __init__(self, name:str, kb:keybind.KeyBind):
         self.name = name
         self.kb = kb
@@ -66,7 +66,7 @@ class ActionKeyBindTrigger(KeyBindTrigger):
         else:
             uid, *_ = actions.enqueue_script(s, action.script_environment)
             async def _wait():
-                print(uid, "waiting")
+                print(uid, "waiting") #DEBUG
                 await actions.wait_script_finish_async(uid)
                 print(uid, "done waiting")
             return _wait()

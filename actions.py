@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 import datafile
+import inspect
 import json
 import os
 import threading
@@ -43,48 +44,9 @@ class ActionValueMapping:
     def __setstate__(self, d):
         raise NotImplementedError
 
-class CommandActionValueMapping(ActionValueMapping):
-    def __init__(self, parameter_to_requested_name:dict[str,str], extra_data:dict[str]):
-        self.name_map = parameter_to_requested_name
-        self.extra_data = extra_data
-    
-    def fill_values(self, args:dict[str]):
-        d = {self.name_map[k]:v for k,v in args.items()}
-        d.update(self.extra_data)
-        return d
-    
-    def __getstate__(self):
-        return {
-            "name_map": self.name_map,
-            "extra_data": self.extra_data
-        }
-    
-    def __setstate__(self, d:dict[str]):
-        self.name_map:dict[str,str] = d["name_map"]
-        self.extra_data:dict[str] = d["extra_data"]
-
-class RewardActionValueMapping(ActionValueMapping):
-    def __init__(self, input_name:str, extra_data:dict[str]):
-        self.input_name = input_name
-        self.extra_data = extra_data
-    
-    def fill_values(self, input):
-        rtv = self.extra_data.copy()
-        if input:
-            rtv[self.input_name] = input
-        elif self.input_name:
-            rtv.setdefault(self.input_name, "")
-        return rtv
-    
-    def __getstate__(self):
-        return {
-            "input_name": self.input_name,
-            "extra_data": self.extra_data #TODO everything in here needs to be serializable
-        }
-    
-    def __setstate__(self, d:dict[str]):
-        self.input_name:str = d["input_name"]
-        self.extra_data:dict[str] = d["extra_data"]
+class Trigger:
+    def handle(self, *args):
+        raise NotImplementedError
 
 class Action:
     def __init__(self, name:str, script:str, requested_values:dict[str, ActionRequestedValue]|None=None, script_environment:str|None=None):
@@ -120,10 +82,14 @@ class Action:
         for rv in self.requested_values.values():
             if rv.name in mapped_values:
                 value = mapped_values[rv.name]
+                if isinstance(value, tronix.script.ScriptValue):
+                    if issubclass(value.type.inner, rv.type):
+                        rtv[rv.name] = tronix.script.ScriptVariable(value)
+                        continue
                 if isinstance(value, rv.type):
                     rtv[rv.name] = tronix.script.ScriptVariable(tronix.script.wrap_python_value(value))
-                else:
-                    ... #TODO error type doesnt match
+                    continue
+                ... #TODO error type doesnt match
             elif rv.required:
                 ... #TODO error missing required value
         return rtv
@@ -284,3 +250,76 @@ def check_script(raw:str):
         script_runner._prep(raw)
     except tronix.exceptions.TronixException as e:
         return tronix.utils.generate_exception_help(raw, e)
+
+
+def extra_data_serialize(d:dict[str]):
+    sd = {}
+    for k,v in d.items():
+        value = tronix.script.wrap_python_value(v)
+        sd[k] = state = tronix.utils._serialized_value.serialize(value).__getstate__()
+        state["t"] = value.type.name
+    return sd
+
+def extra_data_deserialize(d:dict[str,dict[str]]):
+    dsd = {}
+    for k,v in d.items():
+        sv = tronix.utils._serialized_value.__new__(tronix.utils._serialized_value)
+        sv.__setstate__(v)
+        dt = tronix.script._map_name_to_type(sv.t)
+        if dt is None:
+            dsd[k] = sv.v
+        else:
+            sv.t = dt
+            dsd[k] = sv.deserialize()
+    return dsd
+
+_run_trigger = True
+_run_trigger_loop = None
+_run_triggers_queue:list[tuple[Trigger, tuple, dict]] = []
+_run_triggers_queue_lock = threading.Lock()
+_run_triggers_queue_ready = asyncio.Event()
+
+_run_triggers_futures:dict[UUID, asyncio.Future] = {}
+_run_triggers_futures_lock = asyncio.Lock()
+
+async def _run_triggers(id, triggers:list[tuple[Trigger, tuple, dict]]):
+    global _run_trigger
+    try:
+        await asyncio.gather(*(c for kbt in triggers if inspect.isawaitable(c:=kbt[0].handle(*kbt[1], **kbt[2]))))
+    except KeyboardInterrupt:
+        _run_trigger = False
+        async with _run_triggers_futures_lock:
+            _run_triggers_queue_ready.set()
+    finally:
+        async with _run_triggers_futures_lock:
+            _run_triggers_futures.pop(id,None)
+
+async def run_triggers_loop():
+    _loop = asyncio.get_running_loop()
+    while _run_trigger:
+        await _run_triggers_queue_ready.wait()
+        if not _run_trigger:
+            return
+        with _run_triggers_queue_lock:
+            triggers = _run_triggers_queue.copy()
+            _run_triggers_queue.clear()
+            _run_triggers_queue_ready.clear()
+        uid = uuid4()
+        async with _run_triggers_futures_lock:
+            _run_triggers_futures[uid] = asyncio.ensure_future(_run_triggers(uid, triggers), loop=_loop)
+
+def run_triggers_thread_handler():
+    global _run_trigger_loop
+    _run_triggers_queue_ready.clear()
+    _run_trigger_loop = loop = asyncio.new_event_loop()
+    loop.run_until_complete(run_triggers_loop())
+
+def stop_trigger_loop():
+    global _run_trigger
+    _run_trigger = False
+    _run_trigger_loop.call_soon_threadsafe(_run_triggers_queue_ready.set)
+
+def enqueue_triggers(triggers:list[tuple[Trigger, tuple, dict]]):
+    with _run_triggers_queue_lock:
+        _run_triggers_queue.extend(triggers)
+        _run_trigger_loop.call_soon_threadsafe(_run_triggers_queue_ready.set)

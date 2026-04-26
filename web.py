@@ -288,12 +288,8 @@ def api_action_script_run():
     
     scope_s = data.get("scope", None)
     if isinstance(scope_s, str):
-        scope = pickle.loads(base64.b64decode(scope_s.encode("utf-8")))
-        if isinstance(scope, dict):
-            for v in scope.values():
-                if isinstance(v, tronix.script.ScriptVariable):
-                    x = v.get()
-                    x.type = tronix.script.wrap_python_type(x.type.inner)
+        scope_ser = pickle.loads(base64.b64decode(scope_s.encode("utf-8")))
+        scope = tronix.utils.deserialize_namespace(scope_ser)
     else:
         scope = None
     script = tronix.Script(data["script"], scope)
@@ -305,16 +301,16 @@ def api_action_script_run():
             for result in riter:
                 if inspect.isawaitable(result):
                     result = asyncio.run(result)
-                r_b = pickle.dumps(result)
+                r_b = pickle.dumps(tronix.utils._serialized_value.serialize(result))
                 yield len(r_b).to_bytes(8, byteorder="big", signed=False)
                 yield r_b
-            scope_b = pickle.dumps(script.scope)
+            scope_b = pickle.dumps(tronix.utils.serialize_namespace(script.scope))
             yield len(scope_b).to_bytes(8, byteorder="big", signed=False)
             yield scope_b
         return gen
     elif rtype in ("run", "run_async"):
         asyncio.run(actions.script_runner.run_async(script, data["force_parse"], data["force_compile"]))
-        return pickle.dumps(script.scope), 200, {"Content-Type": "application/octet-stream"}
+        return pickle.dumps(tronix.utils.serialize_namespace(script.scope)), 200, {"Content-Type": "application/octet-stream"}
     else:
         return "", 422
 
@@ -416,7 +412,8 @@ def _handle_env_switch_instruction(data:dict[str]):
                     script = sdata["script"]
                     if isinstance(script, dict):
                         uid = uuid.UUID(sdata["uid"])
-                        scope = pickle.loads(base64.b64decode(script["scope"]))
+                        scope_ser = pickle.loads(base64.b64decode(script["scope"]))
+                        scope = tronix.utils.deserialize_namespace(scope_ser) if isinstance(scope_ser, dict) else scope_ser
                         s = tronix.Script(script["content"], scope)
                         add_run.append((uid, s, env))
                 else:
@@ -509,7 +506,7 @@ def sock_action_environment_switch(ws:Server):
         
 
 def _scope_to_b64(scope):
-    return base64.b64encode(pickle.dumps(scope)).decode("utf-8") if scope else None
+    return base64.b64encode(pickle.dumps(tronix.utils.serialize_namespace(scope))).decode("utf-8") if scope else None
 
 class ProxyScriptRunner(tronix.utils.ScriptRunner):
 
@@ -517,12 +514,8 @@ class ProxyScriptRunner(tronix.utils.ScriptRunner):
     def update_scope(runner:tronix.utils.ScriptRunner, script:tronix.Script):
         if isinstance(runner, ProxyScriptRunner) and script._hash in runner.scopes:
             scope_b = runner.scopes[script._hash]
-            scope = script.scope = pickle.loads(scope_b)
-            if isinstance(scope, dict):
-                for v in scope.values():
-                    if isinstance(v, tronix.script.ScriptVariable):
-                        x = v.get()
-                        x.type = tronix.script.wrap_python_type(x.type.inner)
+            scope_ser = pickle.loads(scope_b)
+            script.scope = tronix.utils.deserialize_namespace(scope_ser)
             return True
         return False
     
@@ -536,7 +529,7 @@ class ProxyScriptRunner(tronix.utils.ScriptRunner):
     def _prep_req(self, session:aiohttp.ClientSession|requests.Session, rtype:str, script:tronix.Script|str, force_parse:bool, force_compile:bool):
         if isinstance(script, tronix.Script):
             if script.scope:
-                scope_b = pickle.dumps(script.scope)
+                scope_b = pickle.dumps(tronix.utils.serialize_namespace(script.scope))
                 scope = base64.b64encode(scope_b).decode("utf-8")
             else:
                 scope = scope_b = None
@@ -572,7 +565,11 @@ class ProxyScriptRunner(tronix.utils.ScriptRunner):
             obj_b = r.raw.read(size)
             if not obj_b:
                 ... #TODO error
-            yield pickle.loads(obj_b)
+            x = pickle.loads(obj_b)
+            if isinstance(x, tronix.utils._serialized_value):
+                yield x.deserialize()
+            else:
+                yield x
         scopelen_b = r.raw.read(8)
         if not scopelen_b:
             return

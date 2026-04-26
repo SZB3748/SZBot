@@ -554,13 +554,12 @@ def ws_on_message(ws:websocket.WebSocket, msg:str|bytearray|memoryview):
                     script = sdata["script"]
                     if isinstance(script, dict):
                         uid = uuid.UUID(sdata["uid"])
-                        scope = pickle.loads(base64.b64decode(script["scope"]))
-                        if isinstance(scope, dict):
-                            for v in scope.values():
-                                if isinstance(v, tronix.script.ScriptVariable):
-                                    x = v.get()
-                                    x.type = tronix.script.wrap_python_type(x.type.inner)
+                        scope_ser = pickle.loads(base64.b64decode(script["scope"]))
+                        if isinstance(scope_ser, dict):
+                            scope = tronix.utils.deserialize_namespace(scope_ser)
                             scope.setdefault(tti.TWITCH_CONTEXT_VAR_NAME, tronix.script.ScriptVariable(tronix.utils.wrap_python_value(tti.BotScriptContext(bot))))
+                        else:
+                            scope = scope_ser
                         s = tronix.Script(script["content"], scope)
                         add_run.append((uid, s, env))
                 else:

@@ -50,9 +50,32 @@ class RewardIdentifier:
     def __setstate__(self, d:dict[str]):
         self.__dict__.update(d)
 
+class RewardActionValueMapping(actions.ActionValueMapping):
+    def __init__(self, input_name:str, extra_data:dict[str]):
+        self.input_name = input_name
+        self.extra_data = extra_data
+    
+    def fill_values(self, input):
+        rtv = self.extra_data.copy()
+        if input:
+            rtv[self.input_name] = input
+        elif self.input_name:
+            rtv.setdefault(self.input_name, "")
+        return rtv
+    
+    def __getstate__(self):
+        return {
+            "input_name": self.input_name,
+            "extra_data": actions.extra_data_serialize(self.extra_data)
+        }
+    
+    def __setstate__(self, d:dict[str]):
+        self.input_name:str = d["input_name"]
+        self.extra_data:dict[str] = actions.extra_data_deserialize(d["extra_data"])
+
 RewardIdentifierKey = RewardIdentifier|tuple[str,str]
 
-class RedeemHandler:
+class RedeemHandler(actions.Trigger):
     def __init__(self, identifier:RewardIdentifier):
         self.identifier = identifier
 
@@ -60,7 +83,7 @@ class RedeemHandler:
         raise NotImplementedError
     
 class ActionRedeemHandler(RedeemHandler):
-    def __init__(self, identifier:RewardIdentifier, action_name:str, action_mapping:actions.RewardActionValueMapping|None=None):
+    def __init__(self, identifier:RewardIdentifier, action_name:str, action_mapping:RewardActionValueMapping|None=None):
         super().__init__(identifier)
         self.action_name = action_name
         self.action_mapping = action_mapping
@@ -74,7 +97,7 @@ class ActionRedeemHandler(RedeemHandler):
     
     def __setstate__(self, d:dict[str]):
         identifier = RewardIdentifier.__new__(RewardIdentifier)
-        action_mapping = actions.RewardActionValueMapping.__new__(actions.RewardActionValueMapping)
+        action_mapping = RewardActionValueMapping.__new__(RewardActionValueMapping)
         identifier.__setstate__(d["identifier"])
         action_mapping.__setstate__(d["action_mapping"])
 

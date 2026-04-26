@@ -172,19 +172,36 @@ class Command:
         self.permissions = permissions
 
 
-class CommandTrigger:
+class CommandActionValueMapping(actions.ActionValueMapping):
+    def __init__(self, parameter_to_requested_name:dict[str,str], extra_data:dict[str]):
+        self.name_map = parameter_to_requested_name
+        self.extra_data = extra_data
+    
+    def fill_values(self, args:dict[str]):
+        d = {self.name_map[k]:v for k,v in args.items()}
+        d.update(self.extra_data)
+        return d
+    
+    def __getstate__(self):
+        return {
+            "name_map": self.name_map,
+            "extra_data": actions.extra_data_serialize(self.extra_data)
+        }
+    
+    def __setstate__(self, d:dict[str]):
+        self.name_map:dict[str,str] = d["name_map"]
+        self.extra_data:dict[str] = actions.extra_data_deserialize(d["extra_data"])
+
+class CommandTrigger(actions.Trigger):
     def __init__(self, name:str):
         self.name = name
-
-    def handle(self, *args):
-        raise NotImplementedError
     
     def to_twitch_command(self):
         raise NotImplementedError
 
 
 class ActionCommandTrigger(CommandTrigger):
-    def __init__(self, name:str, action_name:str, action_mapping:actions.CommandActionValueMapping):
+    def __init__(self, name:str, action_name:str, action_mapping:CommandActionValueMapping):
         super().__init__(name)
         self.action_name = action_name
         self.action_mapping = action_mapping
@@ -199,7 +216,7 @@ class ActionCommandTrigger(CommandTrigger):
     def __setstate__(self, d:dict[str]):
         self.name = str(d["name"])
         self.action_name = str(d["action_name"])
-        action_mapping = actions.CommandActionValueMapping.__new__(actions.CommandActionValueMapping)
+        action_mapping = CommandActionValueMapping.__new__(CommandActionValueMapping)
         action_mapping.__setstate__(d["action_mapping"])
         self.action_mapping = action_mapping
 

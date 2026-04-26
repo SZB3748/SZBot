@@ -10,6 +10,7 @@ import actions
 import argparse
 import config
 import plugins
+import threading
 import traceback
 import twitch_reauth
 import web
@@ -101,11 +102,18 @@ def run(addr:tuple[str, int]=(web.HOST, web.PORT), remote_api_addr:str=None, pco
         tronix.script_builtins.activate()
         tronix_integrations.activate(api_mode, *web.process_remote_api(remote_api_addr))
         print("loaded script environment")
+        trigger_runner_thread = threading.Thread(target=actions.run_triggers_thread_handler, daemon=True)
     elif tronix_mode == plugins.COMPONENT_MODE_REMOTE:
         print("setting up proxy script environment")
-        import actions
         actions.script_runner = web.ProxyScriptRunner(*web.process_remote_api(remote_api_addr))
         print("set up proxy script environment")
+        trigger_runner_thread = threading.Thread(target=actions.run_triggers_thread_handler, daemon=True)
+    else:
+        trigger_runner_thread = None
+
+    if trigger_runner_thread is not None:
+        print("starting trigger runner thread")
+        trigger_runner_thread.start()
         
 
     web.attach_core(interface_mode, api_mode, tronix_mode, remote_api_addr)
@@ -125,6 +133,9 @@ def run(addr:tuple[str, int]=(web.HOST, web.PORT), remote_api_addr:str=None, pco
         if plugin.module is not None:
             plugin.unload(plugins.UnloadEvent(plugin_list, plugin, True, e))
     print("unloaded plugins")
+
+    if trigger_runner_thread is not None:
+        actions.stop_trigger_loop()
 
 if __name__ == "__main__":
     actions.current_environment_name = actions.generate_environment_name("main")
