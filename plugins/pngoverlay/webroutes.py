@@ -4,7 +4,6 @@ import datafile
 from datetime import datetime, timedelta, timezone
 import events
 from flask import Blueprint, Flask, render_template, request, send_file
-from flask_sock import Server
 import json
 import os
 import plugins
@@ -29,9 +28,9 @@ nav_stack:statemapping.NavigatorStackFrame = None
 statemap:statemapping.StateMap = None
 event_negotiator:statemapping.EventNegotiator = None
 event_negotiator_thread:threading.Thread = None
-keyevents = events.EventBucketContainer()
-keylisteners = events.EventListenerCollection()
 last_statemap_send = datetime.now()
+
+keybinds_keylisteners:events.EventListenerCollection = None
 
 def _get_state_data(frame:statemapping.NavigatorStackFrame|None)->dict[str]:
     event = None if event_negotiator is None else event_negotiator.get_first_active()
@@ -66,51 +65,49 @@ def load_statemap():
             return statemapping.StateMap.load(f)
     return statemapping.StateMap()
 
-def send_statemap(statemap:statemapping.StateMapNavigator=None):
-    global last_statemap_send
-    now = datetime.now()
-    if (now - last_statemap_send) <= STATEMAP_SEND_COOLDOWN:
-        return
-    last_statemap_send = now
-    if statemap is None:
-        statemap = load_statemap()
-    keyevents.dispatch(events.Event("statemap_update", {"statemap": statemap.__getstate__()}))
+def listen_remote_events_keys(host:str, secure:bool):
+    from simple_websocket.errors import ConnectionClosed
+    import websocket
 
-@keylisteners.listener("stack_update")
-def event_stack_update(event:events.Event):
-    global nav_stack
-    frames = event.data["stack"]
-    statemap = load_statemap()
-    send_statemap(statemap)
-    stack:statemapping.NavigatorStackFrame = None
-    for statename in reversed(frames):
-        state = statemap.states.get(statename, None)
-        transitions = statemap.transitions.get(statename, [])
-        stack = statemapping.NavigatorStackFrame(state, transitions, stack)
-    changed = not (stack is None or nav_stack is None) and stack.state != nav_stack.state
-    nav_stack = stack
-    if changed:
-        if event_negotiator is not None:
-            event_negotiator.update_event_activity()
-        dispatch_state_change_event()
+    def ws_on_open(ws):
+        print("connected to keybinds keys")
 
-@keylisteners.listener("key_press")
-def event_key_press(event:events.Event):
-    if event_negotiator is None:
-        return
-    event_negotiator.last_keybind_trigger = datetime.now(timezone.utc)
-    hold_start = event.data.get("hold_start", None)
-    if isinstance(hold_start, bool):
-        event_negotiator.keybind_holding = hold_start
-    event_negotiator.update_event_activity()
+    def ws_on_reconnect(ws):
+        print("reconnected to keybinds keys")
 
-    
-pngbindspages_parent = Blueprint("pngbindsparent", __name__, static_folder=STATIC_DIR, static_url_path="/static/pngbinds")
-pngbindspages = Blueprint("pngbinds", __name__, url_prefix="/pngbinds", template_folder=TEMPATES_DIR)
-pngbindsoverlays = Blueprint("pngbindsoverlay", __name__, url_prefix="/pngbinds/overlay", template_folder=TEMPATES_DIR)
-pngbindsapi = Blueprint("pngbindsapi", __name__, url_prefix="/pngbinds")
+    def ws_on_message(ws, msg:str|bytearray|memoryview):
+        if isinstance(msg, memoryview):
+            msg = msg.tobytes()
+        data = json.loads(msg)
+        try:
+            data = json.loads(msg)
+        except json.JSONDecodeError:
+            print("pngoverlay:\t keybinds events message invalid json:", msg)
+        else:
+            if isinstance(data, dict) and isinstance((event_name := data.get("name", None)), str):
+                event = events.Event(event_name, data.get("data"))
+                keybinds_keylisteners.handle_event(event)
 
-@pngbindsapi.route("/statemap.json", methods=["GET", "PUT"])
+    def ws_on_error(ws, e:Exception):
+        if isinstance(e, (ConnectionRefusedError, ConnectionClosed)):
+            print(f"keybinds keys error: ({type(e).__name__}):", e)
+        else:
+            print(f"keybinds keys error: error ({type(e).__name__}):")
+            traceback.print_exception(e)
+
+    def ws_on_close(ws, status_code, msg:str|bytearray|memoryview):
+        print("disconnected from keybinds keys")
+
+    print("pngoverlay: connecting to remote keybinds keys")
+    wsa = websocket.WebSocketApp(f"ws{"s"*secure}://{host}/api/keybinds/events/keys",
+                                 )
+
+pngoverlaypages_parent = Blueprint("pngoverlayparent", __name__, static_folder=STATIC_DIR, static_url_path="/static/pngoverlay")
+pngoverlaypages = Blueprint("pngoverlay", __name__, url_prefix="/pngoverlay", template_folder=TEMPATES_DIR)
+pngoverlayoverlays = Blueprint("pngoverlayoverlays", __name__, url_prefix="/pngoverlay/overlay", template_folder=TEMPATES_DIR)
+pngoverlayapi = Blueprint("pngoverlayapi", __name__, url_prefix="/pngoverlay")
+
+@pngoverlayapi.route("/statemap.json", methods=["GET", "PUT"])
 @serve_when_loaded(web_loaded_callback)
 def statemap_file():
     if request.method == "PUT":
@@ -128,12 +125,12 @@ def statemap_file():
     else:
         return {}
 
-@pngbindsapi.get("/media/list")
+@pngoverlayapi.get("/media/list")
 @serve_when_loaded(web_loaded_callback)
 def get_media_list():
     return medialist.load_media_list()
 
-@pngbindsapi.route("/media/file/<name>", methods=["GET", "POST", "DELETE"])
+@pngoverlayapi.route("/media/file/<name>", methods=["GET", "POST", "DELETE"])
 @serve_when_loaded(web_loaded_callback)
 def get_media_file(name:str):
     if request.method == "POST":
@@ -188,7 +185,7 @@ def get_media_file(name:str):
                 return m["value"]
         return "", 404
     
-@pngbindsapi.route("/media/file/<name>/bounds", methods=["POST", "DELETE"])
+@pngoverlayapi.route("/media/file/<name>/bounds", methods=["POST", "DELETE"])
 def set_media_file_bounds(name:str):
     mlist = medialist.load_media_list()
     if name not in mlist:
@@ -214,73 +211,58 @@ def set_media_file_bounds(name:str):
         m.pop("bounds", None)
         medialist.save_media_list(mlist)
         return "", 200
-
-@sock.route("/events", bp=pngbindsapi)
-@serve_when_loaded(web_loaded_callback)
-def keybinds_events(ws:Server):
-    global statemap
-
-    if keyevents.buckets:
-        ws.close(418)
-        return #one connection at a time
-    bucket = keyevents.new_bucket()
-
-    statemap = load_statemap()
-    
-    #init event
-    ws.send(events.Event("nav_init", {
-        "statemap": statemap.__getstate__(),
-        "default_state": get_config_default_state(meta)
-    }).to_json())
-
-    try:
-        while ws.connected:
-            msg = ws.receive(0.001)
-            if isinstance(msg, (str, bytes)):
-                try:
-                    data = json.loads(msg)
-                except json.JSONDecodeError:
-                    print("pngbinds:\tapi /events message invalid json:", msg)
-                else:
-                    if isinstance(data, dict) and isinstance((event_name := data.get("name", None)), str):
-                        event = events.Event(event_name, data.get("data"))
-                        keylisteners.handle_event(event)
-            for event in bucket.dump():
-                ws.send(event.to_json())
-    except KeyboardInterrupt:
-        pass
-    finally:
-        if ws.connected:
-            ws.close()
-        keyevents.remove_bucket(bucket)
         
 
-@pngbindsapi.get("/state/current")
+@pngoverlayapi.get("/state/current")
 @serve_when_loaded(web_loaded_callback)
 def get_current_state():
     return _get_state_data(nav_stack)
 
-@pngbindspages.get("/")
+@pngoverlaypages.get("/")
 @serve_when_loaded(web_loaded_callback)
 def statemap_interface():
     return render_template("states.html")
 
-@pngbindsoverlays.get("/")
+@pngoverlayoverlays.get("/")
 @serve_when_loaded(web_loaded_callback)
 def get_overlay():
     return render_template("pngbinds_overlay.html")
 
-@pngbindspages.get("/media")
+@pngoverlaypages.get("/media")
 @serve_when_loaded(web_loaded_callback)
 def media_interface():
     return render_template("media.html")
 
 def add_routes(app:Flask, api:Blueprint, add_interface=True, add_overlay=True, add_api=True):
     if add_interface:
-        add_bp_if_new(pngbindspages_parent, pngbindspages)
+        add_bp_if_new(pngoverlaypages_parent, pngoverlaypages)
     if add_overlay:
-        add_bp_if_new(pngbindspages_parent, pngbindsoverlays)
+        add_bp_if_new(pngoverlaypages_parent, pngoverlayoverlays)
     if add_overlay or add_interface:
-        add_bp_if_new(app, pngbindspages_parent)
+        add_bp_if_new(app, pngoverlaypages_parent)
     if add_api:
-        add_bp_if_new(api, pngbindsapi)
+        add_bp_if_new(api, pngoverlayapi)
+
+def event_key_press(event:events.Event):
+    if event_negotiator is None:
+        return
+    event_negotiator.last_keybind_trigger = datetime.now(timezone.utc)
+    hold_start = event.data.get("hold_start", None)
+    if isinstance(hold_start, bool):
+        event_negotiator.keybind_holding = hold_start
+    event_negotiator.update_event_activity()
+
+
+def attach_listeners():
+    keybinds_keylisteners.add_listener("key_press", event_key_press)
+
+def remove_listeners():
+    kp = keybinds_keylisteners.listeners.get("key_press", None)
+    if kp is not None:
+        i = 0
+        while i < len(kp):
+            el = kp[i]
+            if el.callback is event_key_press:
+                del kp[i]
+            else:
+                i += 1

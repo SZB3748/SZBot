@@ -4,6 +4,7 @@ import datafile
 import json
 import os
 import threading
+import traceback
 import tronix
 from typing import Any
 from uuid import UUID, uuid4
@@ -128,20 +129,25 @@ class Action:
         return rtv
 
 class _env_switch_done_entry:
-    def __init__(self):
+    def __init__(self, loop:asyncio.AbstractEventLoop=None):
         self.aevent = asyncio.Event()
         self.tevent = threading.Event()
         self.success = None
+        self._loop = loop
     
     def mark_done(self, success:bool):
         self.success = success
-        self.aevent.set()
-        self.tevent.set()
+        if self._loop is None:
+            self.aevent.set()
+        else:
+            self._loop.call_soon_threadsafe(self.aevent.set)
 
     def wait(self, timeout:float|None=None):
         return self.tevent.wait(timeout=timeout)
 
-    async def wait_async(self, timeout:float|None=None):
+    async def wait_async(self, timeout:float|None=None, loop:asyncio.AbstractEventLoop=None):
+        if loop is not None:
+            self._loop = loop
         if timeout is None:
             return await self.aevent.wait()
         else:
@@ -157,15 +163,24 @@ def enqueue_script(s:tronix.Script, environment:str|None=None, uid:UUID|None=Non
     if uid is None:
         uid = uuid4()
     if environment is None:
+        assert isinstance(current_environment_name, str), "current_environment_name must be set"
         environment = current_environment_name
-        assert isinstance(environment, str), "current_environment_name must be set"
-    _env_switch_done[uid] = is_done = _env_switch_done_entry()
+    elif "@" not in environment:
+        evx = generate_environment_name(environment)
+        with _env_switch_queue_lock:
+            if evx in _env_switch_queue:
+                environment = evx
+            else:
+                for env in _env_switch_queue:
+                    if env.startswith(environment):
+                        environment = env
+                        break
+    is_done = _env_switch_done_entry()
     data = (uid, environment, s, is_done)
     with _env_switch_queue_lock:
         q = _env_switch_queue.get(environment,None)
-        if q is None:
-            _env_switch_queue[environment] = [data]
-        else:
+        if q is not None:
+            _env_switch_done[uid] = is_done
             q.append(data)
     return data
 
@@ -181,7 +196,9 @@ async def wait_script_finish_async(uid:UUID, timeout:float|None=None)->bool|None
     de = _env_switch_done.get(uid, None)
     if de is None:
         return None
-    if await de.wait(timeout=timeout):
+    if de._loop is None:
+        de._loop = asyncio.get_event_loop()
+    if await de.wait_async(timeout=timeout, loop=asyncio.get_running_loop()):
         del _env_switch_done[uid]
     return de.success
 
@@ -189,8 +206,12 @@ async def _run_script(uid:UUID, s:tronix.Script, *x):
     success = False
     try:
         await script_runner.run_async(s)
-    except:
-        ... #TODO handle exceptions
+    except Exception as e:
+        #TODO handle exceptions
+        traceback.print_exception(e)
+        import tronix.exceptions
+        if isinstance(e, tronix.exceptions.TExpectedEvaluable):
+            print(e.target)
     else:
         success = True
     return uid, success, *x

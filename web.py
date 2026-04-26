@@ -17,7 +17,6 @@ import plugins
 import requests
 from simple_websocket.errors import ConnectionClosed
 import threading
-import time
 import traceback
 import tronix
 from typing import Callable, Sequence
@@ -290,6 +289,11 @@ def api_action_script_run():
     scope_s = data.get("scope", None)
     if isinstance(scope_s, str):
         scope = pickle.loads(base64.b64decode(scope_s.encode("utf-8")))
+        if isinstance(scope, dict):
+            for v in scope.values():
+                if isinstance(v, tronix.script.ScriptVariable):
+                    x = v.get()
+                    x.type = tronix.script.wrap_python_type(x.type.inner)
     else:
         scope = None
     script = tronix.Script(data["script"], scope)
@@ -354,11 +358,25 @@ def remote_api_script_env_handler():
 _rapi_script_env_thread = threading.Thread(target=remote_api_script_env_handler, daemon=True)
 
 _arl_queue:list[tuple[uuid.UUID, tronix.Script, str]] = []
+_arl_loop = None
 _arl_queue_lock = threading.Lock()
 _arl_ready = asyncio.Event()
 
+_arl_futures:dict[uuid.UUID, asyncio.Future] = {}
+_arl_futures_lock = asyncio.Lock()
+
 _arl_done:dict[str,list[tuple[uuid.UUID, bool]]] = {}
 _arl_done_lock = threading.Lock()
+
+async def _arl_future(uid:uuid.UUID, queued:list[tuple[uuid.UUID, tronix.Script, str]]):
+    try:
+        results = await actions.run_scripts(*queued)
+        with _arl_done_lock:
+            for uid, success, env, *_ in results:
+                _arl_done[env] = (uid, success)
+    finally:
+        async with _arl_futures_lock:
+            _arl_futures.pop(uid, None)
 
 async def action_runner_local_loop():
     while True:
@@ -367,14 +385,14 @@ async def action_runner_local_loop():
             queued = _arl_queue.copy()
             _arl_queue.clear()
             _arl_ready.clear()
-        results = await actions.run_scripts(*queued)
-        with _arl_done_lock:
-            for uid, success, env, *_ in results:
-                _arl_done[env] = (uid, success)
+        uid = uuid.uuid4()
+        async with _arl_futures_lock:
+            _arl_futures[uid] = asyncio.ensure_future(_arl_future(uid, queued), loop=_arl_loop)
 
 def action_runner_local_handler():
-    loop = asyncio.new_event_loop()
-    loop.run_forever(action_runner_local_loop())
+    global _arl_loop
+    _arl_loop = loop = asyncio.new_event_loop()
+    loop.run_until_complete(action_runner_local_loop())
 
 _arl_thread = threading.Thread(target=action_runner_local_handler, daemon=True)
 def start_action_runner_local():
@@ -383,6 +401,7 @@ def start_action_runner_local():
 
 def _handle_env_switch_instruction(data:dict[str]):
     instruction = data["instruction"]
+    print("script env switch got instruction:", instruction)
     if instruction == "run":
         scripts = data.get("scripts",None)
         if isinstance(scripts, list):
@@ -407,11 +426,12 @@ def _handle_env_switch_instruction(data:dict[str]):
                         q = actions._env_switch_queue.get(env,None)
                         if q is None:
                             actions._env_switch_queue[env] = q = []
-                        q.append((uid, env, script, actions._env_switch_done_entry())) #NOTE idk if i wanna be making a _env_switch_done_entry here
+                        actions._env_switch_done[uid] = done_entry = actions._env_switch_done_entry(_arl_loop)
+                        q.append((uid, env, script, done_entry)) #NOTE idk if i wanna be making a _env_switch_done_entry here
             if add_run:
                 with _arl_queue_lock:
                     _arl_queue.extend(add_run)
-                    _arl_ready.set()
+                    _arl_loop.call_soon_threadsafe(_arl_ready.set)
     elif instruction == "done":
         scripts = data.get("scripts",None)
         if isinstance(scripts, dict):
@@ -426,9 +446,13 @@ def _handle_env_switch_instruction(data:dict[str]):
 def sock_action_environment_switch(ws:Server):
     environment_name = request.args["name"]
     with actions._env_switch_queue_lock:
-        if environment_name not in actions._env_switch_queue:
-            actions._env_switch_queue[environment_name] = []
-    
+        if environment_name in actions._env_switch_queue:
+            ws.close(4422, f"environment name already in use: {environment_name}")
+            return
+        _esq = actions._env_switch_queue[environment_name] = []
+    with _arl_done_lock:
+        _arldq = _arl_done[environment_name] = []
+    print("script environment", environment_name, "connected to the switch")
     try:
         while ws.connected:
             msg = ws.receive(0.001)
@@ -436,46 +460,53 @@ def sock_action_environment_switch(ws:Server):
                 try:
                     data = json.loads(msg)
                 except json.JSONDecodeError:
-                    print("pngbinds:\tapi /events message invalid json:", msg)
+                    print("script env switch:\tmessage invalid json:", msg)
                 else:
                     if isinstance(data, dict):
                         try:
                             _handle_env_switch_instruction(data)
                         except Exception as e:
                             traceback.print_exception(e)
-            with actions._env_switch_queue_lock:
-                q = actions._env_switch_queue.get(environment_name,None)
-                if q:
-                    ws.send(json.dumps({
-                        "instruction": "run",
-                        "scripts": [
-                            {
-                                "uid": str(uid),
-                                "env": env_name,
-                                "script": {
-                                    "content": s.raw,
-                                    "scope": _scope_to_b64(s.scope)
-                                } if isinstance(s, tronix.Script) else s
-                            } for uid, env_name, s, *_ in q
-                        ]
-                    }))
-                    q.clear()
-            with _arl_done_lock:
-                q = _arl_done.get(environment_name,None)
-                if q:
-                    ws.send(json.dumps({
-                        "instruction": "done",
-                        "scripts": {
-                            str(uid): success
-                            for uid, success in q
-                        }
-                    }))
-                    q.clear()
+            if _esq:
+                with actions._env_switch_queue_lock:
+                    _esq = q = actions._env_switch_queue.get(environment_name,None)
+                    if q:
+                        ws.send(json.dumps({
+                            "instruction": "run",
+                            "scripts": [
+                                {
+                                    "uid": str(uid),
+                                    "env": env_name,
+                                    "script": {
+                                        "content": s.raw,
+                                        "scope": _scope_to_b64(s.scope)
+                                    } if isinstance(s, tronix.Script) else s
+                                } for uid, env_name, s, *_ in q
+                            ]
+                        }))
+                        q.clear()
+            if _arldq:
+                with _arl_done_lock:
+                    _arldq = q = _arl_done.get(environment_name,None)
+                    if q:
+                        ws.send(json.dumps({
+                            "instruction": "done",
+                            "scripts": {
+                                str(uid): success
+                                for uid, success in q
+                            }
+                        }))
+                        q.clear()
     except KeyboardInterrupt:
         pass
     finally:
         if ws.connected:
             ws.close()
+        with actions._env_switch_queue_lock:
+            actions._env_switch_queue.pop(environment_name,None)
+        with _arl_done_lock:
+            _arl_done.pop(environment_name,None)
+        
 
 def _scope_to_b64(scope):
     return base64.b64encode(pickle.dumps(scope)).decode("utf-8") if scope else None
@@ -486,7 +517,12 @@ class ProxyScriptRunner(tronix.utils.ScriptRunner):
     def update_scope(runner:tronix.utils.ScriptRunner, script:tronix.Script):
         if isinstance(runner, ProxyScriptRunner) and script._hash in runner.scopes:
             scope_b = runner.scopes[script._hash]
-            script.scope = pickle.loads(scope_b)
+            scope = script.scope = pickle.loads(scope_b)
+            if isinstance(scope, dict):
+                for v in scope.values():
+                    if isinstance(v, tronix.script.ScriptVariable):
+                        x = v.get()
+                        x.type = tronix.script.wrap_python_type(x.type.inner)
             return True
         return False
     
@@ -718,17 +754,15 @@ def attach_core(interface_mode:str, api_mode:str, tronix_mode:str, remote_api_ad
     if api_mode == plugins.COMPONENT_MODE_NORMAL:
         if tronix_enabled:
             coreapi.post("/action/script/run")(api_action_script_run)
-            sock.route("/acount/script/env-switch", bp=api)(sock_action_environment_switch)
-            _arl_thread.start()
+            sock.route("/action/script/env-switch", bp=api)(sock_action_environment_switch)
         api.register_blueprint(coreapi)
     elif api_mode == plugins.COMPONENT_MODE_REMOTE:
         vcoreapi = Blueprint("proxy_core_api", __name__)
         if tronix_enabled:
-            _arl_thread.start()
             _rapi_script_env_thread.start()
-        for p in ["/configs", "/configs/meta", "/plugins/load", "/plugins/unload", "/events/dispatch", "/action/script/check", "/action/script/run", "/acount/script/env-switch/dispatch", "/action/list", "/action"]:
+        for p in ["/configs", "/configs/meta", "/plugins/load", "/plugins/unload", "/events/dispatch", "/action/script/check", "/action/script/run", "/action/list", "/action"]:
             create_endpoint_proxy(remote_api_addr, [p], vcoreapi, socket=False, endpoint_name=p[1:].replace("/", "_"))
-        create_endpoint_proxy(remote_api_addr, ["/events", "/acount/script/env-switch"], vcoreapi, normal=False, endpoint_name="events")
+        create_endpoint_proxy(remote_api_addr, ["/events", "/account/script/env-switch"], vcoreapi, normal=False, endpoint_name="events")
         api.register_blueprint(vcoreapi)
         #replace default_container.dispatch so that all events for the default event system get sent to the remote instance
         def proxy_dispatch(*e:events.Event):

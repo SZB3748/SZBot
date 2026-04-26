@@ -1,10 +1,10 @@
 {
-    "name": "PNG Binds",
-    "description": "Creates an overlay which displays different images, and allows for transitions between these images when set keybinds are pressed.",
+    "name": "PNG Ovelray",
+    "description": "Creates an overlay which displays different images, and allows for transitions between these images when actions or conditions are triggered.",
     "configs": {
-        "PNG-Binds": {
-            "name": "PNG Binds Configs",
-            "description": "Collection of configurations for the PNG Binds plugin.",
+        "PNG-Overlay": {
+            "name": "PNG Overlay Configs",
+            "description": "Collection of configurations for the PNG Ovelray plugin.",
             "types": {
                 "object": {
                     "fields": {
@@ -29,7 +29,6 @@
         "interface": ["normal", "remote", null],
         "overlay": ["normal", "remote", null],
         "api": ["normal", "remote", null],
-        "listener": ["normal", "remote", null],
         "events": ["normal", null]
     }
 }

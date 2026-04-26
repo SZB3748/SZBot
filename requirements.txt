@@ -1,4 +1,5 @@
 aiohttp
+asyncio-gevent
 #audioop-lts #uncomment for 3.13+
 Flask
 flask-sock

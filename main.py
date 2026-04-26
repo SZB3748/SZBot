@@ -2,10 +2,13 @@ from gevent import monkey
 
 monkey.patch_all() #must be called first
 
+import asyncio
+import asyncio_gevent
+asyncio.set_event_loop_policy(asyncio_gevent.EventLoopPolicy())
+
 import actions
 import argparse
 import config
-import os
 import plugins
 import traceback
 import twitch_reauth

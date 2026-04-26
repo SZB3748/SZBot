@@ -2,7 +2,7 @@ from . import handler, webroutes
 import aiohttp
 import plugins
 from tronix import builtins, exceptions, script, utils
-from tronix.utils import ScriptFunction, ScriptFunctionParam
+from tronix.utils import ScriptFunction
 from uuid import UUID
 
 _MicrophoneType_attrs = {"name","enabled","format","channels","rate","frames_per_buffer","is_on"}
@@ -51,7 +51,7 @@ async def remote_microphone_list(ctx:script.ScriptContext):
             m.__setstate__(v)
     return script.ScriptValue(builtins.Map_readonly, rod)
 
-@local_f_microphone_fetch.overload(ScriptFunctionParam("id", [builtins.String, builtins.UUID]))
+@local_f_microphone_fetch.overload(("id", [builtins.String, builtins.UUID]))
 def local_microphone_fetch(id:script.ScriptVariable[str|UUID]):
     mid_s = id.get().inner
     if isinstance(mid_s, str):
@@ -66,7 +66,7 @@ def local_microphone_fetch(id:script.ScriptVariable[str|UUID]):
         return builtins.null
     return script.ScriptValue(Microphone, mic)
 
-@remote_f_microphone_fetch.overload(ScriptFunctionParam("id", [builtins.String, builtins.UUID]))
+@remote_f_microphone_fetch.overload(("id", [builtins.String, builtins.UUID]))
 async def remote_microphone_fetch(id:script.ScriptVariable[str|UUID]):
     mid_s = id.get().inner
     if isinstance(mid_s, str):

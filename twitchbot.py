@@ -15,9 +15,11 @@ import rewards
 from simple_websocket.errors import ConnectionClosed
 import threading
 import traceback
-from typing import Awaitable, Callable, Self
+import tronix
+import tronix_twitch_integrations as tti
 import twitchio
 from twitchio.ext import commands
+from typing import Awaitable, Callable, Self
 import uuid
 import web
 import websocket
@@ -326,6 +328,7 @@ class Bot(commands.AutoBot):
             await payload.context.send("Bad command usage. Use !help <command_name> to view command usage details.")
             print("command error:", type(payload.exception).__name__, payload.exception)
         else:
+            print("command error:")
             traceback.print_exception(payload.exception)
 
     async def event_custom_redemption_add(self, payload:twitchio.ChannelPointsRedemptionAdd):
@@ -504,23 +507,26 @@ def init_bot(old_bot:Bot|None=None):
     return bot
 
 
-_arl_tasks:dict[uuid.UUID, asyncio.Task] = {}
-_arl_tasks_lock = threading.Lock()
+_arl_futures:dict[uuid.UUID, asyncio.Future] = {}
+_arl_futures_lock = threading.Lock()
 
-async def _action_runner_local_task(ws:websocket.WebSocket, task_id:uuid.UUID, scripts:list[tuple[uuid.UUID, actions.tronix.Script, *tuple]]):
-    results = await actions.run_scripts(*scripts)
-    ws.send(json.dumps({
-        "instruction": "done",
-        "scripts": {
-            str(uid): success
-            for uid, success, *_ in results
-        }
-    }))
-    with _arl_tasks_lock:
-        _arl_tasks.pop(task_id,None)
+async def _action_runner_local_task(ws:websocket.WebSocket, task_id:uuid.UUID, scripts:list[tuple[uuid.UUID, actions.tronix.Script]]):
+    try:
+        results = await actions.run_scripts(*scripts)
+        print(f"script env switch: finished running scripts: {", ".join(str(uid) for uid, *_ in results)}")
+        ws.send(json.dumps({
+            "instruction": "done",
+            "scripts": {
+                str(uid): success
+                for uid, success, *_ in results
+            }
+        }))
+    finally:
+        with _arl_futures_lock:
+            _arl_futures.pop(task_id,None)
 
 def ws_on_open(ws):
-    print("connected to script env switch")
+    print("connected to script env switch as", actions.current_environment_name)
 
 def ws_on_reconnect(ws):
     print("reconnected to script env switch")
@@ -532,6 +538,7 @@ def ws_on_message(ws:websocket.WebSocket, msg:str|bytearray|memoryview):
     if not isinstance(data, dict):
         return
     instruction = data["instruction"]
+    print("script env switch got instruction:", instruction)
     if instruction == "run":
         assert bot._loop is not None, "Twitchbot _loop was not set"
         scripts = data.get("scripts",None)
@@ -548,6 +555,12 @@ def ws_on_message(ws:websocket.WebSocket, msg:str|bytearray|memoryview):
                     if isinstance(script, dict):
                         uid = uuid.UUID(sdata["uid"])
                         scope = pickle.loads(base64.b64decode(script["scope"]))
+                        if isinstance(scope, dict):
+                            for v in scope.values():
+                                if isinstance(v, tronix.script.ScriptVariable):
+                                    x = v.get()
+                                    x.type = tronix.script.wrap_python_type(x.type.inner)
+                            scope.setdefault(tti.TWITCH_CONTEXT_VAR_NAME, tronix.script.ScriptVariable(tronix.utils.wrap_python_value(tti.BotScriptContext(bot))))
                         s = tronix.Script(script["content"], scope)
                         add_run.append((uid, s, env))
                 else:
@@ -557,12 +570,12 @@ def ws_on_message(ws:websocket.WebSocket, msg:str|bytearray|memoryview):
                         q = actions._env_switch_queue.get(env,None)
                         if q is None:
                             actions._env_switch_queue[env] = q = []
-                        q.append((uid, env, script, actions._env_switch_done_entry())) #NOTE idk if i wanna be making a _env_switch_done_entry here
+                        q.append((uid, env, script, actions._env_switch_done_entry(bot._loop))) #NOTE idk if i wanna be making a _env_switch_done_entry here
             if add_run:
-                with _arl_tasks_lock:
-                    task_id = uuid.uuid4()
-                    _arl_tasks[task_id] = asyncio.ensure_future(_action_runner_local_task(ws, task_id, add_run), bot._loop)
-
+                print(f"script env switch: running scripts: {", ".join(str(uid) for uid, *_ in add_run)}")
+                task_id = uuid.uuid4()
+                with _arl_futures_lock:
+                    _arl_futures[task_id] = asyncio.run_coroutine_threadsafe(_action_runner_local_task(ws, task_id, add_run), loop=bot._loop)
     elif instruction == "done":
         scripts = data.get("scripts",None)
         if isinstance(scripts, dict):
@@ -613,7 +626,7 @@ if __name__ == "__main__":
         exit(-1)
 
     ws = websocket.WebSocketApp(
-        f"{API_WS_ENDPOINT}/api/actions/script/env-switch?name={actions.current_environment_name}",
+        f"{API_WS_ENDPOINT}/action/script/env-switch?name={actions.current_environment_name}",
         on_open=ws_on_open, on_message=ws_on_message,
         on_error=ws_on_error, on_close=ws_on_close,
         on_reconnect=ws_on_reconnect
@@ -644,14 +657,14 @@ if __name__ == "__main__":
     assert tronix_mode != plugins.COMPONENT_MODE_REMOTE, "Twitchbot tronix has no remote mode."
     if tronix_mode == plugins.COMPONENT_MODE_NORMAL:
         print("loading script environment")
-        import tronix.script_builtins, tronix_twitch_integrations
+        import tronix.script_builtins
         tronix.script_builtins.activate()
-        tronix_twitch_integrations.activate()
+        tti.activate()
         print("loaded script environment")
 
-    print("starting events socket connection")
-    ws_thread = threading.Thread(target=ws_run)
-    ws_thread.start()
+        print("starting script env switch connection")
+        ws_thread = threading.Thread(target=ws_run)
+        ws_thread.start()
 
     e = None
     try:
@@ -668,5 +681,6 @@ if __name__ == "__main__":
             plugin.twitch_bot_unload(plugins.TwitchBotUnloadEvent(plugin_list, plugin, True, e))
     print("unloaded plugins")
 
-    ws.close()
-    ws_thread.join()
+    if ws_thread.is_alive():
+        ws.close()
+        ws_thread.join()

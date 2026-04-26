@@ -271,6 +271,10 @@ class LoadEvent(EventCallbackContext):
 
     def handle(self, plugin:Plugin):
         return plugin.load(self)
+    
+    def raise_if_no_remote(self):
+        if self.remote_api_addr is None:
+            ... #TODO exception
 
 @dataclass
 class UnloadEvent(EventCallbackContext):

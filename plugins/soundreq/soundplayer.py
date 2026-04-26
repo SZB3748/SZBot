@@ -1,5 +1,6 @@
 import json
 import requests
+from simple_websocket.errors import ConnectionClosed
 import time
 import traceback
 import vlc
@@ -77,13 +78,17 @@ class SoundRequestPlayer:
             self.on_play_sound(event)
 
     def ws_on_error(self, ws:websocket.WebSocket, e:Exception):
-        traceback.print_exception(e)
+        if isinstance(e, (ConnectionRefusedError, ConnectionClosed)):
+            print(f"soundplayer: api /events error: ({type(e).__name__}):", e)
+        else:
+            print(f"soundplayer: api /events error: error ({type(e).__name__}):")
+            traceback.print_exception(e)
 
     def start(self):
         s = "s"*self.api_secure
         self.wsa = websocket.WebSocketApp(f"ws{s}://{self.api_url_host}/api/events", on_open=self.ws_on_open, on_close=self.ws_on_close, on_message=self.ws_on_message, on_error=self.ws_on_error)
         try:
-            self.wsa.run_forever()
+            self.wsa.run_forever(reconnect=5)
         except KeyboardInterrupt:
             pass
 

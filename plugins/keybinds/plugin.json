@@ -1,0 +1,9 @@
+{
+    "name": "Keybinds",
+    "description": "Adds an action trigger for keybinds: runs the specified action when a given set of keys is pressed.",
+    "components": {
+        "interface": ["normal", "remote", null],
+        "api": ["normal", "remote", null],
+        "listener": ["normal", "remote", null]
+    }
+}

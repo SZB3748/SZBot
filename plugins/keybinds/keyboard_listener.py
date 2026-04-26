@@ -1,17 +1,11 @@
 from datetime import datetime, timezone
 import json
+import keybind
 import pynput
-import re
-import statemapping
 import sys
 import threading
-import time
-from typing import Callable
 from uuid import UUID, uuid4
 import websocket
-
-KEYBIND_PATTERN = re.compile(r"[ ]*((?:(?:[',\-./0-9;=A-Z\[\\\]`a-z][ ',\-./0-9;=A-Z\[\\\]`a-z]*|\([ ]*[',\-./0-9;=A-Z\[\\\]`a-z][ ',\-./0-9;=A-Z\[\\\]`a-z]*\)[ ]*)|(?:\([ ]*[',\-./0-9;=A-Z\[\\\]`a-z][ ',\-./0-9;=A-Z\[\\\]`a-z]*(?:\+[ ]*[',\-./0-9;=A-Z\[\\\]`a-z][ ',\-./0-9;=A-Z\[\\\]`a-z]*)\)[ ]*))(?:\+[ ]*(?:(?:[',\-./0-9;=A-Z\[\\\]`a-z][ ',\-./0-9;=A-Z\[\\\]`a-z]*|\([ ]*[',\-./0-9;=A-Z\[\\\]`a-z][ ',\-./0-9;=A-Z\[\\\]`a-z]*\)[ ]*)|(?:\([ ]*[',\-./0-9;=A-Z\[\\\]`a-z][ ',\-./0-9;=A-Z\[\\\]`a-z]*(?:\+[ ]*[',\-./0-9;=A-Z\[\\\]`a-z][ ',\-./0-9;=A-Z\[\\\]`a-z]*)\)[ ]*)))*)(?:\+[ ]*)*")
-KEYBIND_SPLIT_PATTERN = re.compile(r"\+(?![^()]*\))")
 
 _PYNPUT_KEY_NAMES = {
     "alt": pynput.keyboard.Key.alt,
@@ -448,29 +442,13 @@ _PYNPUT_KEY_NAMES = {
 AnyKey = pynput.keyboard.Key|pynput.keyboard.KeyCode
 Keybind = list[list[AnyKey]]
 
-def parse_keybind_string(s:str)->Keybind|None:
-    pth_c = 0
-    for c in s:
-        if c == "(":
-            pth_c += 1
-        elif c == ")":
-            pth_c -= 1
-            if pth_c < 0:
-                return None #unmatched )
-    if pth_c > 0:
-        return None #unmatched (
-    
-    m = KEYBIND_PATTERN.match(s)
-    if m is None:
+def map_keynames(namelist:keybind.KeyNames)->Keybind|None:
+    if namelist is None:
         return None
-    g1 = m.group(1)
-    if not isinstance(g1, str):
-        return None
-    
-    rtv:Keybind = []
-    for group in KEYBIND_SPLIT_PATTERN.split(g1):
+    rtv = []
+    for group in namelist:
         order = []
-        for name in (name.strip() for name in group.strip(" ()").split("+")):
+        for name in group:
             key = _PYNPUT_KEY_NAMES.get(name,None)
             if key is None:
                 if len(name) > 1:
@@ -482,130 +460,59 @@ def parse_keybind_string(s:str)->Keybind|None:
             rtv.append(order)
     return rtv
 
-
-class KeyboardStateMapNavigator(statemapping.StateMapNavigator):
-    def hook_mode_hold(self, frame:statemapping.NavigatorStackFrame, t:statemapping.Transition):
-        parsed = parse_keybind_string(t.keybind)
-        if parsed is None:
-            return
-
-        keybind_id = uuid4()
-        _pynput_holds[keybind_id] = parsed
-        _pynput_all_binds[keybind_id] = frame, t
-
-        def remove():
-            _pynput_holds.pop(keybind_id, None)
-            _pynput_all_binds.pop(keybind_id, None)
-        
-        return remove
-
-    def hook_mode_down(self, frame:statemapping.NavigatorStackFrame, t:statemapping.Transition):
-        parsed = parse_keybind_string(t.keybind)
-        if parsed is None:
-            return
-        
-        keybind_id = uuid4()
-        _pynput_downs[keybind_id] = parsed
-        _pynput_all_binds[keybind_id] = frame, t
-
-        def remove():
-            _pynput_downs.pop(keybind_id, None)
-            _pynput_all_binds.pop(keybind_id, None)
-
-        return remove
-
-    def hook_mode_up(self, frame:statemapping.NavigatorStackFrame, t:statemapping.Transition):
-        parsed = parse_keybind_string(t.keybind)
-        if parsed is None:
-            return
-        
-        keybind_id = uuid4()
-        _pynput_ups[keybind_id] = parsed
-        _pynput_all_binds[keybind_id] = frame, t
-
-        def remove():
-            _pynput_ups.pop(keybind_id, None)
-            _pynput_all_binds.pop(keybind_id, None)
-        
-        return remove
-
 def handle_socket_event(name:str, data:dict[str]):
-    global nav
-    if name == "nav_init":
-        statemap = statemapping.StateMap.__new__(statemapping.StateMap)
-        statemap.__setstate__(data["statemap"])
-        nav = KeyboardStateMapNavigator(statemap, data.get("default_state", None), on_push=on_push, on_pop=on_pop, on_change=on_change)
-        nav.init_default()
-        send_stack()
-    elif name == "stack_update":
-        stackdata = data.get("stack",None)
-        if isinstance(stackdata, list):
-            if nav.stack is not None:
-                nav.unbind_frame(nav.stack)
-            nav.stack = data_to_stack(stackdata, nav.statemap)
-            nav.bind_frame(nav.stack)
-    elif name == "statemap_update":
-        statemap = statemapping.StateMap.__new__(statemapping.StateMap)
-        statemap.__setstate__(data["statemap"])
-        if nav.stack is not None:
-            nav.unbind_frame(nav.stack)
-            frame = nav.stack
-            while frame is not None:
-                frame.state = statemap.states[frame.state.name]
-                frame.transitions = statemap.transitions.get(frame.state.name, [])
-                frame = frame.prev
-            nav.bind_frame(nav.stack)
-        nav.statemap = statemap
-    elif name == "default_state_update":
-        name:str|None = data.get("name", None)
-        if name is None or isinstance(name, str):
-            nav.default_state = name
-    elif name == "cleanup":
-        if nav.stack is not None:
-            nav.unbind_frame(nav.stack)
-            nav.stack = None
+    if name == "cleanup":
+        #TODO cleanup
         ws.close()
+    elif name == "update_keybinds":
+        binds:list[tuple[str,int]] = data["binds"]
+        failed:list[tuple[str,int]] = []
+        with _pynput_keylock:
+            _pynput_downs.clear()
+            _pynput_ups.clear()
+            _pynput_all_binds.clear()
+            for pair in binds:
+                keys, mode = pair
+                klist = map_keynames(keybind.parse_keybind_string(keys))
+                if not klist:
+                    if klist is None:
+                        failed.append(pair)
+                    continue
+                if mode == keybind.KeyBindMode.TRIGGER_UP.value:
+                    kid = uuid4()
+                    _pynput_ups[kid] = klist
+                elif mode == keybind.KeyBindMode.TRIGGER_DOWN.value:
+                    kid = uuid4()
+                    _pynput_downs[kid] = klist
+                else:
+                    failed.append(pair)
+                    continue
+                _pynput_all_binds[kid] = keybind.KeyBind(keys, keybind.KeyBindMode(mode))
+        if failed:
+            ws.send(json.dumps({
+                "name": "failed_keybinds",
+                "data": {
+                    "binds": failed
+                }
+            }))
     else:
-        print("pngbinds:\tbad event", name, data)
+        print("keybinds:\tbad event", name, data)
 
 def on_open(ws:websocket.WebSocket):
-    print("pngbinds:\tclient connected")
+    print("keybinds:\tclient connected")
 
 def on_message(ws:websocket.WebSocket, msg):
     if isinstance(msg, (str, bytes)):
         try:
             data = json.loads(msg)
         except json.JSONDecodeError:
-            print("pngbinds:\tclient received invalid JSON:", msg)
+            print("keybinds:\tclient received invalid JSON:", msg)
         else:
             if isinstance(data, dict) and isinstance((event_name := data.get("name", None)), str):
                 handle_socket_event(event_name, data.get("data"))
 
-def stack_to_data(stack:statemapping.NavigatorStackFrame|None)->list[str|None]:
-    frames = []
-    while stack is not None:
-        frames.append(stack.state.name)
-        stack = stack.prev
-    return frames
 
-def data_to_stack(data:list[str|None])->statemapping.NavigatorStackFrame|None:
-    stack = None
-    for framestate in reversed(data):
-        state = nav.statemap.states.get(framestate, None)
-        transitions = nav.statemap.transitions.get(framestate, [])
-        stack = statemapping.NavigatorStackFrame(state, transitions, stack)
-    return stack
-
-def send_stack(name:str="stack_update"):
-    ev = {
-        "name": name,
-        "data": {
-            "stack": stack_to_data(nav.stack)
-        }
-    }
-    ws.send(json.dumps(ev))
-
-def send_keypress(keybind:str, mode:statemapping.TransitionMode, hold_start:bool=None, name:str="key_press"):
+def send_keypress(keybind:str, mode:keybind.KeyBindMode, hold_start:bool=None, name:str="key_press"):
     ev = {
         "name": name,
         "data": {
@@ -616,41 +523,15 @@ def send_keypress(keybind:str, mode:statemapping.TransitionMode, hold_start:bool
     }
     ws.send(json.dumps(ev))
 
-def on_push(old:statemapping.NavigatorStackFrame|None, new:statemapping.NavigatorStackFrame):
-    send_stack()
-    print(f"pngbinds:\t{None if old is None else old.state.name} >> {new.state.name}")
-    for t in new.transitions:
-        print(f"pngbinds:\t{t.keybind} {t.mode.name} --> {repr(t.destination)}{"" if t.pop_destination is None else ".."+repr(t.pop_destination)}")
-
-def on_pop(old:statemapping.NavigatorStackFrame, new:statemapping.NavigatorStackFrame|None):
-    send_stack()
-    print(f"pngbinds:\t{None if new is None else new.state.name} << {old.state.name}")
-    if new is not None:
-        for t in new.transitions:
-            print(f"pngbinds:\t{t.keybind} {t.mode.name} --> {repr(t.destination)}{"" if t.pop_destination is None else ".."+repr(t.pop_destination)}")
-
-def on_change(old:statemapping.NavigatorStackFrame, new:statemapping.NavigatorStackFrame):
-    send_stack()
-    print(f"pngbinds:\t{old.state.name} -> {new.state.name}")
-    for t in new.transitions:
-        print(f"pngbinds:\t{t.keybind} {t.mode.name} --> {repr(t.destination)}{"" if t.pop_destination is None else ".."+repr(t.pop_destination)}")
-
-
-nav:KeyboardStateMapNavigator = None
 ws = websocket.WebSocketApp(sys.argv[1], on_open=on_open, on_message=on_message)
 
+_pynput_keylock = threading.Lock()
 _pynput_downs:dict[UUID, Keybind] = {}
 _pynput_ups:dict[UUID, Keybind] = {}
-_pynput_holds:dict[UUID, Keybind] = {}
-_pynput_all_binds:dict[UUID, tuple[statemapping.NavigatorStackFrame, statemapping.Transition]] = {}
+_pynput_all_binds:dict[UUID, keybind.KeyBind] = {}
 
 _pynput_current_keys:dict[AnyKey, datetime] = {}
 
-_navstate_change:str = None
-_navstate_change_new = threading.Event()
-_navstate_change_done = threading.Event()
-_navstate_change_callback:Callable[[],None] = None
-_navstate_change_done.set()
 
 def evaluate_keybind(keybind:Keybind)->bool:
     if len(_pynput_current_keys) != sum(len(o) for o in keybind):
@@ -665,8 +546,9 @@ def evaluate_keybind(keybind:Keybind)->bool:
                 if t is None or t < current:
                     return False
                 current = t
-        elif not (order_group and order_group[0] in _pynput_current_keys):
-            return False
+        else:
+            if not (order_group and order_group[0] in _pynput_current_keys):
+                return False
     return True
 
 def pynput_on_press(rkey:pynput.keyboard.Key|pynput.keyboard.KeyCode|None):
@@ -675,96 +557,29 @@ def pynput_on_press(rkey:pynput.keyboard.Key|pynput.keyboard.KeyCode|None):
         if key in _pynput_current_keys:
             return
         _pynput_current_keys[key] = datetime.now(timezone.utc)
-    for id, keybind in list(_pynput_holds.items()):
-        if not evaluate_keybind(keybind):
-            continue
-        frame, t = _pynput_all_binds[id]
-        if nav.stack == frame:
-            _navstate_change_done.wait()
-            send_keypress(t.keybind, t.mode, hold_start=True)
-            frame = nav.push(t.destination)
-            def update():
-                _pynput_holds[id] = keybind
-                _pynput_all_binds[id] = nav.stack, t
-            navstate_set_change(t.destination, update)
-        return
-    for id, keybind in list(_pynput_downs.items()):
-        if not evaluate_keybind(keybind):
-            continue
-        frame, t = _pynput_all_binds[id]
-        if nav.stack == frame:
-            _navstate_change_done.wait()
-            send_keypress(t.keybind, t.mode)
-            navstate_set_change(t.destination)
-        return
+    with _pynput_keylock:
+        for id, keybind in list(_pynput_downs.items()):
+            if not evaluate_keybind(keybind):
+                continue
+            kb = _pynput_all_binds[id]
+            send_keypress(kb.keys, kb.mode)
 
 def pynput_on_release(rkey:pynput.keyboard.Key|pynput.keyboard.KeyCode|None):
     key = listener.canonical(rkey)
     if key not in _pynput_current_keys:
         return
-    try:
-        for id, keybind in list(_pynput_holds.items()):
-            if not evaluate_keybind(keybind):
-                continue
-            frame, t = _pynput_all_binds[id]
-            if nav.stack == frame:
-                _navstate_change_done.wait()
-                send_keypress(t.keybind, t.mode, hold_start=False)
-                _pynput_holds.pop(id,None)
-                _pynput_all_binds.pop(id,None)
-                nav.pop()
-                if t.pop_destination is not None:
-                    navstate_set_change(t.pop_destination)
-            return
-        for id, keybind in list(_pynput_ups.items()):
-            if not evaluate_keybind(keybind):
-                continue
-            frame, t = _pynput_all_binds[id]
-            if nav.stack == frame:
-                _navstate_change_done.wait()
-                send_keypress(t.keybind, t.mode)
-                navstate_set_change(t.destination)
-            return
-    finally:
-        del _pynput_current_keys[key]
-
-def navstate_set_change(destination:str, cb:Callable[[],None]|None=None):
-    global _navstate_change, _navstate_change_callback
-    _navstate_change = destination
-    _navstate_change_callback = cb
-    _navstate_change_new.set()
-
-def navstate_change_handler():
-    global _navstate_change, _navstate_change_callback
-    try:
-        while True:
-            _navstate_change_new.wait()
-            _navstate_change_new.clear()
-            _navstate_change_done.clear()
-            frame = nav.stack
-            state = nav.statemap.states[_navstate_change]
-            while state.change is not None and nav.stack == frame:
-                name, duration = state.change
-                if nav.stack is not None and nav.stack.state != state:
-                    frame = nav.change(state.name)
-                time.sleep(duration.total_seconds())
-                state = nav.statemap.states[name]
-            if nav.stack == frame and state != nav.stack.state:
-                nav.change(state.name)
-            _navstate_change = None
-            _navstate_change_done.set()
-            if _navstate_change_callback is not None:
-                _navstate_change_callback()
-                _navstate_change_callback = None
-    except KeyboardInterrupt:
-        return
-    finally:
-        _navstate_change_done.set()
+    with _pynput_keylock:
+        try:
+            for id, keybind in list(_pynput_ups.items()):
+                if not evaluate_keybind(keybind):
+                    continue
+                kb = _pynput_all_binds[id]
+                send_keypress(kb.keys, kb.mode)
+        finally:
+            del _pynput_current_keys[key]
 
 if __name__ == "__main__":
-    navstate_change_thread = threading.Thread(target=navstate_change_handler)
-    navstate_change_thread.start()
     with pynput.keyboard.Listener(on_press=pynput_on_press, on_release=pynput_on_release) as listener:
-        ws.run_forever()
+        ws.run_forever(reconnect=5)
         listener.stop()
         listener.join()

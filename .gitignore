@@ -8,5 +8,6 @@ data/*
 #Exclude non-builtin plugins
 plugins/*
 !plugins/soundreq/
-!plugins/pngbinds/
+!plugins/pngoverlay/
 !plugins/microphone/
+!plugins/keybinds/
