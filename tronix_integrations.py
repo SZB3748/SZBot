@@ -3,7 +3,7 @@ import config
 import plugins
 import requests
 from tronix import json_proxy, Script
-import tronix_twitch_integrations
+import twitch.tronix_integrations as tti
 
 _remote_addr = None
 _remote_secure = None
@@ -42,4 +42,4 @@ def activate(api_mode:str, remote:str|None=None, secure:bool=False):
         config_proxy.loadfunc = None
         config_proxy.savefunc = None
     actions.script_runner.add_script_end_cb(scriptend_save_config)
-    tronix_twitch_integrations.activate()
+    tti.activate()

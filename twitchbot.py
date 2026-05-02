@@ -3,7 +3,7 @@ import aiohttp
 import argparse
 import asyncio
 import base64
-import twitch_command_triggers
+import twitch.command_triggers
 import config
 from datetime import datetime, timedelta
 import inspect
@@ -11,12 +11,12 @@ import json
 import os
 import pickle
 import plugins
-import rewards
 from simple_websocket.errors import ConnectionClosed
 import threading
 import traceback
 import tronix
-import tronix_twitch_integrations as tti
+import twitch.rewards
+import twitch.tronix_integrations as tti
 import twitchio
 from twitchio.ext import commands
 from typing import Awaitable, Callable, Self
@@ -179,54 +179,54 @@ class Bot(commands.AutoBot):
             subscriptions=subs,
         )
         self.links_commands:set[str] = set()
-        self._callback_command_triggers:dict[str, twitch_command_triggers.CallbackCommandTrigger] = {}
-        self._callback_redeem_handlers:dict[rewards.RewardIdentifierKey, rewards.CallbackRedeemHandler] = {}
-        self.command_triggers:dict[str, twitch_command_triggers.CommandTrigger] = {}
-        self.redeem_handlers:dict[rewards.RewardIdentifierKey, rewards.RedeemHandler] = {}
+        self._callback_command_triggers:dict[str, twitch.command_triggers.CallbackCommandTrigger] = {}
+        self._callback_redeem_handlers:dict[twitch.rewards.RewardIdentifierKey, twitch.rewards.CallbackRedeemHandler] = {}
+        self.command_triggers:dict[str, twitch.command_triggers.CommandTrigger] = {}
+        self.redeem_handlers:dict[twitch.rewards.RewardIdentifierKey, twitch.rewards.RedeemHandler] = {}
         self.subs = subs
         self.use_core_commands = use_core_commands
         self._loop = None
 
-    def add_command(self, command:twitch_command_triggers.CommandTrigger|commands.Command):
-        if isinstance(command, twitch_command_triggers.CommandTrigger):
+    def add_command(self, command:twitch.command_triggers.CommandTrigger|commands.Command):
+        if isinstance(command, twitch.command_triggers.CommandTrigger):
             self.command_triggers[command.name] = command
-            if isinstance(command, twitch_command_triggers.CallbackCommandTrigger):
+            if isinstance(command, twitch.command_triggers.CallbackCommandTrigger):
                 self._callback_command_triggers[command.name] = command
             command = command.to_twitch_command()
         return super().add_command(command)
     
-    def remove_command(self, name:str|twitch_command_triggers.CommandTrigger):
-        if isinstance(name, twitch_command_triggers.CommandTrigger):
+    def remove_command(self, name:str|twitch.command_triggers.CommandTrigger):
+        if isinstance(name, twitch.command_triggers.CommandTrigger):
             name = name.name
         command = self.command_triggers.pop(name, None)
-        if isinstance(command, twitch_command_triggers.CallbackCommandTrigger) and name in self._callback_command_triggers:
+        if isinstance(command, twitch.command_triggers.CallbackCommandTrigger) and name in self._callback_command_triggers:
             del self._callback_command_triggers[name]
         return super().remove_command(name)
     
-    def add_redeem_handler(self, handler:rewards.RedeemHandler):
-        if isinstance(handler, rewards.CallbackRedeemHandler):
+    def add_redeem_handler(self, handler:twitch.rewards.RedeemHandler):
+        if isinstance(handler, twitch.rewards.CallbackRedeemHandler):
             self._callback_redeem_handlers[handler.identifier] = handler
         self.redeem_handlers[handler.identifier] = handler
     
-    def remove_redeem_handler(self, identifier:tuple[str, str]|rewards.RewardIdentifier):
+    def remove_redeem_handler(self, identifier:tuple[str, str]|twitch.rewards.RewardIdentifier):
         rh = self.redeem_handlers.pop(identifier,None)
-        if isinstance(rh, rewards.CallbackRedeemHandler) and identifier in self._callback_redeem_handlers:
+        if isinstance(rh, twitch.rewards.CallbackRedeemHandler) and identifier in self._callback_redeem_handlers:
             del self._callback_redeem_handlers[identifier]
 
-    def _get_redeem_handlers(self, payload:twitchio.ChannelPointsRedemptionAdd)->tuple[rewards.RedeemHandler|None, ...]:
-        pair_id = (payload.reward.id, rewards.IDEN_TYPE_ID)
-        pair_title = (payload.reward.title, rewards.IDEN_TYPE_TITLE)
+    def _get_redeem_handlers(self, payload:twitchio.ChannelPointsRedemptionAdd)->tuple[twitch.rewards.RedeemHandler|None, ...]:
+        pair_id = (payload.reward.id, twitch.rewards.IDEN_TYPE_ID)
+        pair_title = (payload.reward.title, twitch.rewards.IDEN_TYPE_TITLE)
         return self.redeem_handlers.get(pair_id,None), self.redeem_handlers.get(pair_title,None)
 
     def sync_commands(self):
-        loaded_commands = twitch_command_triggers.load_command_triggers()
+        loaded_commands = twitch.command_triggers.load_command_triggers()
         cmd_difference = set(self.command_triggers.keys()) ^ set(loaded_commands.keys())
         for name in cmd_difference:
             if name in loaded_commands:
                 self.add_command(loaded_commands[name])
             else: #name in self.command_triggers
                 cmd = self.command_triggers[name]
-                if isinstance(cmd, twitch_command_triggers.CallbackCommandTrigger):
+                if isinstance(cmd, twitch.command_triggers.CallbackCommandTrigger):
                     continue #command would be reassigned pointlessly so just do nothing
                 ccmd = self._callback_command_triggers.get(name,None)
                 if ccmd is None:
@@ -237,19 +237,19 @@ class Bot(commands.AutoBot):
             if name in cmd_difference:
                 continue #was added already
             cmd = self.command_triggers[name]
-            assert isinstance(cmd, twitch_command_triggers.ActionCommandTrigger)
+            assert isinstance(cmd, twitch.command_triggers.ActionCommandTrigger)
             cmd.update(lcmd)
 
     
     def sync_redeem_handlers(self):
-        loaded_redeems = rewards.load_redeem_handlers()
+        loaded_redeems = twitch.rewards.load_redeem_handlers()
         rh_difference = set(self.redeem_handlers.keys()) ^ set(loaded_redeems.keys())
         for iden in rh_difference:
             if iden in loaded_redeems:
                 self.add_redeem_handler(loaded_redeems[iden])
             else: #name in self.redeem_handlers
                 rh = self.redeem_handlers[iden]
-                if isinstance(rh, rewards.CallbackRedeemHandler):
+                if isinstance(rh, twitch.rewards.CallbackRedeemHandler):
                     continue
                 crh =self._callback_redeem_handlers.get(iden,None)
                 if crh is None:
@@ -266,7 +266,7 @@ class Bot(commands.AutoBot):
                 for name in sym_difference:
                     if name in links:
                         cb = _link_command_newfunc(name)
-                        ct = twitch_command_triggers.CallbackCommandTrigger.new(cb, name)
+                        ct = twitch.command_triggers.CallbackCommandTrigger.new(cb, name)
                         self.add_command(ct)
                         self.links_commands.add(name)
                     else: #name in self.links_commands
@@ -347,8 +347,8 @@ class CoreComponent(commands.Component):
     def __init__(self, bot:Bot):
         self.bot = bot
         for attr in type(self).__dict__.values():
-            if isinstance(attr, twitch_command_triggers.CallbackCommandTrigger):
-                self.bot.add_command(twitch_command_triggers.CallbackCommandTrigger(
+            if isinstance(attr, twitch.command_triggers.CallbackCommandTrigger):
+                self.bot.add_command(twitch.command_triggers.CallbackCommandTrigger(
                     attr.name,
                     attr.description,
                     attr.signature,
@@ -357,17 +357,17 @@ class CoreComponent(commands.Component):
                     bind=self
                 ))
 
-    @twitch_command_triggers.CallbackCommandTrigger.create("help")
+    @twitch.command_triggers.CallbackCommandTrigger.create("help")
     async def help_command(self, ctx:commands.Context, command_name:str=None):
         """Lists and describes commands."""
         self.bot.sync_commands()
-        command_data = twitch_command_triggers.load_commands()
+        command_data = twitch.command_triggers.load_commands()
 
         if command_name is None:
             #exclude commands that user does not meet requirements for
             names = []
             for name, ct in self.bot.command_triggers.items():
-                if isinstance(ct, twitch_command_triggers.CallbackCommandTrigger):
+                if isinstance(ct, twitch.command_triggers.CallbackCommandTrigger):
                     cmd = ct.generate_command()
                 elif name in command_data:
                     cmd = command_data[name]
@@ -383,7 +383,7 @@ class CoreComponent(commands.Component):
             if ct is None:
                 await ctx.send(f"Command {command_name} has no help info.")
             else:
-                if isinstance(ct, twitch_command_triggers.CallbackCommandTrigger):
+                if isinstance(ct, twitch.command_triggers.CallbackCommandTrigger):
                     cmd = ct.generate_command()
                 elif command_name in command_data:
                     cmd = command_data[command_name]
@@ -401,13 +401,13 @@ class CoreComponent(commands.Component):
                     await ctx.send(" ".join(r))
 
 
-    @twitch_command_triggers.CallbackCommandTrigger.create("links")
+    @twitch.command_triggers.CallbackCommandTrigger.create("links")
     async def links_command(self, ctx:commands.Context):
         """Lists names of all link commands."""
         if bot.links_commands:
             await ctx.send(", ".join(name for name in bot.links_commands))
 
-    @twitch_command_triggers.CallbackCommandTrigger.create("pload", permissions=twitch_command_triggers.CommandPermissions(requires_moderator=True))
+    @twitch.command_triggers.CallbackCommandTrigger.create("pload", permissions=twitch.command_triggers.CommandPermissions(requires_moderator=True))
     async def plugin_load(self, ctx:commands.Context, name:str):
         """Loads a plugin with the give name."""
         if not ctx.author.moderator:
@@ -427,7 +427,7 @@ class CoreComponent(commands.Component):
                 print(f"[fail] /api/plugins/load name={name} ({r.status})")
         await ctx.send(f"Failed to load plugin {name}")
 
-    @twitch_command_triggers.CallbackCommandTrigger.create("punload", permissions=twitch_command_triggers.CommandPermissions(requires_moderator=True))
+    @twitch.command_triggers.CallbackCommandTrigger.create("punload", permissions=twitch.command_triggers.CommandPermissions(requires_moderator=True))
     async def plugin_unload(self, ctx:commands.Context, name:str):
         """Unloads a plugin with the given name."""
         if not ctx.author.moderator:

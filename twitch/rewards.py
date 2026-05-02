@@ -1,9 +1,10 @@
+from . import tronix_integrations as tti
+
 import actions
 import datafile
 import json
 import os
 from tronix import script, utils
-import tronix_twitch_integrations as tti
 import twitchio
 from twitchio.ext import commands
 from typing import Any, Callable
