@@ -322,6 +322,8 @@ def remote_api_script_env_handler():
     def ws_on_close(ws, status_code, msg:str|bytearray|memoryview):
         print("disconnected from script env switch")
 
+    _rapi_ready.wait(timeout=20)
+
     wsa = websocket.WebSocketApp(
         f"ws{"s"*(__host_addr[1]==443)}:{__host_addr[0]}:{__host_addr[1]}/api/action/script/env-switch",
         on_open=ws_on_open, on_message=ws_on_message,
@@ -334,6 +336,7 @@ def remote_api_script_env_handler():
         pass
 
 _rapi_script_env_thread = threading.Thread(target=remote_api_script_env_handler, daemon=True)
+_rapi_ready = threading.Event()
 
 _arl_queue:list[tuple[uuid.UUID, tronix.Script, str]] = []
 _arl_loop = None
@@ -723,6 +726,7 @@ def serve(host:str=HOST, port:int=PORT, pconfig_path:str=config.PLUGIN_FILE):
 
     __host_addr = host, port
     __pconfig_path = pconfig_path
+    _rapi_ready.set()
 
     app.register_blueprint(api)
     server = WSGIServer((host, port), app)
