@@ -2,8 +2,10 @@ from datetime import datetime, timezone
 import json
 import keybind
 import pynput
+from simple_websocket.errors import ConnectionClosed
 import sys
 import threading
+import traceback
 from uuid import UUID, uuid4
 import websocket
 
@@ -511,6 +513,13 @@ def on_message(ws:websocket.WebSocket, msg):
             if isinstance(data, dict) and isinstance((event_name := data.get("name", None)), str):
                 handle_socket_event(event_name, data.get("data"))
 
+def on_error(ws, e:Exception):
+    if isinstance(e, (ConnectionRefusedError, ConnectionClosed)):
+        print(f"keybinds:\terror: ({type(e).__name__}):", e)
+    else:
+        print(f"keybinds:\terror: ({type(e).__name__}):")
+        traceback.print_exception(e)
+
 
 def send_keypress(keybind:str, mode:keybind.KeyBindMode, hold_start:bool=None, name:str="key_press"):
     ev = {
@@ -523,7 +532,7 @@ def send_keypress(keybind:str, mode:keybind.KeyBindMode, hold_start:bool=None, n
     }
     ws.send(json.dumps(ev))
 
-ws = websocket.WebSocketApp(sys.argv[1], on_open=on_open, on_message=on_message)
+ws = websocket.WebSocketApp(sys.argv[1], on_open=on_open, on_message=on_message, on_error=on_error)
 
 _pynput_keylock = threading.Lock()
 _pynput_downs:dict[UUID, Keybind] = {}
