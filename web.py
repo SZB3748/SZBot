@@ -711,7 +711,8 @@ def attach_core(interface_mode:str, api_mode:str, tronix_mode:str, remote_api_ad
             _rapi_script_env_thread.start()
         for p in ["/configs", "/configs/meta", "/plugins/load", "/plugins/unload", "/events/dispatch", "/action/script/check", "/action/script/run", "/action/list", "/action"]:
             create_endpoint_proxy(remote_api_addr, [p], vcoreapi, socket=False, endpoint_name=p[1:].replace("/", "_"))
-        create_endpoint_proxy(remote_api_addr, ["/events", "/action/script/env-switch"], vcoreapi, normal=False, endpoint_name="events")
+        create_endpoint_proxy(remote_api_addr, ["/events"], vcoreapi, normal=False, endpoint_name="events")
+        create_endpoint_proxy(remote_api_addr, ["/action/script/env-switch"], vcoreapi, normal=False, endpoint_name="script_env_switch")
         api.register_blueprint(vcoreapi)
         #replace default_container.dispatch so that all events for the default event system get sent to the remote instance
         def proxy_dispatch(*e:events.Event):
