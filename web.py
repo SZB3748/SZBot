@@ -284,7 +284,6 @@ def api_action_route():
 def api_action_script_run():
     #TODO handle script exceptions
     data:dict[str] = request.get_json()
-    rtype = data["type"]
     
     scope_s = data.get("scope", None)
     if isinstance(scope_s, str):
@@ -294,25 +293,8 @@ def api_action_script_run():
         scope = None
     script = tronix.Script(data["script"], scope)
 
-    if rtype == "run_iter":
-        def gen():
-            riter = actions.script_runner.run_iter(script, data["force_parse"], data["force_compile"])
-            yield len(script.steps).to_bytes(8, byteorder="big", signed=False)
-            for result in riter:
-                if inspect.isawaitable(result):
-                    result = asyncio.run(result)
-                r_b = pickle.dumps(tronix.utils._serialized_value.serialize(result))
-                yield len(r_b).to_bytes(8, byteorder="big", signed=False)
-                yield r_b
-            scope_b = pickle.dumps(tronix.utils.serialize_namespace(script.scope))
-            yield len(scope_b).to_bytes(8, byteorder="big", signed=False)
-            yield scope_b
-        return gen
-    elif rtype in ("run", "run_async"):
-        asyncio.run(actions.script_runner.run_async(script, data["force_parse"], data["force_compile"]))
-        return pickle.dumps(tronix.utils.serialize_namespace(script.scope)), 200, {"Content-Type": "application/octet-stream"}
-    else:
-        return "", 422
+    asyncio.run(actions.script_runner.run_async(script, data["force_parse"], data["force_compile"]))
+    return pickle.dumps(tronix.utils.serialize_namespace(script.scope)), 200, {"Content-Type": "application/octet-stream"}
 
 
 def remote_api_script_env_handler():
@@ -526,7 +508,7 @@ class ProxyScriptRunner(tronix.utils.ScriptRunner):
         self.session = requests.Session()
         self.scopes:dict[bytes,bytes|None] = {}
 
-    def _prep_req(self, session:aiohttp.ClientSession|requests.Session, rtype:str, script:tronix.Script|str, force_parse:bool, force_compile:bool):
+    def _prep_req(self, session:aiohttp.ClientSession|requests.Session, script:tronix.Script|str, force_parse:bool, force_compile:bool):
         if isinstance(script, tronix.Script):
             if script.scope:
                 scope_b = pickle.dumps(tronix.utils.serialize_namespace(script.scope))
@@ -542,48 +524,15 @@ class ProxyScriptRunner(tronix.utils.ScriptRunner):
         self.scopes[h] = scope_b
 
         return session.post(f"http{"s"*self.secure}://{self.remote_api_addr}/api/action/run-proxied", json={
-            "type": rtype,
             "script": script,
             "scope": scope,
             "force_parse": force_parse,
             "force_compile": force_compile
         }), h
 
-    def run_iter(self, script:tronix.Script|str, force_parse:bool=False, force_compile:bool=False):
-        r, h = self._prep_req(self.session, "run_iter", script, force_parse, force_compile)
-        if not r.ok:
-            ... #TODO handle not ok
-        count_b = r.raw.read(8)
-        if not count_b:
-            return
-        count = int.from_bytes(count_b, byteorder="big", signed=False)
-        for _ in range(count):
-            size_b = r.raw.read(8)
-            if not size_b:
-                return
-            size = int.from_bytes(size_b, byteorder="big", signed=False)
-            obj_b = r.raw.read(size)
-            if not obj_b:
-                ... #TODO error
-            x = pickle.loads(obj_b)
-            if isinstance(x, tronix.utils._serialized_value):
-                yield x.deserialize()
-            else:
-                yield x
-        scopelen_b = r.raw.read(8)
-        if not scopelen_b:
-            return
-        scopelen = int.from_bytes(scopelen_b, byteorder="big", signed=False)
-        if scopelen:
-            scope_b = r.raw.read(scopelen)
-            if not scope_b:
-                ... #TODO error
-        else:
-            scope_b = None
-        self.scopes[h] = scope_b
     
     def run(self, script:tronix.Script|str, force_parse:bool=False, force_compile:bool=False):
-        r, h = self._prep_req(self.session, "run", script, force_parse, force_compile)
+        r, h = self._prep_req(self.session, script, force_parse, force_compile)
         if not r.ok:
             ... #TODO handle not ok
         scope_b = r.content
@@ -591,7 +540,7 @@ class ProxyScriptRunner(tronix.utils.ScriptRunner):
 
     async def run_async(self, script:tronix.Script|str, force_parse:bool=False, force_compile:bool=False):
         async with aiohttp.ClientSession(cookies=requests.utils.dict_from_cookiejar(self.session.cookies), headers=self.session.headers, auth=self.session.auth) as s:
-            rctx, h = self._prep_req(s, "run_async", script, force_parse, force_compile)
+            rctx, h = self._prep_req(s, script, force_parse, force_compile)
             async with rctx as r:
                 if not r.ok:
                     ... #TODO handle not ok

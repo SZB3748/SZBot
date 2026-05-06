@@ -713,6 +713,7 @@ CORE_COMPONENT_API = "api"
 CORE_COMPONENT_TRONIX = "tronix"
 TWITCHBOT_COMPONENT_COMMANDS = "twitchbot:commands"
 TWITCHBOT_COMPONENT_TRONIX = "twitchbot:tronix"
+TWITCHBOT_COMPONENT_ANALYTICS = "twitchbot:analytics"
 
 CORE_CONFIGS_META = dict(
     description="Most basic configurations that are built in to the bot, independent of any plugin.",
@@ -731,6 +732,16 @@ CORE_CONFIGS_META = dict(
             description="Creates commands for the twitch bot that have the bot send the given text (intended to be a link).",
             types={
                 TYPE_NAME_OBJECT: {"anyfield": {TYPE_NAME_STRING: True}},
+                TYPE_NAME_NULL: TYPE_COMMAND_EXCLUDE
+            },
+            optional=True
+        ),
+        "Twitch-Analytics-DB-File": dict(
+            key="Twitch-Analytics-DB-File",
+            name="Twitch Analytics Database File",
+            description="Path to the twitch analytics database file.",
+            types={
+                TYPE_NAME_STRING: {">=": 1},
                 TYPE_NAME_NULL: TYPE_COMMAND_EXCLUDE
             },
             optional=True

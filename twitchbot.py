@@ -15,6 +15,7 @@ from simple_websocket.errors import ConnectionClosed
 import threading
 import traceback
 import tronix
+import twitch.analytics
 import twitch.rewards
 import twitch.tronix_integrations as tti
 import twitchio
@@ -276,9 +277,19 @@ class Bot(commands.AutoBot):
         for name in self.links_commands:
             self.remove_command(name)
 
+    def get_message_trigger_matches(self, message:twitchio.ChatMessage)->list[twitch.message_triggers.MessageTrigger]:
+        triggers = twitch.message_triggers.merge_message_triggers()
+        matched = []
+        for trigger in triggers.values():
+            if trigger.match(message):
+                matched.append(trigger)
+        return matched
+
     async def setup_hook(self):
         self.add_listener(self.event_message)
         self.add_listener(self.event_custom_redemption_add)
+        self.add_listener(self.event_stream_online)
+        self.add_listener(self.event_stream_offline)
         if self.use_core_commands:
             await self.add_component(CoreComponent(self))
 
@@ -318,8 +329,14 @@ class Bot(commands.AutoBot):
 
     async def event_message(self, message:twitchio.ChatMessage) -> None:      
         print(datetime.now().strftime("[%Y-%M-%d %H:%M:%S]"), f"<{message.broadcaster}> {message.chatter}: {message.text}")
+        await twitch.analytics.insert_stat_async(twitch.analytics.MessageStat.from_data(message))
         if message.chatter.id == self.bot_id:
             return
+        
+        for trigger in self.get_message_trigger_matches(message):
+            c = trigger.handle(self, message)
+            if inspect.isawaitable(c):
+                await c
         self.update_link_commands()
         await self.process_commands(message)
 
@@ -332,6 +349,7 @@ class Bot(commands.AutoBot):
             traceback.print_exception(payload.exception)
 
     async def event_custom_redemption_add(self, payload:twitchio.ChannelPointsRedemptionAdd):
+        await twitch.analytics.insert_stat_async(twitch.analytics.RedeemStat.from_data(payload))
         id_handler, title_handler = self._get_redeem_handlers(payload)
 
         if id_handler and title_handler and id_handler is not title_handler:
@@ -342,6 +360,15 @@ class Bot(commands.AutoBot):
            c = handler.handle(self, payload)
            if inspect.isawaitable(c):
                await c
+
+    async def event_stream_online(self, payload:twitchio.StreamOnline):
+        print(datetime.now().strftime("[%Y-%M-%d %H:%M:%S]"), f"<{payload.broadcaster}> went live")
+        await twitch.analytics.insert_stat_async(twitch.analytics.StreamStartStat.from_data(payload))
+    
+    async def event_stream_offline(self, payload:twitchio.StreamOffline):
+        print(datetime.now().strftime("[%Y-%M-%d %H:%M:%S]"), f"<{payload.broadcaster}> is now offline")
+        await twitch.analytics.insert_stat_async(twitch.analytics.StreamEndStat.from_data(payload))
+
 
 class CoreComponent(commands.Component):
     def __init__(self, bot:Bot):
@@ -486,6 +513,8 @@ def init_bot(old_bot:Bot|None=None):
     subs = []
     for user in ids:
         subs.append(twitchio.eventsub.ChatMessageSubscription(broadcaster_user_id=user.id, user_id=bot_id))
+        subs.append(twitchio.eventsub.StreamOnlineSubscription(broadcaster_user_id=user.id))
+        subs.append(twitchio.eventsub.StreamOfflineSubscription(broadcaster_user_id=user.id))
         if user.broadcaster_type in ("affiliate", "partner"):
             subs.append(twitchio.eventsub.ChannelPointsRedeemAddSubscription(broadcaster_user_id=user.id))
 
@@ -648,12 +677,14 @@ if __name__ == "__main__":
     if components:
         commands_mode = components.get(plugins.TWITCHBOT_COMPONENT_COMMANDS, plugins.COMPONENT_MODE_NORMAL)
         tronix_mode = components.get(plugins.TWITCHBOT_COMPONENT_TRONIX, plugins.COMPONENT_MODE_NORMAL)
+        analytics_mode = components.get(plugins.TWITCHBOT_COMPONENT_ANALYTICS, plugins.COMPONENT_MODE_NORMAL)
     else:
-        commands_mode = tronix_mode = plugins.COMPONENT_MODE_NORMAL
+        commands_mode = tronix_mode = analytics_mode = plugins.COMPONENT_MODE_NORMAL
     
     bot.use_core_commands = commands_mode == plugins.COMPONENT_MODE_NORMAL
 
     assert tronix_mode != plugins.COMPONENT_MODE_REMOTE, "Twitchbot tronix has no remote mode."
+    assert tronix_mode != plugins.COMPONENT_MODE_REMOTE, "Twitchbot analytics has no remote mode."
     if tronix_mode == plugins.COMPONENT_MODE_NORMAL:
         print("loading script environment")
         import tronix.script_builtins
@@ -664,6 +695,15 @@ if __name__ == "__main__":
         print("starting script env switch connection")
         ws_thread = threading.Thread(target=ws_run)
         ws_thread.start()
+    else:
+        ws_thread = None
+
+    if analytics_mode == plugins.COMPONENT_MODE_NORMAL:
+        print("setting up analytics")
+        analytics_thread = threading.Thread(target=twitch.analytics.sql_executor_loop_handle, daemon=True)
+        analytics_thread.start()
+    else:
+        analytics_thread = None
 
     e = None
     try:
@@ -680,6 +720,10 @@ if __name__ == "__main__":
             plugin.twitch_bot_unload(plugins.TwitchBotUnloadEvent(plugin_list, plugin, True, e))
     print("unloaded plugins")
 
-    if ws_thread.is_alive():
+    if ws_thread is not None and ws_thread.is_alive():
         ws.close()
-        ws_thread.join()
+        ws_thread.join(timeout=0.5)
+
+    if analytics_thread is not None and analytics_thread.is_alive():
+        twitch.analytics.sqle_stop()
+        analytics_thread.join(timeout=0.5)

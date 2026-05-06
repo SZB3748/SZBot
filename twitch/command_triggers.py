@@ -14,7 +14,7 @@ CommandParameter = tuple[str, type|Any]
 EmptyValue = inspect.Parameter.empty
 CommandCallback = Callable[..., Any]
 
-PATH = datafile.makepath("twitch.command_triggers.json")
+COMMAND_TRIGGERS_PATH = datafile.makepath("command_triggers.json")
 COMMANDS_PATH = datafile.makepath("commands.json")
 
 type_names = {
@@ -344,7 +344,7 @@ class CallbackCommandTrigger(CommandTrigger):
 
 def load_command_triggers(path:str=None)->dict[str, ActionCommandTrigger]:
     if path is None:
-        path = twitch.command_triggers.PATH
+        path = COMMAND_TRIGGERS_PATH
     if not os.path.isfile(path):
         return {}
     with open(path) as f:
@@ -357,7 +357,7 @@ def load_command_triggers(path:str=None)->dict[str, ActionCommandTrigger]:
 
 def save_command_triggers(commands:dict[str, ActionCommandTrigger], path:str=None):
     c = json.dumps({c.name:c.__getstate__() for c in commands.values() if isinstance(c, ActionCommandTrigger)}, indent=4)
-    with open(twitch.command_triggers.PATH if path is None else path, "w") as f:
+    with open(COMMAND_TRIGGERS_PATH if path is None else path, "w") as f:
         f.write(c)
 
 def load_commands(path:str=None)->dict[str, Command]:

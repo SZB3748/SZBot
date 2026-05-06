@@ -1,1 +1,1 @@
-from . import command_triggers, message_triggers, rewards, tronix_integrations
+from . import analytics, command_triggers, message_triggers, rewards, tronix_integrations
