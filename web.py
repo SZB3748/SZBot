@@ -325,7 +325,7 @@ def remote_api_script_env_handler():
     _rapi_ready.wait(timeout=20)
 
     wsa = websocket.WebSocketApp(
-        f"ws{"s"*(__host_addr[1]==443)}:{__host_addr[0]}:{__host_addr[1]}/api/action/script/env-switch",
+        f"ws{"s"*(__host_addr[1]==443)}://{__host_addr[0]}:{__host_addr[1]}/api/action/script/env-switch",
         on_open=ws_on_open, on_message=ws_on_message,
         on_error=ws_on_error, on_close=ws_on_close,
         on_reconnect=ws_on_reconnect
@@ -711,7 +711,7 @@ def attach_core(interface_mode:str, api_mode:str, tronix_mode:str, remote_api_ad
             _rapi_script_env_thread.start()
         for p in ["/configs", "/configs/meta", "/plugins/load", "/plugins/unload", "/events/dispatch", "/action/script/check", "/action/script/run", "/action/list", "/action"]:
             create_endpoint_proxy(remote_api_addr, [p], vcoreapi, socket=False, endpoint_name=p[1:].replace("/", "_"))
-        create_endpoint_proxy(remote_api_addr, ["/events", "/account/script/env-switch"], vcoreapi, normal=False, endpoint_name="events")
+        create_endpoint_proxy(remote_api_addr, ["/events", "/action/script/env-switch"], vcoreapi, normal=False, endpoint_name="events")
         api.register_blueprint(vcoreapi)
         #replace default_container.dispatch so that all events for the default event system get sent to the remote instance
         def proxy_dispatch(*e:events.Event):
