@@ -18,7 +18,7 @@ Very creative name.
 ### Files
 
 1. Install requirements.txt: `pip install -r requirements.txt`
-   - Currently this also includes packages for the built-in plugins as well ( `pngbinds`, `songqueue`, and `soundreq` )
+   - Currently this also includes packages for the built-in plugins as well ( `pngoverlay`, `songqueue`, and `soundreq` )
    - If using Python 3.13 or later, modify the `requirements.txt` file to install `audioop-lts` for the `microphone` plugin.
 2. Create a `oauth_twitch.json` file. It should look something like:
 ```json
@@ -81,7 +81,7 @@ Very creative name.
 
 Plugins that are included with the source code for SZBot, but still need to be added to `plugins.json` to run. It is recommended you use the folder name for each plugin as its keyname in `plugins.json`.
 
-- [PNG Binds](plugins/pngbinds/README.md)
+- [PNG Binds](plugins/pngoverlay/README.md)
 - [Song Queue](plugins/songqueue/README.md)
 - [Sound Request](plugins/soundreq/README.md)
 

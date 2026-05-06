@@ -348,7 +348,7 @@ class Event:
         self.conditions = conditions
 
     def state_name(self):
-        return f"event:{self.name}:{hex(hash(self.name))[2:]}" #hash prevents name collisions with a state named f"event:{self.name}"
+        return f"event:{self.name}:{hex(hash(self.name)).split("x",1)[-1]}" #hash prevents name collisions with a state named f"event:{self.name}"
 
 StateCollection = dict[str, State]
 TransitionStructure = dict[str, list[Transition]]
@@ -512,13 +512,13 @@ class StateMapNavigator:
             self.push(self.default_state)
 
     def hook_mode_hold(self, frame:NavigatorStackFrame, t:Transition)->RemoveCallback|None:
-        raise NotImplementedError
+        pass
     
     def hook_mode_down(self, frame:NavigatorStackFrame, t:Transition)->RemoveCallback|None:
-        raise NotImplementedError
+        pass
     
     def hook_mode_up(self, frame:NavigatorStackFrame, t:Transition)->RemoveCallback|None:
-        raise NotImplementedError
+        pass
     
     def event_can_interrupt(self):
         return self.stack is None or self.stack.state.allow_event_interrupt

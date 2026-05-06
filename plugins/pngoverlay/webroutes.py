@@ -8,9 +8,11 @@ import json
 import os
 import plugins
 import shutil
+from simple_websocket.errors import ConnectionClosed
 import threading
 import traceback
 from web import add_bp_if_new, serve_when_loaded, sock
+import websocket
 from werkzeug.security import safe_join
 
 DIR = os.path.dirname(__file__)
@@ -18,14 +20,13 @@ STATIC_DIR = os.path.join(DIR, "static")
 TEMPATES_DIR = os.path.join(DIR, "templates")
 STATEMAP_SEND_COOLDOWN = timedelta(seconds=2.5)
 
-STATEMAP_FILE = datafile.makepath("pngbinds.json")
+STATEMAP_FILE = datafile.makepath("pngoverlay_statemap.json")
 
 web_loaded = False
 web_loaded_callback = lambda: web_loaded
 
 meta:plugins.Meta = None
-nav_stack:statemapping.NavigatorStackFrame = None
-statemap:statemapping.StateMap = None
+navigator:statemapping.StateMapNavigator = None
 event_negotiator:statemapping.EventNegotiator = None
 event_negotiator_thread:threading.Thread = None
 last_statemap_send = datetime.now()
@@ -50,11 +51,11 @@ def _get_state_data(frame:statemapping.NavigatorStackFrame|None)->dict[str]:
     return {"name": data_name, "media": data_media}
 
 def dispatch_state_change_event():
-    events.dispatch(events.Event("pngbinds:state_change", _get_state_data(nav_stack)))
+    events.dispatch(events.Event("pngoverlay:state_change", _get_state_data(navigator.stack)))
 
 def get_config_default_state(meta:plugins.Meta)->str|None:
     config_parent = plugins.read_configs(config.CONFIG_FILE, meta)
-    c:dict = config_parent.get("PNG-Binds", None)
+    c:dict = config_parent.get("PNG-Overlay", None)
     if c is not None:
         return c.get("Default-State", None)
     return None
@@ -65,9 +66,10 @@ def load_statemap():
             return statemapping.StateMap.load(f)
     return statemapping.StateMap()
 
+remote_event_keys_websocket:websocket.WebSocketApp = None
+
 def listen_remote_events_keys(host:str, secure:bool):
-    from simple_websocket.errors import ConnectionClosed
-    import websocket
+    global remote_event_keys_websocket
 
     def ws_on_open(ws):
         print("connected to keybinds keys")
@@ -99,8 +101,21 @@ def listen_remote_events_keys(host:str, secure:bool):
         print("disconnected from keybinds keys")
 
     print("pngoverlay: connecting to remote keybinds keys")
-    wsa = websocket.WebSocketApp(f"ws{"s"*secure}://{host}/api/keybinds/events/keys",
-                                 )
+    remote_event_keys_websocket = wsa = websocket.WebSocketApp(
+        f"ws{"s"*secure}://{host}/api/keybinds/events/keys",
+        on_open=ws_on_open, on_reconnect=ws_on_reconnect, on_close=ws_on_close, 
+        on_message=ws_on_message, on_error=ws_on_error
+    )
+    wsa.run_forever()
+
+def init_statemap(meta:plugins.Meta):
+    global navigator
+    navigator = statemapping.StateMapNavigator(
+        load_statemap(),
+        get_config_default_state(meta)
+    )
+    navigator.init_default()
+
 
 pngoverlaypages_parent = Blueprint("pngoverlayparent", __name__, static_folder=STATIC_DIR, static_url_path="/static/pngoverlay")
 pngoverlaypages = Blueprint("pngoverlay", __name__, url_prefix="/pngoverlay", template_folder=TEMPATES_DIR)
@@ -216,7 +231,7 @@ def set_media_file_bounds(name:str):
 @pngoverlayapi.get("/state/current")
 @serve_when_loaded(web_loaded_callback)
 def get_current_state():
-    return _get_state_data(nav_stack)
+    return _get_state_data(navigator.stack)
 
 @pngoverlaypages.get("/")
 @serve_when_loaded(web_loaded_callback)
@@ -226,7 +241,7 @@ def statemap_interface():
 @pngoverlayoverlays.get("/")
 @serve_when_loaded(web_loaded_callback)
 def get_overlay():
-    return render_template("pngbinds_overlay.html")
+    return render_template("pngoverlay_overlay.html")
 
 @pngoverlaypages.get("/media")
 @serve_when_loaded(web_loaded_callback)

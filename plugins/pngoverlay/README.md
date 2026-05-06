@@ -13,7 +13,7 @@ There are some extra configs you can specify in `config.json` for this plugin (i
 {
     ...
 
-    "PNG-Binds": {
+    "PNG-Overlay": {
         "Default-State": "STATE_NAME"
     }
 
@@ -27,14 +27,14 @@ For this plugin to run, make sure that it has been added to `plugins.json` with 
 
 ### Overlay
 
-You can access the overlay by going to [http://localhost:6742/pngbinds/overlay](http://localhost:6742/pngbinds/overlay).
+You can access the overlay by going to [http://localhost:6742/pngoverlay/overlay](http://localhost:6742/pngoverlay/overlay).
 
 
 ### Adding States, Transitions, and Media
 
-After running `main.py`, go to [http://localhost:6742/pngbinds/media]. Here, you can add images and gifs to use for the overlay. You'll want to add an asset for the border and some content assets.
+After running `main.py`, go to [http://localhost:6742/pngoverlay/media]. Here, you can add images and gifs to use for the overlay. You'll want to add an asset for the border and some content assets.
 
-Next, go to [http://localhost:6742/pngbinds](http://localhost:6742/pngbinds). Here, you can add/edit states and the keybinds that will be made to transition between them. Each state has a border and content asset. Transitions have a state, a keybind, an activation mode, and a transition.
+Next, go to [http://localhost:6742/pngoverlay](http://localhost:6742/pngoverlay). Here, you can add/edit states and the keybinds that will be made to transition between them. Each state has a border and content asset. Transitions have a state, a keybind, an activation mode, and a transition.
 
 ### VLC Plugins
 

@@ -6,7 +6,7 @@
  * @property {{content_name:string, border_name:string}|null} media
  */
 
-/** @type {PngBindsMediaList} */
+/** @type {PngOverlayMediaList} */
 let mlist;
 /** @type {StateMap} */
 let statemap;
@@ -107,7 +107,7 @@ window.addEventListener("load", async () => {
     const events = new WebSocket("/api/events");
 
     events.addEventListener("open", async () => {
-        const r = await fetch("/api/pngbinds/state/current");
+        const r = await fetch("/api/pngoverlay/state/current");
         if (!r.ok)
             return;
         displayState(await r.json());
@@ -116,7 +116,7 @@ window.addEventListener("load", async () => {
     events.addEventListener("message", ev => {
         const event = JSON.parse(ev.data);
         switch (event.name) {
-            case "pngbinds:state_change": {
+            case "pngoverlay:state_change": {
                 bufferedDisplayState(event.data);
                 break;
             }

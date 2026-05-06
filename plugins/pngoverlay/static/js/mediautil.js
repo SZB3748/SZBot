@@ -1,9 +1,9 @@
 /**
- * @typedef {Object<string, PngBindsMedia>} PngBindsMediaList
+ * @typedef {Object<string, PngOverlayMedia>} PngOverlayMediaList
  */
 
 /**
- * @typedef PngBindsMedia
+ * @typedef PngOverlayMedia
  * @property {any} value
  * @property {"image"|"iframe"} type
  * @property {MediaBounds} bounds
@@ -23,10 +23,10 @@ const mediaCache = new Map();
 
 
 /**
- * @returns {Promise<PngBindsMediaList|null>}
+ * @returns {Promise<PngOverlayMediaList|null>}
  */
 async function getMediaList() {
-    const r = await fetch("/api/pngbinds/media/list");
+    const r = await fetch("/api/pngoverlay/media/list");
     if (r.ok)
         return r.json();
     return null;
@@ -43,7 +43,7 @@ async function getMedia(name, useCache) {
             return mediaCache.get(name);
         }
     }
-    const r = await fetch(`/api/pngbinds/media/file/${name}`);
+    const r = await fetch(`/api/pngoverlay/media/file/${name}`);
     if (!r.ok)
         return null;
     const b = await r.blob();
@@ -71,7 +71,7 @@ async function uploadMedia(name, type, value, file) {
         body.set("value", value);
     }
     body.set("type", type);
-    const r = await fetch(`/api/pngbinds/media/file/${name}`, {
+    const r = await fetch(`/api/pngoverlay/media/file/${name}`, {
         method: "POST",
         body: body
     });
@@ -83,7 +83,7 @@ async function uploadMedia(name, type, value, file) {
  * @returns {Promise<bool>}
  */
 async function deleteMedia(name) {
-    const r = await fetch(`/api/pngbinds/media/file/${name}`, {
+    const r = await fetch(`/api/pngoverlay/media/file/${name}`, {
         method: "DELETE"
     });
     return r.ok;
@@ -108,7 +108,7 @@ async function setMediaBounds(name, top, right, bottom, left) {
     if (left != null && left != "")
         body.set("left", Number(left));
 
-    const r = await fetch(`/api/pngbinds/media/file/${name}/bounds`, {
+    const r = await fetch(`/api/pngoverlay/media/file/${name}/bounds`, {
         method: "POST",
         body: body
     });
@@ -120,7 +120,7 @@ async function setMediaBounds(name, top, right, bottom, left) {
  * @returns {Promise<boolean>}
  */
 async function deleteMediaBounds(name) {
-    const r = await fetch(`/api/pngbinds/media/file/${name}/bounds`, {
+    const r = await fetch(`/api/pngoverlay/media/file/${name}/bounds`, {
         method: "DELETE"
     });
     return r.ok;

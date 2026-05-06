@@ -566,17 +566,17 @@ def handle_socket_event(name:str, data:dict[str]):
             nav.stack = None
         ws.close()
     else:
-        print("pngbinds:\tbad event", name, data)
+        print("pngoverlay:\tbad event", name, data)
 
 def on_open(ws:websocket.WebSocket):
-    print("pngbinds:\tclient connected")
+    print("pngoverlay:\tclient connected")
 
 def on_message(ws:websocket.WebSocket, msg):
     if isinstance(msg, (str, bytes)):
         try:
             data = json.loads(msg)
         except json.JSONDecodeError:
-            print("pngbinds:\tclient received invalid JSON:", msg)
+            print("pngoverlay:\tclient received invalid JSON:", msg)
         else:
             if isinstance(data, dict) and isinstance((event_name := data.get("name", None)), str):
                 handle_socket_event(event_name, data.get("data"))
@@ -618,22 +618,22 @@ def send_keypress(keybind:str, mode:statemapping.TransitionMode, hold_start:bool
 
 def on_push(old:statemapping.NavigatorStackFrame|None, new:statemapping.NavigatorStackFrame):
     send_stack()
-    print(f"pngbinds:\t{None if old is None else old.state.name} >> {new.state.name}")
+    print(f"pngoverlay:\t{None if old is None else old.state.name} >> {new.state.name}")
     for t in new.transitions:
-        print(f"pngbinds:\t{t.keybind} {t.mode.name} --> {repr(t.destination)}{"" if t.pop_destination is None else ".."+repr(t.pop_destination)}")
+        print(f"pngoverlay:\t{t.keybind} {t.mode.name} --> {repr(t.destination)}{"" if t.pop_destination is None else ".."+repr(t.pop_destination)}")
 
 def on_pop(old:statemapping.NavigatorStackFrame, new:statemapping.NavigatorStackFrame|None):
     send_stack()
-    print(f"pngbinds:\t{None if new is None else new.state.name} << {old.state.name}")
+    print(f"pngoverlay:\t{None if new is None else new.state.name} << {old.state.name}")
     if new is not None:
         for t in new.transitions:
-            print(f"pngbinds:\t{t.keybind} {t.mode.name} --> {repr(t.destination)}{"" if t.pop_destination is None else ".."+repr(t.pop_destination)}")
+            print(f"pngoverlay:\t{t.keybind} {t.mode.name} --> {repr(t.destination)}{"" if t.pop_destination is None else ".."+repr(t.pop_destination)}")
 
 def on_change(old:statemapping.NavigatorStackFrame, new:statemapping.NavigatorStackFrame):
     send_stack()
-    print(f"pngbinds:\t{old.state.name} -> {new.state.name}")
+    print(f"pngoverlay:\t{old.state.name} -> {new.state.name}")
     for t in new.transitions:
-        print(f"pngbinds:\t{t.keybind} {t.mode.name} --> {repr(t.destination)}{"" if t.pop_destination is None else ".."+repr(t.pop_destination)}")
+        print(f"pngoverlay:\t{t.keybind} {t.mode.name} --> {repr(t.destination)}{"" if t.pop_destination is None else ".."+repr(t.pop_destination)}")
 
 
 nav:KeyboardStateMapNavigator = None

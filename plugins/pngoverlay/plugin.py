@@ -66,19 +66,22 @@ def on_load(ctx:plugins.LoadEvent):
         webroutes.add_routes(web.app, web.api, m_interface == plugins.COMPONENT_MODE_NORMAL, m_overlay == plugins.COMPONENT_MODE_NORMAL, m_api == plugins.COMPONENT_MODE_NORMAL)
         rinterface = m_interface == plugins.COMPONENT_MODE_REMOTE
         roverlay = m_overlay == plugins.COMPONENT_MODE_REMOTE
-        vpngbindspages_parent = webroutes.Blueprint("proxy_pngbindsparent", __name__, static_folder=webroutes.pngoverlaypages_parent.static_folder, template_folder=webroutes.pngoverlaypages_parent.template_folder, static_url_path=webroutes.pngoverlaypages_parent.static_url_path)
+        vpngoverlaypages_parent = webroutes.Blueprint("proxy_pngoverlayparent", __name__, static_folder=webroutes.pngoverlaypages_parent.static_folder, template_folder=webroutes.pngoverlaypages_parent.template_folder, static_url_path=webroutes.pngoverlaypages_parent.static_url_path)
         if rinterface:
-            web.create_component_proxy(ctx.remote_api_addr, vpngbindspages_parent, webroutes.pngoverlaypages.name, webroutes.pngoverlaypages.url_prefix, socket=False)
+            web.create_component_proxy(ctx.remote_api_addr, vpngoverlaypages_parent, webroutes.pngoverlaypages.name, webroutes.pngoverlaypages.url_prefix, socket=False)
         if roverlay:
-            web.create_component_proxy(ctx.remote_api_addr, vpngbindspages_parent, webroutes.pngoverlayoverlays.name, webroutes.pngoverlayoverlays.url_prefix, socket=False)
+            web.create_component_proxy(ctx.remote_api_addr, vpngoverlaypages_parent, webroutes.pngoverlayoverlays.name, webroutes.pngoverlayoverlays.url_prefix, socket=False)
         if rinterface or roverlay:
-            web.add_bp_if_new(web.app, vpngbindspages_parent)
+            web.add_bp_if_new(web.app, vpngoverlaypages_parent)
         if m_api == plugins.COMPONENT_MODE_REMOTE:
             web.create_component_proxy(ctx.remote_api_addr, web.api, webroutes.pngoverlayapi.name, webroutes.pngoverlayapi.url_prefix)
+
+    if m_api == plugins.COMPONENT_MODE_NORMAL:
+        webroutes.init_statemap(ctx.plugin.meta)
     
     assert m_events != plugins.COMPONENT_MODE_REMOTE, "PNG Binds event negotiator has no remote mode."
     if m_events == plugins.COMPONENT_MODE_NORMAL:
-        event_negotiator = webroutes.event_negotiator = statemapping.EventNegotiator(lambda: webroutes.nav_stack, lambda: webroutes.statemap, webroutes.dispatch_state_change_event)
+        event_negotiator = webroutes.event_negotiator = statemapping.EventNegotiator(lambda: webroutes.navigator.stack, lambda: webroutes.navigator.statemap, webroutes.dispatch_state_change_event)
         webroutes.event_negotiator_thread = threading.Thread(target=event_negotiator.background_task)
         webroutes.event_negotiator_thread.start()
 
@@ -97,7 +100,9 @@ def on_unload(ctx:plugins.UnloadEvent):
     #     webroutes.nav_stack = None
     #     webroutes.dispatch_state_change_event()
     if keybinds_key_events_thread is not None:
-        keybinds_key_events_thread.join(0.5)
+        if webroutes.remote_event_keys_websocket is not None:
+            webroutes.remote_event_keys_websocket.close()
+            keybinds_key_events_thread.join(0.5)
         keybinds_key_events_thread = None
     if webroutes.event_negotiator:
         webroutes.event_negotiator_thread.join(0.5)

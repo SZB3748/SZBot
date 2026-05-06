@@ -66,9 +66,7 @@ class ActionKeyBindTrigger(KeyBindTrigger):
         else:
             uid, *_ = actions.enqueue_script(s, action.script_environment)
             async def _wait():
-                print(uid, "waiting") #DEBUG
                 await actions.wait_script_finish_async(uid)
-                print(uid, "done waiting")
             return _wait()
 
     def __getstate__(self)->dict[str]:

@@ -1,6 +1,6 @@
 
 /**
- * @param {PngBindsMediaList} mlist 
+ * @param {pngoverlayMediaList} mlist 
  * @param {HTMLElement} dest
  */
 function displayMedia(mlist, dest) {

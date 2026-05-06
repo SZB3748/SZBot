@@ -35,10 +35,10 @@ def on_load(ctx:plugins.LoadEvent):
     if ctx.is_start:
         webroutes.add_routes(web.app, web.api, m_interface == plugins.COMPONENT_MODE_NORMAL, m_api == plugins.COMPONENT_MODE_NORMAL)
         rinterface = m_interface == plugins.COMPONENT_MODE_REMOTE
-        vpngbindspages_parent = webroutes.Blueprint("proxy_keybindsparent", __name__, static_folder=webroutes.keybindspages_parent.static_folder, template_folder=webroutes.keybindspages_parent.template_folder, static_url_path=webroutes.keybindspages_parent.static_url_path)
+        vpngoverlaypages_parent = webroutes.Blueprint("proxy_keybindsparent", __name__, static_folder=webroutes.keybindspages_parent.static_folder, template_folder=webroutes.keybindspages_parent.template_folder, static_url_path=webroutes.keybindspages_parent.static_url_path)
         if rinterface:
-            web.create_component_proxy(ctx.remote_api_addr, vpngbindspages_parent, webroutes.keybindspages.name, webroutes.keybindspages.url_prefix, socket=False)
-            web.add_bp_if_new(web.app, vpngbindspages_parent)
+            web.create_component_proxy(ctx.remote_api_addr, vpngoverlaypages_parent, webroutes.keybindspages.name, webroutes.keybindspages.url_prefix, socket=False)
+            web.add_bp_if_new(web.app, vpngoverlaypages_parent)
         if m_api == plugins.COMPONENT_MODE_REMOTE:
             web.create_component_proxy(ctx.remote_api_addr, web.api, webroutes.keybindsapi.name, webroutes.keybindsapi.url_prefix)
 

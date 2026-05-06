@@ -42,7 +42,7 @@ const TRANSITION_MODES = ["TRIGGER_DOWN", "TRIGGER_UP", "HOLD"];
  * @returns {Promise<StateMap|null>}
  */
 async function getStatemap() {
-    const r = await fetch("/api/pngbinds/statemap.json");
+    const r = await fetch("/api/pngoverlay/statemap.json");
     if (r.ok) {
         return r.json();
     }
@@ -54,7 +54,7 @@ async function getStatemap() {
  * @returns {Promise<boolean>}
  */
 async function saveStatemap(statemap) {
-    const r = await fetch("/api/pngbinds/statemap.json", {
+    const r = await fetch("/api/pngoverlay/statemap.json", {
         method: "PUT",
         body: JSON.stringify(statemap, null, "    "),
         headers: {

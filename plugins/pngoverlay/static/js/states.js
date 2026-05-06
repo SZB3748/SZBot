@@ -1,6 +1,6 @@
 /** @type {StateMap} */
 let statemap;
-/** @type {PngBindsMediaList} */
+/** @type {PngOverlayMediaList} */
 let mlist;
 
 /**

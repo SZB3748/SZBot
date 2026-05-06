@@ -2,8 +2,8 @@ import datafile
 import json
 import os
 
-MEDIA_DIR = datafile.makepath("pngbinds-media")
-MEDIA_LIST_PATH = datafile.makepath("pngbinds_media.json")
+MEDIA_DIR = datafile.makepath("pngoverlay-media")
+MEDIA_LIST_PATH = datafile.makepath("pngoverlay_media.json")
 
 MediaList = dict[str, dict[str]]
 
