@@ -38,7 +38,7 @@ def on_load(ctx:plugins.LoadEvent):
     microphone = ctx.plugin_list.get("microphone", None)
     keybinds = ctx.plugin_list.get("keybinds", None)
 
-    if microphone is not None and microphone.module is not None:
+    if not (microphone is None or microphone.module is None):
         statemapping.EVENT_CONDITION_TYPES[statemapping.MicActivityCondition.CATEGORY_NAME] = statemapping.MicActivityCondition
         microphone_m_api = microphone.get_component_mode(microphone.module.COMPONENT_API)
         if microphone_m_api == plugins.COMPONENT_MODE_NORMAL:
@@ -79,11 +79,13 @@ def on_load(ctx:plugins.LoadEvent):
     if m_api == plugins.COMPONENT_MODE_NORMAL:
         webroutes.init_statemap(ctx.plugin.meta)
     
-    assert m_events != plugins.COMPONENT_MODE_REMOTE, "PNG Binds event negotiator has no remote mode."
-    if m_events == plugins.COMPONENT_MODE_NORMAL:
-        event_negotiator = webroutes.event_negotiator = statemapping.EventNegotiator(lambda: webroutes.navigator.stack, lambda: webroutes.navigator.statemap, webroutes.dispatch_state_change_event)
-        webroutes.event_negotiator_thread = threading.Thread(target=event_negotiator.background_task)
-        webroutes.event_negotiator_thread.start()
+        assert m_events != plugins.COMPONENT_MODE_REMOTE, "PNG Overlay event negotiator has no remote mode."
+        if m_events == plugins.COMPONENT_MODE_NORMAL:
+            event_negotiator = webroutes.event_negotiator = statemapping.EventNegotiator(lambda: webroutes.navigator.stack, lambda: webroutes.navigator.statemap, webroutes.dispatch_state_change_event)
+            webroutes.event_negotiator_thread = threading.Thread(target=event_negotiator.background_task)
+            webroutes.event_negotiator_thread.start()
+    elif m_events == plugins.COMPONENT_MODE_NORMAL:
+        print("PNG Overlay event negotiator will not be run due to api component mode:", m_api)
 
 def on_unload(ctx:plugins.UnloadEvent):
     global microphone_read_thread, keybinds_key_events_thread

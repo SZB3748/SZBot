@@ -325,7 +325,7 @@ def remote_api_script_env_handler():
     _rapi_ready.wait(timeout=20)
 
     wsa = websocket.WebSocketApp(
-        f"ws{"s"*(__host_addr[1]==443)}://{__host_addr[0]}:{__host_addr[1]}/api/action/script/env-switch",
+        f"ws{"s"*(__host_addr[1]==443)}://{__host_addr[0]}:{__host_addr[1]}/api/action/script/env-switch?name={actions.current_environment_name}",
         on_open=ws_on_open, on_message=ws_on_message,
         on_error=ws_on_error, on_close=ws_on_close,
         on_reconnect=ws_on_reconnect
@@ -426,7 +426,11 @@ def _handle_env_switch_instruction(data:dict[str]):
         ...
 
 def sock_action_environment_switch(ws:Server):
-    environment_name = request.args["name"]
+    environment_name = request.args.get("name", None)
+    if not environment_name:
+        ws.close(4400, "environment name missing")
+        return
+    
     with actions._env_switch_queue_lock:
         if environment_name in actions._env_switch_queue:
             ws.close(4422, f"environment name already in use: {environment_name}")
@@ -598,6 +602,7 @@ def create_endpoint_proxy(addr:str, routes:list[str], bp:Blueprint, normal=True,
             send_thread = threading.Thread(target=send_to_remote, daemon=True)
 
             def on_open(cws:websocket.WebSocket):
+                print("PROXY WS FORWARD START:", url)
                 send_thread.start()
 
             def on_message(cws:websocket.WebSocket, msg:str|bytearray|memoryview):
@@ -629,6 +634,7 @@ def create_endpoint_proxy(addr:str, routes:list[str], bp:Blueprint, normal=True,
                 on_close=on_close
             )
 
+            print("PROXY WS RETURN START", url)
             client.run_forever()
 
         if endpoint_name is not None:
@@ -712,7 +718,8 @@ def attach_core(interface_mode:str, api_mode:str, tronix_mode:str, remote_api_ad
         for p in ["/configs", "/configs/meta", "/plugins/load", "/plugins/unload", "/events/dispatch", "/action/script/check", "/action/script/run", "/action/list", "/action"]:
             create_endpoint_proxy(remote_api_addr, [p], vcoreapi, socket=False, endpoint_name=p[1:].replace("/", "_"))
         create_endpoint_proxy(remote_api_addr, ["/events"], vcoreapi, normal=False, endpoint_name="events")
-        create_endpoint_proxy(remote_api_addr, ["/action/script/env-switch"], vcoreapi, normal=False, endpoint_name="script_env_switch")
+        if tronix_enabled:
+            create_endpoint_proxy(remote_api_addr, ["/action/script/env-switch"], vcoreapi, normal=False, endpoint_name="script_env_switch")
         api.register_blueprint(vcoreapi)
         #replace default_container.dispatch so that all events for the default event system get sent to the remote instance
         def proxy_dispatch(*e:events.Event):
