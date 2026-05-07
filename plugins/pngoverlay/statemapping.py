@@ -234,8 +234,8 @@ _mic_volumes_proc:subprocess.Popen = None
 def mic_get_volume(id:str)->int:
     if id in _mic_volumes:
         return _mic_volumes[id]
-    _mic_volumes[id] = 0
     if _mic_volumes_proc is not None:
+        _mic_volumes[id] = 0
         _mic_volumes_proc.stdin.write(f"{json.dumps({"name": "new_mic", "data": {"id": id}})}\n")
         _mic_volumes_proc.stdin.flush()
     return 0
