@@ -96,6 +96,8 @@ def sql_executor_loop():
     for _, tablestatement in TABLES.values():
         cursor.execute(tablestatement)
 
+    cursor.execute(f"DELETE FROM {RedeemStat.TABLE_NAME}") #DEBUG
+
     conn.autocommit = False
 
     inf = float("inf")
@@ -638,7 +640,7 @@ CREATE TABLE IF NOT EXISTS {RedeemStat.TABLE_NAME} (
 )
 """)
 
-add_table(RedeemStat, f"""\
+add_table(RaidStat, f"""\
 CREATE TABLE IF NOT EXISTS {RaidStat.TABLE_NAME} (
     {RaidStat.COLUMN_ID} INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
     {RaidStat.COLUMN_HAPPENED} DATETIME NOT NULL,

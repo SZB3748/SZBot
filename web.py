@@ -10,6 +10,7 @@ from flask_sock import Server, Sock
 from gevent.pywsgi import WSGIServer
 import inspect
 import json
+import layouts
 from markupsafe import Markup
 import os
 import pickle
@@ -22,6 +23,7 @@ import tronix
 from typing import Callable, Sequence
 import uuid
 import websocket
+from werkzeug.security import safe_join
 from werkzeug.datastructures import Headers
 
 HOST = "127.0.0.1"
@@ -228,6 +230,76 @@ def api_unload_plugin():
     plugin.unload(plugins.UnloadEvent(plugins.shared_plugins_list, plugin, False, None))
     return "", 204
 
+class _layout_construct_loop_result:
+    def __init__(self):
+        self.html = None
+        self.exception = None
+        self.event = threading.Event()
+
+_layout_construct_loop = None
+_layout_construct_queue:list[tuple[tuple, _layout_construct_loop_result]] = []
+_layout_construct_queue_lock = threading.Lock()
+_layout_construct_queue_ready = asyncio.Event()
+_layout_construct_loop_run = False
+
+async def layout_construct_loop():
+    global _layout_construct_loop
+    
+    _layout_construct_loop = asyncio.get_running_loop()
+
+    while _layout_construct_loop_run:
+        await _layout_construct_queue_ready.wait()
+        if not _layout_construct_loop_run:
+            return
+        with _layout_construct_queue_lock:
+            q = _layout_construct_queue.copy()
+            _layout_construct_queue.clear()
+            _layout_construct_queue_ready.clear()
+        
+        for args, result in q:
+            try:
+                result.html = await layouts.construct(*args)
+            except Exception as e:
+                result.exception = e
+            finally:
+                result.event.set()
+
+def layout_construct_handler():
+    global _layout_construct_loop_run
+    _layout_construct_loop_run = True
+    future = asyncio.run_coroutine_threadsafe(layout_construct_loop(), actions.shared_loop)
+    future.result()
+    
+_layout_construct_thread = threading.Thread(target=layout_construct_handler, daemon=True)
+
+@coreapi.post("/layout/construct")
+def api_layout_construct():
+    name = request.args["name"]
+    deserialize = request.args.get("deserialize", "false").lower() != "false"
+    data = request.get_json()
+    if deserialize:
+        data = actions.extra_data_deserialize(data)
+    
+    layout = layouts.load_layout_meta(safe_join(layouts.LAYOUT_DIR, f"{name}.json"))
+    if layout is None:
+        return "", 404
+    tree = layouts.load_layout_html(safe_join(layouts.LAYOUT_DIR, f"{name}.html"))
+
+    result = _layout_construct_loop_result()
+
+    with _layout_construct_queue_lock:
+        _layout_construct_queue.append(((tree, layout, data), result))
+        _layout_construct_loop.call_soon_threadsafe(_layout_construct_queue_ready.set)
+
+    result.event.wait()
+
+    #TODO handle exceptions (or maybe just let them rise and result in a default 500 response)
+    if result.html is not None:
+        return result.html, 200
+    elif result.exception is not None:
+        raise result.exception #DEBUG
+
+
 class proxy_headers:
     def __init__(self, base:Headers, exclude:Sequence[str], exclude_prefix:tuple[str, ...]=()):
         self.base = base
@@ -293,7 +365,8 @@ def api_action_script_run():
         scope = None
     script = tronix.Script(data["script"], scope)
 
-    asyncio.run(actions.script_runner.run_async(script, data["force_parse"], data["force_compile"]))
+    future = asyncio.run_coroutine_threadsafe(actions.script_runner.run_async(script, data["force_parse"], data["force_compile"]), actions.shared_loop)
+    future.result()
     return pickle.dumps(tronix.utils.serialize_namespace(script.scope)), 200, {"Content-Type": "application/octet-stream"}
 
 
@@ -360,6 +433,8 @@ async def _arl_future(uid:uuid.UUID, queued:list[tuple[uuid.UUID, tronix.Script,
             _arl_futures.pop(uid, None)
 
 async def action_runner_local_loop():
+    global _arl_loop
+    _arl_loop = asyncio.get_running_loop()
     while True:
         await _arl_ready.wait()
         with _arl_queue_lock:
@@ -371,9 +446,8 @@ async def action_runner_local_loop():
             _arl_futures[uid] = asyncio.ensure_future(_arl_future(uid, queued), loop=_arl_loop)
 
 def action_runner_local_handler():
-    global _arl_loop
-    _arl_loop = loop = asyncio.new_event_loop()
-    loop.run_until_complete(action_runner_local_loop())
+    future = asyncio.run_coroutine_threadsafe(action_runner_local_loop(), actions.shared_loop)
+    future.result()
 
 _arl_thread = threading.Thread(target=action_runner_local_handler, daemon=True)
 def start_action_runner_local():
@@ -710,12 +784,13 @@ def attach_core(interface_mode:str, api_mode:str, tronix_mode:str, remote_api_ad
         if tronix_enabled:
             coreapi.post("/action/script/run")(api_action_script_run)
             sock.route("/action/script/env-switch", bp=api)(sock_action_environment_switch)
+            _layout_construct_thread.start()
         api.register_blueprint(coreapi)
     elif api_mode == plugins.COMPONENT_MODE_REMOTE:
         vcoreapi = Blueprint("proxy_core_api", __name__)
         if tronix_enabled:
             _rapi_script_env_thread.start()
-        for p in ["/configs", "/configs/meta", "/plugins/load", "/plugins/unload", "/events/dispatch", "/action/script/check", "/action/script/run", "/action/list", "/action"]:
+        for p in ["/configs", "/configs/meta", "/plugins/load", "/plugins/unload", "/layout/construct", "/events/dispatch", "/action/script/check", "/action/script/run", "/action/list", "/action"]:
             create_endpoint_proxy(remote_api_addr, [p], vcoreapi, socket=False, endpoint_name=p[1:].replace("/", "_"))
         create_endpoint_proxy(remote_api_addr, ["/events"], vcoreapi, normal=False, endpoint_name="events")
         if tronix_enabled:

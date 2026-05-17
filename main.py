@@ -152,5 +152,7 @@ if __name__ == "__main__":
     else:
         addr, remote_api_addr, config_path, pconfig_path, core_components = get_args()
         config.CONFIG_FILE = config_path
+        shared_loop_thread, shared_loop_ready = actions.run_shared_loop()
+        shared_loop_ready.wait()
         run(addr, remote_api_addr, pconfig_path, core_components)
         exit(0)

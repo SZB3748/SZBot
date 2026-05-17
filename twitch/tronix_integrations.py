@@ -16,27 +16,41 @@ class InvalidTwitchContext(exceptions.TRuntimeException):
     "Twitch context is not of the expected type."
 
 class BotScriptContext:
-    def __init__(self, bot:commands.Bot, command_ctx:commands.Context|None=None, redeem_payload:twitchio.ChannelPointsRedemptionAdd|None=None, message:twitchio.ChatMessage|None=None):
+    def __init__(self, bot:commands.Bot, command_ctx:commands.Context|None=None, redeem:twitchio.ChannelPointsRedemptionAdd|None=None, message:twitchio.ChatMessage|None=None,
+                 cheer:twitchio.ChannelCheer|None=None, bitsuse:twitchio.ChannelBitsUse|None=None, follow:twitchio.ChannelFollow|None=None,
+                 train_begin:twitchio.HypeTrainBegin|None=None, train_progress:twitchio.HypeTrainProgress|None=None, train_end:twitchio.HypeTrainEnd|None=None,
+                 raid:twitchio.ChannelRaid|None=None, sub:twitchio.ChannelSubscribe|None=None, gift_sub:twitchio.ChannelSubscriptionGift|None=None,
+                 sub_msg:twitchio.ChannelSubscriptionMessage|None=None):
         self.bot = bot
         self.command_ctx = command_ctx
-        self.redeem_payload = redeem_payload
+        self.redeem = redeem
         self.message = message
+        self.cheer = cheer
+        self.bitsuse = bitsuse
+        self.follow = follow
+        self.train_begin = train_begin
+        self.train_progress = train_progress
+        self.train_end = train_end
+        self.raid = raid
+        self.sub = sub
+        self.gift_sub = gift_sub
+        self.sub_msg = sub_msg
 
     def resolve_broadcaster(self)->twitchio.PartialUser|None:
         if self.message is not None:
             return self.message.broadcaster
         elif self.command_ctx is not None:
             return self.command_ctx.broadcaster
-        elif self.redeem_payload is not None:
-            return self.redeem_payload.broadcaster
+        elif self.redeem is not None:
+            return self.redeem.broadcaster
 
     def resolve_author(self)->twitchio.PartialUser|None:
         if self.message is not None:
             return self.message.chatter
         elif self.command_ctx is not None:
             return self.command_ctx.chatter
-        elif self.redeem_payload is not None:
-            return self.redeem_payload.user
+        elif self.redeem is not None:
+            return self.redeem.user
 
     def resolve_message(self)->twitchio.ChatMessage|None:
         if self.message is not None:
@@ -61,6 +75,11 @@ def _resolve_message(tctx:BotScriptContext):
     if msg is None:
         ... #TODO error missing context to auto-determine message
     return msg
+
+def _resolve_redeem(tctx:BotScriptContext):
+    if tctx.redeem is None:
+        ... #TODO error missing redeem context
+    return tctx.redeem
 
 class analytics_window(builtins._pair[datetime|None, datetime|None]):
     
@@ -89,7 +108,20 @@ class _AnalyticsWindowType(builtins._PairType):
     f_construct:ScriptFunction[Self] = ScriptFunction()
     construct = f_construct
 
-class _CommandContextType(script.ScriptDataType[commands.Context]):
+class _TwitchRewardType(script.ScriptDataType[twitchio.ChannelPointsReward]):
+    def getattr(self, obj, name):
+        if name == "author":
+            ... #TODO
+        else:
+            raise AttributeError(repr(name))
+    
+    def setattr(self, obj, name, value):
+        raise TypeError(f"{self.name} object is read-only")
+        
+    def delattr(self, obj, name):
+        raise TypeError(f"{self.name} object is read-only")
+
+class _TwitchCommandContextType(script.ScriptDataType[commands.Context]):
     def getattr(self, obj, name):
         if name == "author":
             return script.wrap_python_value(obj.inner.author)
@@ -106,7 +138,7 @@ class _CommandContextType(script.ScriptDataType[commands.Context]):
     def delattr(self, obj, name):
         raise TypeError(f"{self.name} object is read-only")
 
-class _RedeemContextType(script.ScriptDataType[twitchio.ChannelPointsRedemptionAdd]):
+class _TwitchRedeemType(script.ScriptDataType[twitchio.ChannelPointsRedemptionAdd]):
     def getattr(self, obj, name):
         if name == "broadcaster":
             return script.wrap_python_value(obj.inner.broadcaster)
@@ -115,7 +147,7 @@ class _RedeemContextType(script.ScriptDataType[twitchio.ChannelPointsRedemptionA
         elif name == "redeemed_at":
             return script.wrap_python_value(obj.inner.redeemed_at)
         elif name == "reward":
-            ... #TODO reward type
+            return script.wrap_python_value(obj.inner.reward)
         elif name == "status":
             return script.wrap_python_value(obj.inner.status)
         elif name == "user":
@@ -221,7 +253,7 @@ class _TwitchContextType(script.ScriptDataType[BotScriptContext]):
         if name == "command":
             return script.wrap_python_value(obj.inner.command_ctx)
         elif name == "redeem":
-            return script.wrap_python_value(obj.inner.redeem_payload)
+            return script.wrap_python_value(obj.inner.redeem)
         elif name == "message":
             return script.wrap_python_value(obj.inner.message)
         else:
@@ -237,13 +269,14 @@ class _TwitchContextType(script.ScriptDataType[BotScriptContext]):
 TwitchUser = _TwitchUserType("TwitchUser", twitchio.PartialUser, script.BASE_TYPE)
 TwitchChatter = _TwitchChatterType("TwitchChatter", twitchio.Chatter, TwitchUser)
 TwitchMessage = _TwitchMessageType("TwitchMessage", twitchio.ChatMessage, script.BASE_TYPE)
-CommandContext = _CommandContextType("CommandContext", commands.Context, script.BASE_TYPE)
-RedeemContext = _RedeemContextType("RedeemContext", twitchio.ChannelPointsRedemptionAdd, script.BASE_TYPE)
+TwitchCommandContext = _TwitchCommandContextType("TwitchCommandContext", commands.Context, script.BASE_TYPE)
+TwitchRedeem = _TwitchRedeemType("TwitchRedeem", twitchio.ChannelPointsRedemptionAdd, script.BASE_TYPE)
+TwitchReward = _TwitchRewardType("TwitchReward", twitchio.ChannelPointsReward, script.BASE_TYPE)
 TwitchContext = _TwitchContextType("TwitchContext", BotScriptContext, script.BASE_TYPE)
 
 AnalyticsWindow = _AnalyticsWindowType("AnalyticsWindow", analytics_window, builtins.Pair)
 
-def _get_tctx(ctx:script.ScriptContext):
+def get_tctx(ctx:script.ScriptContext):
     ns = ctx.stack.find_name(TWITCH_CONTEXT_VAR_NAME)
     if ns is None:
         raise exceptions.TMissingName(f"missing twitch context {repr(TWITCH_CONTEXT_VAR_NAME)}")
@@ -282,12 +315,12 @@ f_twitch_is_this_channel_first_message = ScriptFunction()
 
 @f_twitch_send_message.overload(("msg", builtins.String), pass_ctx=True)
 async def twitch_send_message_autodest(ctx:script.ScriptContext, msg:ScriptVariable[str]):
-    tctx = _get_tctx(ctx)
+    tctx = get_tctx(ctx)
     await _resolve_broadcaster(tctx).send_message(msg.get().inner, tctx.bot.user)
 
 @f_twitch_send_message.overload(("msg", builtins.String), ("broadcaster", _UserUnion+[builtins.NullType], None), pass_ctx=True)
 async def twitch_send_message_manualdest(ctx:script.ScriptContext, msg:ScriptVariable[str], broadcaster:ScriptVariable[str|int|twitchio.PartialUser|None]):
-    tctx = _get_tctx(ctx)
+    tctx = get_tctx(ctx)
     if broadcaster.get().inner is None:
         b = _resolve_broadcaster(tctx)
     else:
@@ -298,12 +331,12 @@ async def twitch_send_message_manualdest(ctx:script.ScriptContext, msg:ScriptVar
 
 @f_twitch_shoutout.overload(("user", _UserUnion), pass_ctx=True)
 async def twitch_shoutout_autodest(ctx:script.ScriptContext, user:ScriptVariable[str|int|twitchio.PartialUser]):
-    tctx = _get_tctx(ctx)
+    tctx = get_tctx(ctx)
     await _resolve_broadcaster(tctx).send_shoutout(to_broadcaster=user.get().inner, moderator=tctx.bot.user)
 
 @f_twitch_shoutout.overload(("user", _UserUnion), ("broadcaster", _UserUnion+[builtins.NullType], None), pass_ctx=True)
 async def twitch_shoutout_manualdest(ctx:script.ScriptContext, user:ScriptVariable[str|int|twitchio.PartialUser], broadcaster:ScriptVariable[str|int|twitchio.PartialUser|None]):
-    tctx = _get_tctx(ctx)
+    tctx = get_tctx(ctx)
     if broadcaster.get().inner is None:
         b = _resolve_broadcaster(tctx)
     else:
@@ -314,7 +347,7 @@ async def twitch_shoutout_manualdest(ctx:script.ScriptContext, user:ScriptVariab
 
 @f_twitch_timeout.overload(("user", _UserUnion), ("duration", [builtins.Integer, builtins.Float], 600), ("reason", [builtins.String, builtins.NullType], None), ("broadcaster", _UserUnion+[builtins.NullType], None), pass_ctx=True)
 async def twitch_timeout(ctx:script.ScriptContext, user:ScriptVariable[str|int|twitchio.PartialUser], duration:ScriptVariable[int|float], reason:ScriptVariable[str|None], broadcaster:ScriptVariable[str|int|twitchio.PartialUser|None]):
-    tctx = _get_tctx(ctx)
+    tctx = get_tctx(ctx)
     if broadcaster.get().inner is None:
         b = _resolve_broadcaster(tctx)
     else:
@@ -326,7 +359,7 @@ async def twitch_timeout(ctx:script.ScriptContext, user:ScriptVariable[str|int|t
 
 @f_twitch_ban.overload(("user", _UserUnion), ("reason", [builtins.String, builtins.NullType], None), ("broadcaster", _UserUnion+[builtins.NullType], None), pass_ctx=True)
 async def twitch_ban(ctx:script.ScriptContext, user:ScriptVariable[str|int|twitchio.PartialUser], reason:ScriptVariable[str|None], broadcaster:ScriptVariable[str|int|twitchio.PartialUser|None]):
-    tctx = _get_tctx(ctx)
+    tctx = get_tctx(ctx)
     if broadcaster.get().inner is None:
         b = _resolve_user(tctx)
     else:
@@ -338,12 +371,12 @@ async def twitch_ban(ctx:script.ScriptContext, user:ScriptVariable[str|int|twitc
 
 @f_twitch_unban.overload(("user", _UserUnion), pass_ctx=True)
 async def twitch_unban_autodest(ctx:script.ScriptContext, user:ScriptVariable[str|int|twitchio.PartialUser]):
-    tctx = _get_tctx(ctx)
+    tctx = get_tctx(ctx)
     await _resolve_broadcaster(tctx).unban_user(user_id=user.get().inner, moderator=tctx.bot.user)
 
 @f_twitch_unban.overload(("user", _UserUnion), ("broadcaster", _UserUnion), pass_ctx=True)
 async def twitch_unban_manualdest(ctx:script.ScriptContext, user:ScriptVariable[str|int|twitchio.PartialUser], broadcaster:ScriptVariable[str|int|twitchio.PartialUser]):
-    tctx = _get_tctx(ctx)
+    tctx = get_tctx(ctx)
     b = await _resolve_user(tctx, broadcaster)
     if b is None:
         ... #TODO error could not resolve broadcaster
@@ -363,11 +396,11 @@ async def _query_current_stream_window(broadcaster_id:int, seconds:int|float, er
             f"SELECT {starts.COLUMN_HAPPENED} FROM {starts.TABLE_NAME} WHERE {starts.COLUMN_BROADCASTER_ID}=? AND (? - {starts.COLUMN_HAPPENED}) <= ? ORDER BY {starts.COLUMN_HAPPENED}",
             broadcaster_id, last_end, seconds, query_count=1
         )
-    return script.wrap_python_value(analytics_window(None if executed.result is None else datetime.fromtimestamp(executed.result[0], timezone.utc)-timedelta(seconds=error), None))
+    return script.wrap_python_value(analytics_window(None if executed.result is None else (r0 := executed.result[0] if isinstance(r0, datetime) else datetime.fromtimestamp(r0, timezone.utc))-timedelta(seconds=error), None))
 
 @f_twitch_current_stream_window.overload(("broadcaster", _UserUnion+[builtins.NullType], None), ("threshold_secs", [builtins.Integer,builtins.Float], 0), ("threshold_mins", [builtins.Integer,builtins.Float], 0), ("threshold_hours", [builtins.Integer,builtins.Float], 0), ("error", [builtins.Integer,builtins.Float], 2.5), pass_ctx=True)
 async def twitch_current_stream_window(ctx:script.ScriptContext, broadcaster:ScriptVariable[str|int|twitchio.PartialUser|None], threshold_secs:ScriptVariable[int|float], threshold_mins:ScriptVariable[int|float], threshold_hours:ScriptVariable[int|float], error:ScriptVariable[int|float]):
-    tctx = _get_tctx(ctx)
+    tctx = get_tctx(ctx)
     seconds = threshold_secs.get().inner + threshold_mins.get().inner * 60 + threshold_hours.get().inner * 3600
     if broadcaster.get().inner is None:
         b = _resolve_broadcaster(tctx)
@@ -397,7 +430,7 @@ async def _is_first_message(window:ScriptVariable[analytics_window], msg:UUID, f
 
 @f_twitch_is_this_user_first_message.overload(("window", AnalyticsWindow), ("message", [builtins.UUID,TwitchMessage,builtins.NullType], None), ("author", _UserUnion+[builtins.NullType], None), pass_ctx=True)
 async def twitch_is_this_user_first_message(ctx:script.ScriptContext, window:ScriptVariable[analytics_window], message:ScriptVariable[UUID|twitchio.ChatMessage|None], author:ScriptVariable[str|int|twitchio.PartialUser|None]):
-    tctx = _get_tctx(ctx)
+    tctx = get_tctx(ctx)
     msg = message.get()
     user = author.get()
     uid:int|None = None
@@ -427,7 +460,7 @@ async def twitch_is_this_user_first_message(ctx:script.ScriptContext, window:Scr
 
 @f_twitch_is_this_channel_first_message.overload(("window", AnalyticsWindow), ("message", [builtins.UUID,TwitchMessage,builtins.NullType], None), pass_ctx=True)
 async def twitch_is_this_channel_first_message(ctx:script.ScriptContext, window:ScriptVariable[analytics_window], message:ScriptVariable[UUID|twitchio.ChatMessage|None]):
-    tctx = _get_tctx(ctx)
+    tctx = get_tctx(ctx)
     msg = message.get()
 
     if msg.inner is None:
@@ -445,8 +478,8 @@ def activate():
     script.DATA_TYPE_TABLE[twitchio.User] = TwitchUser #type alias
     utils.add_type(TwitchChatter, constructor=False)
     utils.add_type(TwitchMessage, constructor=False)
-    utils.add_type(CommandContext, constructor=False)
-    utils.add_type(RedeemContext, constructor=False)
+    utils.add_type(TwitchCommandContext, constructor=False)
+    utils.add_type(TwitchRedeem, constructor=False)
     utils.add_type(TwitchContext, constructor=False)
     utils.add_type(AnalyticsWindow)
     script.SCRIPT_FUNCTION_TABLE["twitch_send_message"] = f_twitch_send_message

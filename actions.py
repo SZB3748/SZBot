@@ -59,7 +59,7 @@ class Action:
         return {
             "name": self.name,
             "script": self.script,
-            "requested_values": {k:v.__getstate__() for k,v in self.requested_values.items()},
+            "requested_values": {v.name:v.__getstate__() for v in self.requested_values.values()},
             "script_environment": self.script_environment
         }
     
@@ -273,6 +273,19 @@ def extra_data_deserialize(d:dict[str,dict[str]]):
             dsd[k] = sv.deserialize()
     return dsd
 
+shared_loop = None
+
+def run_shared_loop():
+    ready = threading.Event()
+    def _thread():
+        global shared_loop
+        shared_loop = asyncio.new_event_loop()
+        ready.set()
+        shared_loop.run_forever()
+    thread = threading.Thread(target=_thread, daemon=True)
+    thread.start()
+    return thread, ready
+
 _run_trigger = True
 _run_trigger_loop = None
 _run_triggers_queue:list[tuple[Trigger, tuple, dict]] = []
@@ -295,7 +308,8 @@ async def _run_triggers(id, triggers:list[tuple[Trigger, tuple, dict]]):
             _run_triggers_futures.pop(id,None)
 
 async def run_triggers_loop():
-    _loop = asyncio.get_running_loop()
+    global _run_trigger_loop
+    _run_trigger_loop = asyncio.get_running_loop()
     while _run_trigger:
         await _run_triggers_queue_ready.wait()
         if not _run_trigger:
@@ -306,13 +320,12 @@ async def run_triggers_loop():
             _run_triggers_queue_ready.clear()
         uid = uuid4()
         async with _run_triggers_futures_lock:
-            _run_triggers_futures[uid] = asyncio.ensure_future(_run_triggers(uid, triggers), loop=_loop)
+            _run_triggers_futures[uid] = asyncio.ensure_future(_run_triggers(uid, triggers), loop=_run_trigger_loop)
 
 def run_triggers_thread_handler():
-    global _run_trigger_loop
     _run_triggers_queue_ready.clear()
-    _run_trigger_loop = loop = asyncio.new_event_loop()
-    loop.run_until_complete(run_triggers_loop())
+    future = asyncio.run_coroutine_threadsafe(run_triggers_loop(), shared_loop)
+    future.result()
 
 def stop_trigger_loop():
     global _run_trigger

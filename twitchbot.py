@@ -16,7 +16,7 @@ import threading
 import traceback
 import tronix
 import twitch.analytics
-import twitch.rewards
+import twitch.redeem_triggers
 import twitch.tronix_integrations as tti
 import twitchio
 from twitchio.ext import commands
@@ -145,14 +145,18 @@ value_names = {
 }
 
 OAUTH_SCOPES:set[str] = {
-    "user:write:chat"
+    "user:write:chat",
 }
 
 OAUTH_CHANNEL_SCOPES:set[str] = {
     "user:read:chat",
     "user:bot",
     "channel:bot",
-    "channel:manage:redemptions"
+    "channel:manage:redemptions",
+    "bits:read",
+    "moderator:read:followers",
+    "channel:read:hype_train",
+    "channel:read:subscriptions",
 }
 
 def _link_command_newfunc(name:str):
@@ -181,9 +185,7 @@ class Bot(commands.AutoBot):
         )
         self.links_commands:set[str] = set()
         self._callback_command_triggers:dict[str, twitch.command_triggers.CallbackCommandTrigger] = {}
-        self._callback_redeem_handlers:dict[twitch.rewards.RewardIdentifierKey, twitch.rewards.CallbackRedeemHandler] = {}
         self.command_triggers:dict[str, twitch.command_triggers.CommandTrigger] = {}
-        self.redeem_handlers:dict[twitch.rewards.RewardIdentifierKey, twitch.rewards.RedeemHandler] = {}
         self.subs = subs
         self.use_core_commands = use_core_commands
         self._loop = None
@@ -203,21 +205,6 @@ class Bot(commands.AutoBot):
         if isinstance(command, twitch.command_triggers.CallbackCommandTrigger) and name in self._callback_command_triggers:
             del self._callback_command_triggers[name]
         return super().remove_command(name)
-    
-    def add_redeem_handler(self, handler:twitch.rewards.RedeemHandler):
-        if isinstance(handler, twitch.rewards.CallbackRedeemHandler):
-            self._callback_redeem_handlers[handler.identifier] = handler
-        self.redeem_handlers[handler.identifier] = handler
-    
-    def remove_redeem_handler(self, identifier:tuple[str, str]|twitch.rewards.RewardIdentifier):
-        rh = self.redeem_handlers.pop(identifier,None)
-        if isinstance(rh, twitch.rewards.CallbackRedeemHandler) and identifier in self._callback_redeem_handlers:
-            del self._callback_redeem_handlers[identifier]
-
-    def _get_redeem_handlers(self, payload:twitchio.ChannelPointsRedemptionAdd)->tuple[twitch.rewards.RedeemHandler|None, ...]:
-        pair_id = (payload.reward.id, twitch.rewards.IDEN_TYPE_ID)
-        pair_title = (payload.reward.title, twitch.rewards.IDEN_TYPE_TITLE)
-        return self.redeem_handlers.get(pair_id,None), self.redeem_handlers.get(pair_title,None)
 
     def sync_commands(self):
         loaded_commands = twitch.command_triggers.load_command_triggers()
@@ -241,23 +228,6 @@ class Bot(commands.AutoBot):
             assert isinstance(cmd, twitch.command_triggers.ActionCommandTrigger)
             cmd.update(lcmd)
 
-    
-    def sync_redeem_handlers(self):
-        loaded_redeems = twitch.rewards.load_redeem_handlers()
-        rh_difference = set(self.redeem_handlers.keys()) ^ set(loaded_redeems.keys())
-        for iden in rh_difference:
-            if iden in loaded_redeems:
-                self.add_redeem_handler(loaded_redeems[iden])
-            else: #name in self.redeem_handlers
-                rh = self.redeem_handlers[iden]
-                if isinstance(rh, twitch.rewards.CallbackRedeemHandler):
-                    continue
-                crh =self._callback_redeem_handlers.get(iden,None)
-                if crh is None:
-                    del self.redeem_handlers[iden]
-                else:
-                    self.redeem_handlers[iden] = crh
-
     def update_link_commands(self):
         configs = config.read()
         if "Links" in configs:
@@ -276,20 +246,36 @@ class Bot(commands.AutoBot):
                 return
         for name in self.links_commands:
             self.remove_command(name)
-
-    def get_message_trigger_matches(self, message:twitchio.ChatMessage)->list[twitch.message_triggers.MessageTrigger]:
-        triggers = twitch.message_triggers.merge_message_triggers()
+    
+    def get_matches(self, event, merged:dict[str, twitch.event_triggers.EventTrigger], matchers:dict[str, Callable]):
         matched = []
-        for trigger in triggers.values():
-            if trigger.match(message):
+        for trigger in merged.values():
+            if trigger.match(event, matchers):
                 matched.append(trigger)
         return matched
+    
+    async def run_matches(self, event, matched:list[twitch.event_triggers.EventTrigger]):
+        for trigger in matched:
+            c = trigger.handle(self, event)
+            if inspect.isawaitable(c):
+                await c
+
 
     async def setup_hook(self):
+        self.add_listener(self.event_follow)
+        self.add_listener(self.event_cheer)
+        self.add_listener(self.event_raid)
         self.add_listener(self.event_message)
+        self.add_listener(self.event_bits_use)
         self.add_listener(self.event_custom_redemption_add)
+        self.add_listener(self.event_hype_train)
+        self.add_listener(self.event_hype_train_progress)
+        self.add_listener(self.event_hype_train_end)
         self.add_listener(self.event_stream_online)
         self.add_listener(self.event_stream_offline)
+        self.add_listener(self.event_subscription)
+        self.add_listener(self.event_subscription_gift)
+        self.add_listener(self.event_subscription_message)
         if self.use_core_commands:
             await self.add_component(CoreComponent(self))
 
@@ -323,9 +309,17 @@ class Bot(commands.AutoBot):
             print("Successfully subscribed")
 
         bot.sync_commands()
-        bot.sync_redeem_handlers()
 
         print("twitch bot ready")
+
+    async def event_follow(self, payload:twitchio.ChannelFollow):
+        await self.run_matches(payload, self.get_matches(payload, twitch.follow_triggers.merge_follow_triggers(), twitch.follow_triggers.CONDITION_MATCHERS))
+    
+    async def event_cheer(self, payload:twitchio.ChannelCheer):
+        await self.run_matches(payload, self.get_matches(payload, twitch.bits_triggers.merge_cheer_triggers(), twitch.bits_triggers.CHEER_CONDITION_MATCHERS))
+
+    async def event_raid(self, payload:twitchio.ChannelRaid):
+        await self.run_matches(payload, self.get_matches(payload, twitch.raid_triggers.merge_raid_triggers(), twitch.raid_triggers.CONDITION_MATCHERS))
 
     async def event_message(self, message:twitchio.ChatMessage) -> None:      
         print(datetime.now().strftime("[%Y-%M-%d %H:%M:%S]"), f"<{message.broadcaster}> {message.chatter}: {message.text}")
@@ -333,11 +327,8 @@ class Bot(commands.AutoBot):
         if message.chatter.id == self.bot_id:
             return
         
-        for trigger in self.get_message_trigger_matches(message):
-            c = trigger.handle(self, message)
-            if inspect.isawaitable(c):
-                await c
         self.update_link_commands()
+        await self.run_matches(message, self.get_matches(message, twitch.message_triggers.merge_message_triggers(), twitch.message_triggers.CONDITION_MATCHERS))
         await self.process_commands(message)
 
     async def event_command_error(self, payload:commands.CommandErrorPayload):
@@ -348,18 +339,31 @@ class Bot(commands.AutoBot):
             print("command error:")
             traceback.print_exception(payload.exception)
 
-    async def event_custom_redemption_add(self, payload:twitchio.ChannelPointsRedemptionAdd):
-        await twitch.analytics.insert_stat_async(twitch.analytics.RedeemStat.from_data(payload))
-        id_handler, title_handler = self._get_redeem_handlers(payload)
+    async def event_bits_use(self, payload:twitchio.ChannelBitsUse):
+        await self.run_matches(payload, self.get_matches(payload, twitch.bits_triggers.merge_bitsuse_triggers(), twitch.bits_triggers.BITSUSE_CONDITION_MATCHERS))
 
-        if id_handler and title_handler and id_handler is not title_handler:
-            ... #TODO exception can't have two different redemption handlers for the same reward
+    async def event_custom_redemption_add(self, payload:twitchio.ChannelPointsRedemptionAdd):
+        print(datetime.now().strftime("[%Y-%M-%d %H:%M:%S]"), f"<{payload.broadcaster}> {payload.user} redeemed {payload.reward} ({payload})")
+        await twitch.analytics.insert_stat_async(twitch.analytics.RedeemStat.from_data(payload))
+        await self.run_matches(payload, self.get_matches(payload, twitch.redeem_triggers.merge_redeem_triggers(), twitch.redeem_triggers.CONDITION_MATCHERS))
         
-        handler = id_handler or title_handler
-        if handler:
-           c = handler.handle(self, payload)
-           if inspect.isawaitable(c):
-               await c
+    async def event_hype_train(self, payload:twitchio.HypeTrainBegin):
+        await self.run_matches(payload, self.get_matches(payload, twitch.hypetrain_triggers.merge_hypetrain_begin_triggers(), twitch.hypetrain_triggers.BEGIN_CONDITION_MATCHERS))
+
+    async def event_hype_train_progress(self, payload:twitchio.HypeTrainProgress):
+        await self.run_matches(payload, self.get_matches(payload, twitch.hypetrain_triggers.merge_hypetrain_progress_triggers(), twitch.hypetrain_triggers.PROGRESS_CONDITION_MATCHERS))
+
+    async def event_hype_train_end(self, payload:twitchio.HypeTrainEnd):
+        await self.run_matches(payload, self.get_matches(payload, twitch.hypetrain_triggers.merge_hypetrain_end_triggers(), twitch.hypetrain_triggers.END_CONDITION_MATCHERS))
+
+    async def event_subscription(self, payload:twitchio.ChannelSubscribe):
+        await self.run_matches(payload, self.get_matches(payload, twitch.sub_triggers.merge_sub_triggers(), twitch.sub_triggers.SUB_CONDITION_MATCHERS))
+
+    async def event_subscription_gift(self, payload:twitchio.ChannelSubscriptionGift):
+        await self.run_matches(payload, self.get_matches(payload, twitch.sub_triggers.merge_gift_sub_triggers(), twitch.sub_triggers.GSUB_CONDITION_MATCHERS))
+
+    async def event_subscription_message(self, payload:twitchio.ChannelSubscriptionMessage):
+        await self.run_matches(payload, self.get_matches(payload, twitch.sub_triggers.merge_sub_msg_triggers(), twitch.sub_triggers.SUB_MSG_CONDITION_MATCHERS))
 
     async def event_stream_online(self, payload:twitchio.StreamOnline):
         print(datetime.now().strftime("[%Y-%M-%d %H:%M:%S]"), f"<{payload.broadcaster}> went live")
@@ -512,11 +516,23 @@ def init_bot(old_bot:Bot|None=None):
     bot_id, ids = get_init_ids(client_id, client_secret, bot_name, list(channels.keys()) if isinstance(channels, dict) else None)
     subs = []
     for user in ids:
-        subs.append(twitchio.eventsub.ChatMessageSubscription(broadcaster_user_id=user.id, user_id=bot_id))
-        subs.append(twitchio.eventsub.StreamOnlineSubscription(broadcaster_user_id=user.id))
-        subs.append(twitchio.eventsub.StreamOfflineSubscription(broadcaster_user_id=user.id))
-        if user.broadcaster_type in ("affiliate", "partner"):
-            subs.append(twitchio.eventsub.ChannelPointsRedeemAddSubscription(broadcaster_user_id=user.id))
+        subs.extend([
+            twitchio.eventsub.ChatMessageSubscription(broadcaster_user_id=user.id, user_id=bot_id),
+            twitchio.eventsub.StreamOnlineSubscription(broadcaster_user_id=user.id),
+            twitchio.eventsub.StreamOfflineSubscription(broadcaster_user_id=user.id),
+            twitchio.eventsub.ChannelFollowSubscription(broadcaster_user_id=user.id, moderator_user_id=user.id),
+            twitchio.eventsub.ChannelSubscribeSubscription(broadcaster_user_id=user.id),
+            twitchio.eventsub.ChannelSubscriptionGiftSubscription(broadcaster_user_id=user.id),
+            twitchio.eventsub.ChannelSubscribeMessageSubscription(broadcaster_user_id=user.id),
+            twitchio.eventsub.ChannelRaidSubscription(to_broadcaster_user_id=user.id),
+            twitchio.eventsub.ChannelRaidSubscription(from_broadcaster_user_id=user.id),
+            twitchio.eventsub.ChannelPointsRedeemAddSubscription(broadcaster_user_id=user.id),
+            twitchio.eventsub.ChannelCheerSubscription(broadcaster_user_id=user.id),
+            twitchio.eventsub.ChannelBitsUseSubscription(broadcaster_user_id=user.id),
+            twitchio.eventsub.HypeTrainBeginSubscription(broadcaster_user_id=user.id),
+            twitchio.eventsub.HypeTrainProgressSubscription(broadcaster_user_id=user.id),
+            twitchio.eventsub.HypeTrainEndSubscription(broadcaster_user_id=user.id),
+        ])
 
     bot = Bot(client_id, client_secret, bot_id, c["Prefix"], subs)
 
@@ -528,10 +544,8 @@ def init_bot(old_bot:Bot|None=None):
             bot.add_command(command)
         bot.__modules.update(old_bot.__modules)
         bot._callback_command_triggers.update(old_bot._callback_command_triggers)
-        bot._callback_redeem_handlers.update(old_bot._callback_redeem_handlers)
         bot.links_commands.update(old_bot.links_commands)
         bot.command_triggers.update(old_bot.command_triggers)
-        bot.redeem_handlers.update(old_bot.redeem_handlers)
         bot.use_core_commands = old_bot.use_core_commands
     return bot
 

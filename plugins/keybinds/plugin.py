@@ -4,7 +4,6 @@ import os
 import plugins
 import subprocess
 import sys
-import threading
 import web
 
 DIR = os.path.dirname(__file__)

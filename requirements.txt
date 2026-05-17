@@ -1,6 +1,7 @@
 aiohttp
 asyncio-gevent
 #audioop-lts #uncomment for 3.13+
+beautifulsoup4
 Flask
 flask-sock
 gevent
