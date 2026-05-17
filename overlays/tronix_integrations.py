@@ -1,5 +1,5 @@
+from . import layouts
 import bs4
-import layouts
 from tronix import script, script_builtins as builtins, utils
 from uuid import UUID
 from werkzeug.security import safe_join
@@ -91,7 +91,7 @@ async def layout_set_element_text_autoelm(ctx:script.ScriptContext, text:script.
     procid = _get_layout_cprocid(ctx)
     process = await _get_layout_cprocess(procid)
 
-    elm = _get_layout_element(process, procid)
+    elm = _get_layout_element(process, process.element.id)
     elm.string = text.get().inner
 
 @f_layout_set_element_text.overload(("element", [LayoutElement, HTMLElement]), ("text", builtins.String), pass_ctx=True)

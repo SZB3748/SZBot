@@ -313,9 +313,11 @@ class Bot(commands.AutoBot):
         print("twitch bot ready")
 
     async def event_follow(self, payload:twitchio.ChannelFollow):
+        print(datetime.now().strftime("[%Y-%M-%d %H:%M:%S]"), f"<{payload.broadcaster}> new follow: {payload.user}")
         await self.run_matches(payload, self.get_matches(payload, twitch.follow_triggers.merge_follow_triggers(), twitch.follow_triggers.CONDITION_MATCHERS))
     
     async def event_cheer(self, payload:twitchio.ChannelCheer):
+        print(datetime.now().strftime("[%Y-%M-%d %H:%M:%S]"), f"<{payload.broadcaster}> {payload.user} cheered {payload.bits}: {payload.message}")
         await self.run_matches(payload, self.get_matches(payload, twitch.bits_triggers.merge_cheer_triggers(), twitch.bits_triggers.CHEER_CONDITION_MATCHERS))
 
     async def event_raid(self, payload:twitchio.ChannelRaid):
@@ -340,29 +342,36 @@ class Bot(commands.AutoBot):
             traceback.print_exception(payload.exception)
 
     async def event_bits_use(self, payload:twitchio.ChannelBitsUse):
+        print(datetime.now().strftime("[%Y-%M-%d %H:%M:%S]"), f"<{payload.broadcaster}> {payload.user} used {payload.bits} bits")
         await self.run_matches(payload, self.get_matches(payload, twitch.bits_triggers.merge_bitsuse_triggers(), twitch.bits_triggers.BITSUSE_CONDITION_MATCHERS))
 
     async def event_custom_redemption_add(self, payload:twitchio.ChannelPointsRedemptionAdd):
-        print(datetime.now().strftime("[%Y-%M-%d %H:%M:%S]"), f"<{payload.broadcaster}> {payload.user} redeemed {payload.reward} ({payload})")
+        print(datetime.now().strftime("[%Y-%M-%d %H:%M:%S]"), f"<{payload.broadcaster}> {payload.user} redeemed {payload.reward.title} ({payload.reward.id}//{payload.id})")
         await twitch.analytics.insert_stat_async(twitch.analytics.RedeemStat.from_data(payload))
         await self.run_matches(payload, self.get_matches(payload, twitch.redeem_triggers.merge_redeem_triggers(), twitch.redeem_triggers.CONDITION_MATCHERS))
         
     async def event_hype_train(self, payload:twitchio.HypeTrainBegin):
+        print(datetime.now().strftime("[%Y-%M-%d %H:%M:%S]"), f"<{payload.broadcaster}> hype train started")
         await self.run_matches(payload, self.get_matches(payload, twitch.hypetrain_triggers.merge_hypetrain_begin_triggers(), twitch.hypetrain_triggers.BEGIN_CONDITION_MATCHERS))
 
     async def event_hype_train_progress(self, payload:twitchio.HypeTrainProgress):
+        print(datetime.now().strftime("[%Y-%M-%d %H:%M:%S]"), f"<{payload.broadcaster}> hype train progress")
         await self.run_matches(payload, self.get_matches(payload, twitch.hypetrain_triggers.merge_hypetrain_progress_triggers(), twitch.hypetrain_triggers.PROGRESS_CONDITION_MATCHERS))
 
     async def event_hype_train_end(self, payload:twitchio.HypeTrainEnd):
+        print(datetime.now().strftime("[%Y-%M-%d %H:%M:%S]"), f"<{payload.broadcaster}> hype train end")
         await self.run_matches(payload, self.get_matches(payload, twitch.hypetrain_triggers.merge_hypetrain_end_triggers(), twitch.hypetrain_triggers.END_CONDITION_MATCHERS))
 
     async def event_subscription(self, payload:twitchio.ChannelSubscribe):
+        print(datetime.now().strftime("[%Y-%M-%d %H:%M:%S]"), f"<{payload.broadcaster}> subscription: {payload.user}")
         await self.run_matches(payload, self.get_matches(payload, twitch.sub_triggers.merge_sub_triggers(), twitch.sub_triggers.SUB_CONDITION_MATCHERS))
 
     async def event_subscription_gift(self, payload:twitchio.ChannelSubscriptionGift):
+        print(datetime.now().strftime("[%Y-%M-%d %H:%M:%S]"), f"<{payload.broadcaster}> {payload.user} gifted a sub")
         await self.run_matches(payload, self.get_matches(payload, twitch.sub_triggers.merge_gift_sub_triggers(), twitch.sub_triggers.GSUB_CONDITION_MATCHERS))
 
     async def event_subscription_message(self, payload:twitchio.ChannelSubscriptionMessage):
+        print(datetime.now().strftime("[%Y-%M-%d %H:%M:%S]"), f"<{payload.broadcaster}> {payload.user} announced their sub: {payload.message}")
         await self.run_matches(payload, self.get_matches(payload, twitch.sub_triggers.merge_sub_msg_triggers(), twitch.sub_triggers.SUB_MSG_CONDITION_MATCHERS))
 
     async def event_stream_online(self, payload:twitchio.StreamOnline):

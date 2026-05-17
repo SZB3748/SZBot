@@ -709,6 +709,7 @@ def generate_load_order(plugin_list:dict[str, Plugin])->list[str]:
     return _generate_order_queuesim(plugin_list)
 
 CORE_COMPONENT_INTERFACE = "interface"
+CORE_COMPONENT_OVERLAY = "overlay"
 CORE_COMPONENT_API = "api"
 CORE_COMPONENT_TRONIX = "tronix"
 TWITCHBOT_COMPONENT_COMMANDS = "twitchbot:commands"

@@ -10,9 +10,9 @@ from flask_sock import Server, Sock
 from gevent.pywsgi import WSGIServer
 import inspect
 import json
-import layouts
 from markupsafe import Markup
 import os
+from overlays import layouts, overlays
 import pickle
 import plugins
 import requests
@@ -83,7 +83,7 @@ def load_config_styles_css()->str:
 </style>""")
 
 __host_addr = None
-__remote_api_addr = None
+__remote_addr = None
 __pconfig_path = None
 
 def serve_when_loaded(loaded_callback:Callable[[], bool], unloaded_error_code:int=404):
@@ -104,6 +104,7 @@ def serve_when_loaded(loaded_callback:Callable[[], bool], unloaded_error_code:in
 app = Flask(__name__)
 api = Blueprint("api", __name__, url_prefix="/api")
 coreinterface = Blueprint("core_interface", __name__)
+coreoverlay = Blueprint("core_overlay", __name__)
 coreapi = Blueprint("core_api", __name__)
 app.jinja_env.globals["load_config_styles"] = load_config_styles_css
 app.url_map.strict_slashes = False
@@ -164,6 +165,43 @@ def configs_page():
 def actions_page():
     return render_template("actions.html")
 
+@coreoverlay.get("/overlay/<name>")
+@coreoverlay.get("/overlay")
+def overlay_route(name:str=""):
+    args = request.args.copy()
+    missing_silent = args.pop("missing-silent", "")
+    if not name:
+        name = request.args.pop("name","")
+        if not name:
+            return "" if missing_silent else "Overlay name not provided.", 400
+    
+    loaded = overlays.load_overlays()
+    overlay = loaded.get(name, None)
+    if overlay is None:
+        return "" if missing_silent else "Overlay missing.", 404
+    
+    if overlay.layout_fetcher is not None:
+        tree, layout = overlay.layout_fetcher.fetch()
+        if layout is not None:
+            a = overlay.layout_args.copy()
+            for k,v in args.items():
+                a[k] = v[0] if len(v) == 1 else v
+            result = _layout_construct_loop_result()
+            with _layout_construct_queue_lock:
+                _layout_construct_queue.append(((tree, layout, a), result))
+                _layout_construct_loop.call_soon_threadsafe(_layout_construct_queue_ready.set)
+            result.event.wait()
+
+            if result.exception is not None:
+                raise result.exception
+            assert result.html is not None, "HTML not contructed and no error raised."
+    
+        return render_template("overlay.html", layout_html=Markup(result.html))
+    return render_template("overlay.html")
+
+
+    
+
 @sock.route("/events", bp=coreapi)
 def api_events(ws:Server):
     bucket = events.new_bucket()
@@ -218,7 +256,7 @@ def api_load_plugin():
     plugin = plugins.shared_plugins_list.get(name, None)
     if plugin is None:
         return "", 404
-    plugin.load(plugins.LoadEvent(plugins.shared_plugins_list, plugin, __pconfig_path, False, __host_addr, __remote_api_addr))
+    plugin.load(plugins.LoadEvent(plugins.shared_plugins_list, plugin, __pconfig_path, False, __host_addr, __remote_addr))
     return "", 204
 
 @coreapi.post("/plugins/unload")
@@ -293,11 +331,10 @@ def api_layout_construct():
 
     result.event.wait()
 
-    #TODO handle exceptions (or maybe just let them rise and result in a default 500 response)
     if result.html is not None:
         return result.html, 200
     elif result.exception is not None:
-        raise result.exception #DEBUG
+        raise result.exception
 
 
 class proxy_headers:
@@ -631,7 +668,7 @@ class ProxyScriptRunner(tronix.utils.ScriptRunner):
             
 
 _SECURE_PROTOCOLS = {"https", "wss"}
-def process_remote_api(remote_api_addr:str|None)->tuple[str|None, bool]:
+def process_remote(remote_api_addr:str|None)->tuple[str|None, bool]:
     if remote_api_addr is None:
         return None, False
     
@@ -651,7 +688,7 @@ def process_remote_api(remote_api_addr:str|None)->tuple[str|None, bool]:
 
 
 def create_endpoint_proxy(addr:str, routes:list[str], bp:Blueprint, normal=True, socket=True, endpoint_name:str|None=None):
-    processed_api_addr, secure = process_remote_api(addr)
+    processed_api_addr, secure = process_remote(addr)
 
     s = "s" * secure
     proxy_host = f"http{s}://{processed_api_addr}/"
@@ -770,13 +807,21 @@ def create_component_proxy(address:str, dest:Flask|Blueprint, bpname:str, prefix
     add_bp_if_new(dest, vbp)
 
 
-def attach_core(interface_mode:str, api_mode:str, tronix_mode:str, remote_api_addr:str|None=None):
-    global __remote_api_addr
-    __remote_api_addr = remote_api_addr
+def attach_core(interface_mode:str, overlay_mode:str, api_mode:str, tronix_mode:str, remote_addr:str|None=None):
+    global __remote_addr
+    __remote_addr = remote_addr
     if interface_mode == plugins.COMPONENT_MODE_NORMAL:
         app.register_blueprint(coreinterface)
     elif interface_mode == plugins.COMPONENT_MODE_REMOTE:
-        create_component_proxy(remote_api_addr, app, "proxy_core_interface", socket=False)
+        vcoreinterface = Blueprint("proxy_core_interface", __name__)
+        for p in ["/", "/configs", "/actions"]:
+            create_endpoint_proxy(remote_addr, [p], vcoreinterface, socket=False)
+
+    if overlay_mode == plugins.COMPONENT_MODE_NORMAL:
+        app.register_blueprint(coreoverlay)
+    elif overlay_mode == plugins.COMPONENT_MODE_REMOTE:
+        vcoreoverlay = Blueprint("proxy_core_overlay", __name__)
+        create_endpoint_proxy(remote_addr, ["/overlay", "/overlay/<path:path>"], vcoreoverlay, socket=False)
 
     tronix_enabled = tronix_mode in (plugins.COMPONENT_MODE_NORMAL, plugins.COMPONENT_MODE_REMOTE)
 
@@ -791,10 +836,10 @@ def attach_core(interface_mode:str, api_mode:str, tronix_mode:str, remote_api_ad
         if tronix_enabled:
             _rapi_script_env_thread.start()
         for p in ["/configs", "/configs/meta", "/plugins/load", "/plugins/unload", "/layout/construct", "/events/dispatch", "/action/script/check", "/action/script/run", "/action/list", "/action"]:
-            create_endpoint_proxy(remote_api_addr, [p], vcoreapi, socket=False, endpoint_name=p[1:].replace("/", "_"))
-        create_endpoint_proxy(remote_api_addr, ["/events"], vcoreapi, normal=False, endpoint_name="events")
+            create_endpoint_proxy(remote_addr, [p], vcoreapi, socket=False, endpoint_name=p[1:].replace("/", "_"))
+        create_endpoint_proxy(remote_addr, ["/events"], vcoreapi, normal=False, endpoint_name="events")
         if tronix_enabled:
-            create_endpoint_proxy(remote_api_addr, ["/action/script/env-switch"], vcoreapi, normal=False, endpoint_name="script_env_switch")
+            create_endpoint_proxy(remote_addr, ["/action/script/env-switch"], vcoreapi, normal=False, endpoint_name="script_env_switch")
         api.register_blueprint(vcoreapi)
         #replace default_container.dispatch so that all events for the default event system get sent to the remote instance
         def proxy_dispatch(*e:events.Event):

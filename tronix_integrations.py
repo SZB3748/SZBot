@@ -1,6 +1,6 @@
 import actions
 import config
-import layout_tronix_integrations as lti
+from overlays import tronix_integrations as oti
 import plugins
 import requests
 from tronix import json_proxy, script, script_builtins as builtins, utils
@@ -78,7 +78,7 @@ def activate(api_mode:str, remote:str|None=None, secure:bool=False):
 
     
     actions.script_runner.add_script_end_cb(scriptend_save_config)
-    lti.activate()
+    oti.activate()
     tti.activate()
 
     for activation_handler in activation_handlers.values():

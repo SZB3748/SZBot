@@ -138,8 +138,8 @@ class ActionLayoutElementConstructTrigger(LayoutElementConstructTrigger):
         script_scope = action.collect_script_values(filled)
         s = script.Script(action.script, script_scope)
 
+        script_scope.setdefault(LAYOUT_CONSTRUCTION_PROCESS_ID_VAR_NAME, script.ScriptVariable(script.wrap_python_value(construct_ctx.layout_process_id)))
         if action.script_environment is None or actions.match_environment_name(action.script_environment, actions.current_environment_name):
-            script_scope.setdefault(LAYOUT_CONSTRUCTION_PROCESS_ID_VAR_NAME, script.ScriptVariable(script.wrap_python_value(construct_ctx.layout_process_id)))
             return actions.script_runner.run_async(s)
         else:
             uid, *_ = actions.enqueue_script(s, action.script_environment)

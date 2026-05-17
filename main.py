@@ -17,7 +17,7 @@ import web
 
 parser = argparse.ArgumentParser(description="SZBot main program.")
 parser.add_argument("-d", "--addr", default=f"{web.HOST}:{web.PORT}", help="Address to host the flask app on. Can be `host:port`, `host`, or `port`.")
-parser.add_argument("--remote-api", default=None, help="The IP/Domain:Port to connect to for any remote behavior. May be required to run depending on plugins.")
+parser.add_argument("--remote-addr", default=None, help="The IP/Domain:Port to connect to for any remote behavior. May be required to run depending on plugins.")
 parser.add_argument("-p", "--plugin-configs", default=config.PLUGIN_FILE, help="Path to the plugin config file to use.")
 parser.add_argument("-c", "--configs", default=config.CONFIG_FILE, help="Path to the config file to use.")
 parser.add_argument("-C", "--core-component", action="append", default=[], help="Set modes for core components with <name>=<mode> syntax. These modes can be normal|remote|off")
@@ -63,9 +63,9 @@ def get_args()->tuple[tuple[str, int], str|None, str, dict[str, str|None]]:
             print("Core component must be in the <name>=<mode> format, got:", expr)
             exit(-1)
     
-    return addr, args.remote_api, args.configs, args.plugin_configs, components
+    return addr, args.remote_addr, args.configs, args.plugin_configs, components
 
-def run(addr:tuple[str, int]=(web.HOST, web.PORT), remote_api_addr:str=None, pconfig_path:str=config.PLUGIN_FILE, core_components:dict[str, str|None]={}):
+def run(addr:tuple[str, int]=(web.HOST, web.PORT), remote_addr:str=None, pconfig_path:str=config.PLUGIN_FILE, core_components:dict[str, str|None]={}):
     print("reading plugin list")
     plugin_list = plugins.read_plugin_data(path=pconfig_path)
     plugin_enabled_count = sum(1 for plugin in plugin_list.values() if plugin.module is not None and plugin.startup_load)
@@ -77,7 +77,7 @@ def run(addr:tuple[str, int]=(web.HOST, web.PORT), remote_api_addr:str=None, pco
         for plugin_name in load_order:
             plugin = plugin_list[plugin_name]
             if plugin.module is not None and plugin.startup_load:
-                plugin.load(plugins.LoadEvent(plugin_list, plugin, pconfig_path, True, addr, remote_api_addr))
+                plugin.load(plugins.LoadEvent(plugin_list, plugin, pconfig_path, True, addr, remote_addr))
         print("loaded plugins")
     else:
         print("no plugins made it into the load order\nmake sure that any dependenant plugins are enabled")
@@ -91,21 +91,22 @@ def run(addr:tuple[str, int]=(web.HOST, web.PORT), remote_api_addr:str=None, pco
             raise plugins.InvalidComponentError(f"Component(s) have invalid modes: {", ".join(invalid_components)}")
         
         interface_mode = core_components.get(plugins.CORE_COMPONENT_INTERFACE, plugins.COMPONENT_MODE_NORMAL)
+        overlay_mode = core_components.get(plugins.CORE_COMPONENT_OVERLAY, plugins.COMPONENT_MODE_NORMAL)
         api_mode = core_components.get(plugins.CORE_COMPONENT_API, plugins.COMPONENT_MODE_NORMAL)
         tronix_mode = core_components.get(plugins.CORE_COMPONENT_TRONIX, plugins.COMPONENT_MODE_NORMAL)
     else:
-        interface_mode = api_mode = tronix_mode = plugins.COMPONENT_MODE_NORMAL
+        interface_mode = overlay_mode = api_mode = tronix_mode = plugins.COMPONENT_MODE_NORMAL
 
     if tronix_mode == plugins.COMPONENT_MODE_NORMAL:
         print("loading script environment")
         import tronix.script_builtins, tronix_integrations
         tronix.script_builtins.activate()
-        tronix_integrations.activate(api_mode, *web.process_remote_api(remote_api_addr))
+        tronix_integrations.activate(api_mode, *web.process_remote(remote_addr))
         print("loaded script environment")
         trigger_runner_thread = threading.Thread(target=actions.run_triggers_thread_handler, daemon=True)
     elif tronix_mode == plugins.COMPONENT_MODE_REMOTE:
         print("setting up proxy script environment")
-        actions.script_runner = web.ProxyScriptRunner(*web.process_remote_api(remote_api_addr))
+        actions.script_runner = web.ProxyScriptRunner(*web.process_remote(remote_addr))
         print("set up proxy script environment")
         trigger_runner_thread = threading.Thread(target=actions.run_triggers_thread_handler, daemon=True)
     else:
@@ -116,7 +117,7 @@ def run(addr:tuple[str, int]=(web.HOST, web.PORT), remote_api_addr:str=None, pco
         trigger_runner_thread.start()
         
 
-    web.attach_core(interface_mode, api_mode, tronix_mode, remote_api_addr)
+    web.attach_core(interface_mode, overlay_mode, api_mode, tronix_mode, remote_addr)
 
     print("starting web server")
     e = None

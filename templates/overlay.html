@@ -13,9 +13,8 @@
         {% endblock %}
     </head>
     <body>
-        <div class="body-contents">
-            {% block body %}
-            {% endblock %}
-        </div>
+        {% if layout_html is defined %}
+        {{layout_html}}
+        {% endif %}
     </body>
 </html>
