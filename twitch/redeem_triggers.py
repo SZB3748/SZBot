@@ -20,6 +20,10 @@ CONDITION_TYPE_REWARD_COST_GREATER_THAN = "reward_cost_gt"
 CONDITION_TYPE_REWARD_COST_LESS_THAN = "reward_cost_lt"
 CONDITION_TYPE_REWARD_COST_EQUAL = "reward_cost_eq"
 CONDITION_TYPE_REWARD_COST_NOT_EQUAL = "reward_cost_ne"
+CONDITION_TYPE_REWARD_CURRENT_COUNT_GREATER_THAN = "reward_current_count_gt"
+CONDITION_TYPE_REWARD_CURRENT_COUNT_LESS_THAN = "reward_current_count_lt"
+CONDITION_TYPE_REWARD_CURRENT_COUNT_EQUAL = "reward_current_count_eq"
+CONDITION_TYPE_REWARD_CURRENT_COUNT_NOT_EQUAL = "reward_current_count_ne"
 
 
 REDEEM_HANDLERS_PATH = datafile.makepath("redeem_triggers.json")
@@ -41,6 +45,10 @@ CONDITION_MATCHERS:dict[str, Callable[[str, twitchio.ChannelPointsRedemptionAdd]
     CONDITION_TYPE_REWARD_COST_LESS_THAN: lambda value, redeem: redeem.reward.cost < int(value),
     CONDITION_TYPE_REWARD_COST_EQUAL: lambda value, redeem: redeem.reward.cost == int(value),
     CONDITION_TYPE_REWARD_COST_NOT_EQUAL: lambda value, redeem: redeem.reward.cost != int(value),
+    CONDITION_TYPE_REWARD_CURRENT_COUNT_GREATER_THAN: lambda value, redeem: redeem.reward.current_stream_redeems > int(value),
+    CONDITION_TYPE_REWARD_CURRENT_COUNT_LESS_THAN: lambda value, redeem: redeem.reward.current_stream_redeems < int(value),
+    CONDITION_TYPE_REWARD_CURRENT_COUNT_EQUAL: lambda value, redeem: redeem.reward.current_stream_redeems == int(value),
+    CONDITION_TYPE_REWARD_CURRENT_COUNT_NOT_EQUAL: lambda value, redeem: redeem.reward.current_stream_redeems != int(value),
 }
 
 RedeemTrigger = event_triggers.EventTrigger[twitchio.ChannelPointsRedemptionAdd]
