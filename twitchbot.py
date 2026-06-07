@@ -562,14 +562,20 @@ def init_bot(old_bot:Bot|None=None):
 _arl_futures:dict[uuid.UUID, asyncio.Future] = {}
 _arl_futures_lock = threading.Lock()
 
-async def _action_runner_local_task(ws:websocket.WebSocket, task_id:uuid.UUID, scripts:list[tuple[uuid.UUID, actions.tronix.Script]]):
+
+
+async def _action_runner_local_task(ws:websocket.WebSocket, task_id:uuid.UUID, scripts:list[tuple[uuid.UUID, tronix.Script]]):
     try:
         results = await actions.run_scripts(*scripts)
+        script_lookup = {uid:script for uid, script, *_ in scripts}
         print(f"script env switch: finished running scripts: {", ".join(str(uid) for uid, *_ in results)}")
         ws.send(json.dumps({
             "instruction": "done",
             "scripts": {
-                str(uid): success
+                str(uid): {
+                    "success": success,
+                    "return_value": actions.serialize_script_return_value(script_lookup[uid])
+                }
                 for uid, success, *_ in results
             }
         }))
@@ -602,39 +608,36 @@ def ws_on_message(ws:websocket.WebSocket, msg:str|bytearray|memoryview):
                 env = sdata["env"]
                 if env is None:
                     continue
-                elif env == actions.current_environment_name:
+                elif actions.match_environment_name(env, actions.current_environment_name):
                     script = sdata["script"]
                     if isinstance(script, dict):
                         uid = uuid.UUID(sdata["uid"])
                         scope_ser = pickle.loads(base64.b64decode(script["scope"]))
                         if isinstance(scope_ser, dict):
                             scope = tronix.utils.deserialize_namespace(scope_ser)
-                            scope.setdefault(tti.TWITCH_CONTEXT_VAR_NAME, tronix.script.ScriptVariable(tronix.utils.wrap_python_value(tti.BotScriptContext(bot))))
+                            scope.setdefault(tti.TWITCH_CONTEXT_VAR_NAME, tronix.script.ScriptVariable(tronix.script.wrap_python_value(tti.BotScriptContext(bot))))
                         else:
                             scope = scope_ser
                         s = tronix.Script(script["content"], scope)
                         add_run.append((uid, s, env))
-                else:
-                    uid = uuid.UUID(sdata["uid"])
-                    script = sdata["script"]
-                    with actions._env_switch_queue_lock:
-                        q = actions._env_switch_queue.get(env,None)
-                        if q is None:
-                            actions._env_switch_queue[env] = q = []
-                        q.append((uid, env, script, actions._env_switch_done_entry(bot._loop))) #NOTE idk if i wanna be making a _env_switch_done_entry here
             if add_run:
                 print(f"script env switch: running scripts: {", ".join(str(uid) for uid, *_ in add_run)}")
                 task_id = uuid.uuid4()
                 with _arl_futures_lock:
                     _arl_futures[task_id] = asyncio.run_coroutine_threadsafe(_action_runner_local_task(ws, task_id, add_run), loop=bot._loop)
     elif instruction == "done":
+        #TODO refactor to handle return values
         scripts = data.get("scripts",None)
         if isinstance(scripts, dict):
-            for id_s, success in scripts.items():
+            for id_s, values in scripts.items():
+                if not isinstance(values, dict):
+                    continue
+                success = values.get("success", False)
+                return_value = values.get("return_value", None)
                 uid = uuid.UUID(id_s)
                 de = actions._env_switch_done.get(uid,None)
                 if de is not None:
-                    de.mark_done(bool(success))
+                    de.mark_done(bool(success), actions.deserialize_script_return_value(return_value))
     elif instruction == "error":
         ...
 
@@ -648,6 +651,27 @@ def ws_on_error(ws, e:Exception):
 def ws_on_close(ws, status_code, msg:str|bytearray|memoryview):
     print("disconnected from script env switch")
 
+
+def _twitchbot_enque_script(uid:uuid.UUID, environment:str, s:tronix.Script, is_done:actions._env_switch_done_entry):
+    ws.send(json.dumps({
+        "instruction": "run",
+        "scripts": [
+            {
+                "uid": str(uid),
+                "env": environment,
+                "script": {
+                    "content": s.raw,
+                    "scope": web._scope_to_b64(s.scope)
+                } if isinstance(s, tronix.Script) else s
+            }
+        ]
+    }))
+    with actions._env_switch_queue_lock:
+        actions._env_switch_done[uid] = is_done
+    return uid, environment, s, is_done
+
+actions._enqueue_script = _twitchbot_enque_script
+
 def ws_run():
     try:
         ws.run_forever(reconnect=5)
@@ -656,6 +680,8 @@ def ws_run():
 
 async def main():
     await bot.start(load_tokens=False, save_tokens=False)
+
+bot:Bot|None = None
 
 if __name__ == "__main__":
     actions.current_environment_name = actions.generate_environment_name("twitchbot")
@@ -707,12 +733,11 @@ if __name__ == "__main__":
     bot.use_core_commands = commands_mode == plugins.COMPONENT_MODE_NORMAL
 
     assert tronix_mode != plugins.COMPONENT_MODE_REMOTE, "Twitchbot tronix has no remote mode."
-    assert tronix_mode != plugins.COMPONENT_MODE_REMOTE, "Twitchbot analytics has no remote mode."
+    assert analytics_mode != plugins.COMPONENT_MODE_REMOTE, "Twitchbot analytics has no remote mode."
     if tronix_mode == plugins.COMPONENT_MODE_NORMAL:
         print("loading script environment")
-        import tronix.script_builtins
-        tronix.script_builtins.activate()
-        tti.activate()
+        import tronix_integrations
+        tronix_integrations.activate(plugins.COMPONENT_MODE_NORMAL)
         print("loaded script environment")
 
         print("starting script env switch connection")

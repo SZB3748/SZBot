@@ -226,7 +226,7 @@ class ActionCommandTrigger(CommandTrigger):
         self.action_name = other.action_name
         self.action_mapping.__setstate__(other.action_mapping.__getstate__())
 
-    def handle(self, *args):
+    async def handle(self, *args):
         action = actions.load_action_table().get(self.action_name, None)
         command = load_commands().get(self.name, None)
         if command is None:
@@ -259,15 +259,20 @@ class ActionCommandTrigger(CommandTrigger):
         script_scope.update(action.collect_script_values(filled))
         s = script.Script(action.script, script_scope)
         
-        if action.script_environment is None or actions.match_environment_name(action.script_environment, actions.current_environment_name):
+        if action.is_script_environment_local():
             if ctx is not None:
                 script_scope.setdefault(tti.TWITCH_CONTEXT_VAR_NAME, script.ScriptVariable(utils.wrap_python_value(tti.BotScriptContext(ctx.bot, command_ctx=ctx))))
-            return actions.script_runner.run_async(s)
+            await actions.script_runner.run_async(s)
+            rtvar = s.scope.get(actions.ACTION_RETURN_VALUE_VAR_NAME, None)
+            if isinstance(rtvar, script.ScriptVariable):
+                return rtvar.get()
         else:
             uid, *_ = actions.enqueue_script(s, action.script_environment)
-            async def _wait():
-                await actions.wait_script_finish_async(uid)
-            return _wait()
+            success, return_value = await actions.wait_script_finish_async(uid)
+            if success:
+                if return_value is not None:
+                    s.scope[actions.ACTION_RETURN_VALUE_VAR_NAME] = script.ScriptVariable(return_value)
+                return return_value
     
     def to_twitch_command(self):
         command = load_commands().get(self.name, None)

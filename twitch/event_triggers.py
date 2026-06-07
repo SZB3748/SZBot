@@ -89,7 +89,7 @@ class ActionEventTrigger[T](EventTrigger[T]):
     def create_bot_script_context(self, bot:commands.Bot, event:T)->tti.BotScriptContext:
         raise NotImplementedError
 
-    def handle(self, bot:commands.Bot, event:T):
+    async def handle(self, bot:commands.Bot, event:T):
         action = actions.load_action_table().get(self.action_name, None)
         if action is None:
             ... #TODO exception action not found
@@ -98,14 +98,19 @@ class ActionEventTrigger[T](EventTrigger[T]):
         script_scope = action.collect_script_values(filled)
         s = script.Script(action.script, script_scope)
 
-        if action.script_environment is None or actions.match_environment_name(action.script_environment, actions.current_environment_name):
+        if action.is_script_environment_local():
             script_scope.setdefault(tti.TWITCH_CONTEXT_VAR_NAME, script.ScriptVariable(script.wrap_python_value(self.create_bot_script_context(bot, event))))
-            return actions.script_runner.run_async(s)
+            await actions.script_runner.run_async(s)
+            rtvar = s.scope.get(actions.ACTION_RETURN_VALUE_VAR_NAME, None)
+            if isinstance(rtvar, script.ScriptVariable):
+                return rtvar.get()
         else:
             uid, *_ = actions.enqueue_script(s, action.script_environment)
-            async def _wait():
-                await actions.wait_script_finish_async(uid)
-            return _wait()
+            success, return_value = await actions.wait_script_finish_async(uid)
+            if success:
+                if return_value is not None:
+                    s.scope[actions.ACTION_RETURN_VALUE_VAR_NAME] = script.ScriptVariable(return_value)
+                return return_value
         
 class CallbackEventTrigger[T](EventTrigger[T]):
 

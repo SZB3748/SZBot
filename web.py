@@ -456,15 +456,16 @@ _arl_ready = asyncio.Event()
 _arl_futures:dict[uuid.UUID, asyncio.Future] = {}
 _arl_futures_lock = asyncio.Lock()
 
-_arl_done:dict[str,list[tuple[uuid.UUID, bool]]] = {}
+_arl_done:dict[str,list[tuple[uuid.UUID, tronix.Script, bool]]] = {}
 _arl_done_lock = threading.Lock()
 
 async def _arl_future(uid:uuid.UUID, queued:list[tuple[uuid.UUID, tronix.Script, str]]):
     try:
         results = await actions.run_scripts(*queued)
+        script_lookup = {uid:script for uid, script, *_ in queued}
         with _arl_done_lock:
             for uid, success, env, *_ in results:
-                _arl_done[env] = (uid, success)
+                _arl_done[env] = (uid, script_lookup[uid], success)
     finally:
         async with _arl_futures_lock:
             _arl_futures.pop(uid, None)
@@ -504,7 +505,7 @@ def _handle_env_switch_instruction(data:dict[str]):
                 env = sdata["env"]
                 if env is None:
                     continue
-                elif env == actions.current_environment_name:
+                elif actions.match_environment_name(env, actions.current_environment_name):
                     script = sdata["script"]
                     if isinstance(script, dict):
                         uid = uuid.UUID(sdata["uid"])
@@ -528,11 +529,15 @@ def _handle_env_switch_instruction(data:dict[str]):
     elif instruction == "done":
         scripts = data.get("scripts",None)
         if isinstance(scripts, dict):
-            for id_s, success in scripts.items():
+            for id_s, values in scripts.items():
+                if not isinstance(values, dict):
+                    continue
+                success = values.get("success", False)
+                return_value = values.get("return_value", None)
                 uid = uuid.UUID(id_s)
                 de = actions._env_switch_done.get(uid,None)
                 if de is not None:
-                    de.mark_done(bool(success))
+                    de.mark_done(bool(success), actions.deserialize_script_return_value(return_value))
     elif instruction == "error":
         ...
 
@@ -589,8 +594,11 @@ def sock_action_environment_switch(ws:Server):
                         ws.send(json.dumps({
                             "instruction": "done",
                             "scripts": {
-                                str(uid): success
-                                for uid, success in q
+                                str(uid): {
+                                    "success": success,
+                                    "return_value": actions.serialize_script_return_value(script)
+                                }
+                                for uid, script, success in q
                             }
                         }))
                         q.clear()

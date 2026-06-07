@@ -99,8 +99,7 @@ def run(addr:tuple[str, int]=(web.HOST, web.PORT), remote_addr:str=None, pconfig
 
     if tronix_mode == plugins.COMPONENT_MODE_NORMAL:
         print("loading script environment")
-        import tronix.script_builtins, tronix_integrations
-        tronix.script_builtins.activate()
+        import tronix_integrations
         tronix_integrations.activate(api_mode, *web.process_remote(remote_addr))
         print("loaded script environment")
         trigger_runner_thread = threading.Thread(target=actions.run_triggers_thread_handler, daemon=True)

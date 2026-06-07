@@ -14,6 +14,8 @@ from uuid import UUID, uuid4
 
 ACTIONS_PATH = datafile.makepath("actions.json")
 
+ACTION_RETURN_VALUE_VAR_NAME = "SZBOT_ACTION_RETURN_VALUE"
+
 class ActionRequestedValue:
     def __init__(self, name:str, t:type, required:bool=True):
         self.name = name
@@ -95,16 +97,21 @@ class Action:
             elif rv.required:
                 ... #TODO error missing required value
         return rtv
+    
+    def is_script_environment_local(self):
+        return self.script_environment is None or match_environment_name(self.script_environment, current_environment_name)
 
 class _env_switch_done_entry:
     def __init__(self, loop:asyncio.AbstractEventLoop=None):
         self.aevent = asyncio.Event()
         self.tevent = threading.Event()
         self.success = None
+        self.return_value:tronix.script.ScriptValue|None = None
         self._loop = loop
     
-    def mark_done(self, success:bool):
+    def mark_done(self, success:bool, return_value:tronix.script.ScriptValue|None=None):
         self.success = success
+        self.return_value = return_value
         if self._loop is None:
             self.aevent.set()
         else:
@@ -127,6 +134,15 @@ _env_switch_queue:dict[str, list[tuple[UUID, str, tronix.Script|dict[str], _env_
 _env_switch_queue_lock = threading.Lock()
 _env_switch_done:dict[UUID,_env_switch_done_entry] = {}
 
+def _enqueue_script(uid:UUID, environment:str, s:tronix.Script, is_done:_env_switch_done_entry):
+    data = (uid, environment, s, is_done)
+    with _env_switch_queue_lock:
+        q = _env_switch_queue.get(environment,None)
+        if q is not None:
+            _env_switch_done[uid] = is_done
+            q.append(data)
+    return data
+
 def enqueue_script(s:tronix.Script, environment:str|None=None, uid:UUID|None=None):
     if uid is None:
         uid = uuid4()
@@ -135,6 +151,8 @@ def enqueue_script(s:tronix.Script, environment:str|None=None, uid:UUID|None=Non
         environment = current_environment_name
     elif "@" not in environment:
         evx = generate_environment_name(environment)
+        if evx == current_environment_name:
+            environment = evx
         with _env_switch_queue_lock:
             if evx in _env_switch_queue:
                 environment = evx
@@ -144,31 +162,25 @@ def enqueue_script(s:tronix.Script, environment:str|None=None, uid:UUID|None=Non
                         environment = env
                         break
     is_done = _env_switch_done_entry()
-    data = (uid, environment, s, is_done)
-    with _env_switch_queue_lock:
-        q = _env_switch_queue.get(environment,None)
-        if q is not None:
-            _env_switch_done[uid] = is_done
-            q.append(data)
-    return data
+    return _enqueue_script(uid, environment, s, is_done)
 
-def wait_script_finish(uid:UUID, timeout:float|None=None)->bool|None:
+def wait_script_finish(uid:UUID, timeout:float|None=None):
     de = _env_switch_done.get(uid, None)
     if de is None:
-        return None
+        return None, None
     if de.wait(timeout=timeout):
         del _env_switch_done[uid]
-    return de.success
+    return de.success, de.return_value
 
-async def wait_script_finish_async(uid:UUID, timeout:float|None=None)->bool|None:
+async def wait_script_finish_async(uid:UUID, timeout:float|None=None):
     de = _env_switch_done.get(uid, None)
     if de is None:
-        return None
+        return None, None
     if de._loop is None:
         de._loop = asyncio.get_event_loop()
     if await de.wait_async(timeout=timeout, loop=asyncio.get_running_loop()):
         del _env_switch_done[uid]
-    return de.success
+    return de.success, de.return_value
 
 async def _run_script(uid:UUID, s:tronix.Script, *x):
     success = False

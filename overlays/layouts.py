@@ -129,7 +129,7 @@ class ActionLayoutElementConstructTrigger(LayoutElementConstructTrigger):
         action_mapping.__setstate__(d["action_mapping"])
         self.action_mapping = action_mapping
 
-    def handle(self, construct_ctx):
+    async def handle(self, construct_ctx):
         action = actions.load_action_table().get(self.action_name, None)
         if action is None:
             ... #TODO exception action not found
@@ -139,13 +139,18 @@ class ActionLayoutElementConstructTrigger(LayoutElementConstructTrigger):
         s = script.Script(action.script, script_scope)
 
         script_scope.setdefault(LAYOUT_CONSTRUCTION_PROCESS_ID_VAR_NAME, script.ScriptVariable(script.wrap_python_value(construct_ctx.layout_process_id)))
-        if action.script_environment is None or actions.match_environment_name(action.script_environment, actions.current_environment_name):
-            return actions.script_runner.run_async(s)
+        if action.is_script_environment_local():
+            await actions.script_runner.run_async(s)
+            rtvar = s.scope.get(actions.ACTION_RETURN_VALUE_VAR_NAME, None)
+            if isinstance(rtvar, script.ScriptVariable):
+                return rtvar.get()
         else:
             uid, *_ = actions.enqueue_script(s, action.script_environment)
-            async def _wait():
-                await actions.wait_script_finish_async(uid)
-            return _wait()
+            success, return_value = await actions.wait_script_finish_async(uid)
+            if success:
+                if return_value is not None:
+                    s.scope[actions.ACTION_RETURN_VALUE_VAR_NAME] = script.ScriptVariable(return_value)
+                return return_value
         
 
 class ConstructProcess:
