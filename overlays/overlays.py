@@ -88,21 +88,24 @@ fetcher_types:dict[str,type[LayoutFetcher]] = {
 }
 
 class Overlay:
-    def __init__(self, name:str, layout_fetcher:LayoutFetcher|None=None, layout_args:dict[str]|None=None):
+    def __init__(self, name:str, layout_fetcher:LayoutFetcher|None=None, layout_args:dict[str]|None=None, make_connection:bool=True):
         self.name = name
         self.layout_fetcher = layout_fetcher
         self.layout_args = {} if layout_args is None else layout_args
+        self.make_connection = make_connection
 
     def __getstate__(self):
         return {
             "name": self.name,
             "layout_fetcher": None if self.layout_fetcher is None else self.layout_fetcher.__getstate__(),
-            "layout_args": actions.extra_data_serialize(self.layout_args)
+            "layout_args": actions.extra_data_serialize(self.layout_args),
+            "make_connection": self.make_connection
         }
     
     def __setstate__(self, d:dict[str]):
         self.name = str(d["name"])
         self.layout_args = actions.extra_data_deserialize(d["layout_args"])
+        self.make_connection = bool(d["make_connection"])
         lfd = d["layout_fetcher"]
         if isinstance(lfd, dict):
             cls = fetcher_types[lfd["type"]]

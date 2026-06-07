@@ -3,14 +3,40 @@
     <head>
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <link rel="preconnect" href="https://fonts.googleapis.com">
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin> 
         <link href="https://fonts.googleapis.com/css2?family=Fragment+Mono:ital@0;1&family=Noto+Sans:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet">
         <link rel="stylesheet" type="text/css" href="/static/css/overlay.css">
-        {% block styles %}
-        {% endblock %}
-        <!-- <script src="/static/js/overlay.js"></script> -->
-        {% block scripts %}
-        {% endblock %}
+        <script>
+            function serializeObject(o) {
+                const t = typeof o;
+                switch (t) {
+                case "string":
+                    return {t: "str", v: o};
+                case "boolean":
+                    return {t: "bool", v: o};
+                case "number":
+                    return {t: Number.isInteger(o) ? "int" : "float", v: o};
+                case "object":
+                    if (Array.isArray(o)) {
+                        return {t: "list", v: o.map(x => serializeObject(x))};
+                    } else if ("t" in o && "v" in o) {
+                        return o;
+                    } else if (o instanceof Map) {
+                        const entries = [];
+                        o.forEach(v, k => entries.push([serializeObject(k), serializeObject(v)]));
+                        return {t: "map", v: entries};
+                    } else {
+                        return {t: "map", v: Object.keys(o).map(key => [serializeObject(attr), serializeObject(o[attr])])};
+                    }
+                }
+            };
+            const OVERLAY_NAME = "{{overlay_name}}";
+        </script>
+        {% if make_connection is defined and make_connection %}
+        <script>
+            const OVERLAY_WS = new WebSocket(`/api/overlay/connection?name=${OVERLAY_NAME}`);
+        </script>
+        {% endif %}
     </head>
     <body>
         {% if layout_html is defined %}

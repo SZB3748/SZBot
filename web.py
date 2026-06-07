@@ -12,7 +12,7 @@ import inspect
 import json
 from markupsafe import Markup
 import os
-from overlays import layouts, overlays
+from overlays import connections, layouts, overlays
 import pickle
 import plugins
 import requests
@@ -170,8 +170,9 @@ def actions_page():
 def overlay_route(name:str=""):
     args = request.args.copy()
     missing_silent = args.pop("missing-silent", "")
+    n = args.pop("name","")
     if not name:
-        name = request.args.pop("name","")
+        name = n
         if not name:
             return "" if missing_silent else "Overlay name not provided.", 400
     
@@ -184,7 +185,7 @@ def overlay_route(name:str=""):
         tree, layout = overlay.layout_fetcher.fetch()
         if layout is not None:
             a = overlay.layout_args.copy()
-            for k,v in args.items():
+            for k,v in args.to_dict(False).items():
                 a[k] = v[0] if len(v) == 1 else v
             result = _layout_construct_loop_result()
             with _layout_construct_queue_lock:
@@ -196,10 +197,8 @@ def overlay_route(name:str=""):
                 raise result.exception
             assert result.html is not None, "HTML not contructed and no error raised."
     
-        return render_template("overlay.html", layout_html=Markup(result.html))
-    return render_template("overlay.html")
-
-
+        return render_template("overlay.html", layout_html=Markup(result.html), overlay_name=name, make_connection=overlay.make_connection)
+    return render_template("overlay.html", overlay_name=name, make_connection=overlay.make_connection)
     
 
 @sock.route("/events", bp=coreapi)
@@ -214,6 +213,29 @@ def api_events(ws:Server):
         ws.close()
     finally:
         events.remove_bucket(bucket)
+
+@sock.route("/overlay/connection", bp=coreapi)
+def api_overlay_connection(ws:Server):
+    overlay_name = request.args.get("name", None)
+    if not overlay_name:
+        ws.close(4400, "overlay name missing")
+        return
+    
+    conn = connections.default_connection_manager.new_connection(overlay_name) #TODO work on proxying substitute for remote mode situations
+    try:
+        print("overlay", overlay_name, f"connected on {conn.id}")
+        while ws.connected:
+            for d in conn.dump_data(timeout=0.1):
+                if isinstance(d, tronix.script.ScriptValue):
+                    d = json.dumps(tronix.utils.serialize_value(d, type_str=True))
+                elif not isinstance(d, bytes):
+                    d = json.dumps(d)
+                ws.send(d)
+    finally:
+        print("dropping connection", conn.id, "for overlay", overlay_name)
+        connections.default_connection_manager.drop_connection(conn)
+
+
 
 @coreapi.post("/events/dispatch")
 def api_events_dispatch():
