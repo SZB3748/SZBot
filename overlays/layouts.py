@@ -22,7 +22,7 @@ class LayoutElement:
         return {
             "name": self.name,
             "id": self.id,
-            "construct": None if construct is None else self.construct.__getstate__()
+            "construct": None if self.construct is None else self.construct.__getstate__()
         }
     
     def __setstate__(self, d:dict[str]):

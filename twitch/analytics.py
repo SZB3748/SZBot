@@ -96,8 +96,6 @@ def sql_executor_loop():
     for _, tablestatement in TABLES.values():
         cursor.execute(tablestatement)
 
-    cursor.execute(f"DELETE FROM {RedeemStat.TABLE_NAME}") #DEBUG
-
     conn.autocommit = False
 
     inf = float("inf")

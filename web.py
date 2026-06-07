@@ -830,10 +830,12 @@ def attach_core(interface_mode:str, overlay_mode:str, api_mode:str, tronix_mode:
             coreapi.post("/action/script/run")(api_action_script_run)
             sock.route("/action/script/env-switch", bp=api)(sock_action_environment_switch)
             _layout_construct_thread.start()
+            start_action_runner_local()
         api.register_blueprint(coreapi)
     elif api_mode == plugins.COMPONENT_MODE_REMOTE:
         vcoreapi = Blueprint("proxy_core_api", __name__)
         if tronix_enabled:
+            start_action_runner_local()
             _rapi_script_env_thread.start()
         for p in ["/configs", "/configs/meta", "/plugins/load", "/plugins/unload", "/layout/construct", "/events/dispatch", "/action/script/check", "/action/script/run", "/action/list", "/action"]:
             create_endpoint_proxy(remote_addr, [p], vcoreapi, socket=False, endpoint_name=p[1:].replace("/", "_"))

@@ -1,9 +1,11 @@
 import asyncio
+import base64
 import contextlib
 import datafile
 import inspect
 import json
 import os
+import pickle
 import threading
 import traceback
 import tronix
@@ -19,9 +21,8 @@ class ActionRequestedValue:
         self.required = required
     
     def __getstate__(self):
-        if self.type in tronix.script.DATA_TYPE_TABLE:
-            t = tronix.script.DATA_TYPE_TABLE[self.type]
-        else:
+        t = tronix.script.DATA_TYPE_TABLE.get(self.type, None)
+        if t is None:
             t = tronix.script.wrap_python_type(self.type)
         return {
             "name": self.name,
@@ -31,7 +32,7 @@ class ActionRequestedValue:
     
     def __setstate__(self, d:dict[str]):
         self.name = str(d["name"])
-        self.type = tronix.script._map_name_to_type(d["type"]).inner
+        self.type = tronix.script.name_to_type(d["type"]).inner
         self.required = bool(d["required"])
 
 class ActionValueMapping:
@@ -47,6 +48,7 @@ class ActionValueMapping:
 class Trigger:
     def handle(self, *args):
         raise NotImplementedError
+
 
 class Action:
     def __init__(self, name:str, script:str, requested_values:dict[str, ActionRequestedValue]|None=None, script_environment:str|None=None):
@@ -252,12 +254,11 @@ def check_script(raw:str):
         return tronix.utils.generate_exception_help(raw, e)
 
 
-def extra_data_serialize(d:dict[str]):
+def extra_data_serialize(d:dict[str], type_str:bool=True):
     sd = {}
     for k,v in d.items():
         value = tronix.script.wrap_python_value(v)
-        sd[k] = state = tronix.utils._serialized_value.serialize(value).__getstate__()
-        state["t"] = value.type.name
+        sd[k] = tronix.utils._serialized_value.serialize(value, type_str=type_str).__getstate__()
     return sd
 
 def extra_data_deserialize(d:dict[str,dict[str]]):
@@ -265,12 +266,7 @@ def extra_data_deserialize(d:dict[str,dict[str]]):
     for k,v in d.items():
         sv = tronix.utils._serialized_value.__new__(tronix.utils._serialized_value)
         sv.__setstate__(v)
-        dt = tronix.script._map_name_to_type(sv.t)
-        if dt is None:
-            dsd[k] = sv.v
-        else:
-            sv.t = dt
-            dsd[k] = sv.deserialize()
+        dsd[k] = sv.deserialize()
     return dsd
 
 shared_loop = None
@@ -336,3 +332,15 @@ def enqueue_triggers(triggers:list[tuple[Trigger, tuple, dict]]):
     with _run_triggers_queue_lock:
         _run_triggers_queue.extend(triggers)
         _run_trigger_loop.call_soon_threadsafe(_run_triggers_queue_ready.set)
+
+def serialize_script_return_value(script:tronix.Script):
+    rtvar = script.scope.get(ACTION_RETURN_VALUE_VAR_NAME, None)
+    if isinstance(rtvar, tronix.script.ScriptVariable):
+        return base64.b64encode(pickle.dumps(tronix.utils.serialize_value(rtvar.get()))).decode("utf-8")
+    else:
+        return None
+    
+def deserialize_script_return_value(s:str|None):
+    if not isinstance(s, str):
+        return None
+    return tronix.utils.deserialize_value(pickle.loads(base64.b64decode(s.encode("utf-8"))))
