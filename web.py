@@ -12,7 +12,7 @@ import inspect
 import json
 from markupsafe import Markup
 import os
-from overlays import connections, layouts, overlays
+from overlays import connections, layouts, media, overlays
 import pickle
 import plugins
 import requests
@@ -357,6 +357,15 @@ def api_layout_construct():
         return result.html, 200
     elif result.exception is not None:
         raise result.exception
+
+@coreapi.get("/media")
+def api_media():
+    name = request.args["name"]
+    entry = media.load_media_entries().get(name, None)
+    if entry is None:
+        return "", 404
+    mimetype = entry.resolve_type()
+    return send_file(entry.get_path(), mimetype=mimetype)
 
 
 class proxy_headers:
@@ -867,7 +876,7 @@ def attach_core(interface_mode:str, overlay_mode:str, api_mode:str, tronix_mode:
         if tronix_enabled:
             start_action_runner_local()
             _rapi_script_env_thread.start()
-        for p in ["/configs", "/configs/meta", "/plugins/load", "/plugins/unload", "/layout/construct", "/events/dispatch", "/action/script/check", "/action/script/run", "/action/list", "/action"]:
+        for p in ["/configs", "/configs/meta", "/plugins/load", "/plugins/unload", "/layout/construct", "/media", "/events/dispatch", "/action/script/check", "/action/script/run", "/action/list", "/action"]:
             create_endpoint_proxy(remote_addr, [p], vcoreapi, socket=False, endpoint_name=p[1:].replace("/", "_"))
         create_endpoint_proxy(remote_addr, ["/events"], vcoreapi, normal=False, endpoint_name="events")
         if tronix_enabled:
