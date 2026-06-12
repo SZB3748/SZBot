@@ -118,6 +118,7 @@ sock = Sock(app)
 def index():
     return render_template("index.html")
 
+_OAUTH_MODE = None
 @app.get("/oauth")
 def oauth():
     code = request.args["code"]
@@ -143,11 +144,14 @@ def oauth():
         return r2.text, r2.status_code
     u = r2.json()
     login = u["data"][0]["login"]
-    if login == str(identity["Bot-Name"]).lower():
-        identity.update({"Token": token, "Refresh-Token": refresh})
-        config.write(config_updates={"identity": identity}, path=config.OAUTH_TWITCH_FILE)
-        return "Authenticated bot identity, restart bot.", 200
-    else:
+    if _OAUTH_MODE == "identity":
+        if login == str(identity["Bot-Name"]).lower():
+            identity.update({"Token": token, "Refresh-Token": refresh})
+            config.write(config_updates={"identity": identity}, path=config.OAUTH_TWITCH_FILE)
+            return "Authenticated bot identity, restart bot.", 200
+        else:
+            return "Authenticated account name does not match configured bot name."
+    elif _OAUTH_MODE == "channel":
         channels = oauth.get("channels",None)
         tdata = {"token": token, "refresh_token": refresh}
         if isinstance(channels, dict):
@@ -183,7 +187,9 @@ def overlay_route(name:str=""):
     
     if overlay.layout_fetcher is not None:
         tree, layout = overlay.layout_fetcher.fetch()
-        if layout is not None:
+        if layout is None:
+            return "" if missing_silent else "Layout could not be found.", 404
+        else:
             a = overlay.layout_args.copy()
             for k,v in args.to_dict(False).items():
                 a[k] = v[0] if len(v) == 1 else v
@@ -197,7 +203,8 @@ def overlay_route(name:str=""):
                 raise result.exception
             assert result.html is not None, "HTML not contructed and no error raised."
     
-        return render_template("overlay.html", layout_html=Markup(result.html), overlay_name=name, make_connection=overlay.make_connection)
+            return render_template("overlay.html", layout_html=Markup(result.html), overlay_name=name, make_connection=overlay.make_connection)
+        
     return render_template("overlay.html", overlay_name=name, make_connection=overlay.make_connection)
     
 

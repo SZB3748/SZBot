@@ -32,10 +32,12 @@ def get_auth_token(oauth:dict[str], addr:tuple[str, int]=DEFAULT_ADDR, redirect:
 
 if __name__ == "__main__":
     args = parser.parse_args()
+    web._OAUTH_MODE = args.scopes
     if args.scopes == "channel":
         scopes = twitchbot.OAUTH_CHANNEL_SCOPES
     else:
         scopes = twitchbot.OAUTH_SCOPES
+
     addr_arg:str = args.host
     if addr_arg is None:
         addr = DEFAULT_ADDR
