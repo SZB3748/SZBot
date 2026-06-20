@@ -146,10 +146,10 @@ def activate(api_mode:str|None, remote:str|None=None, secure:bool=False):
     utils.add_type(ActionTrigger, constructor=False)
     utils.add_type(Action, constructor=False)
 
-    script.SCRIPT_FUNCTION_TABLE["get_action"] = f_get_action
-    script.SCRIPT_FUNCTION_TABLE["run_action"] = f_run_action
-    script.SCRIPT_FUNCTION_TABLE["save"] = f_save
-    script.SCRIPT_FUNCTION_TABLE["set_action_return_value"] = f_set_action_return_value
+    utils.merge_function("get_action", f_get_action)
+    utils.merge_function("run_action", f_run_action)
+    utils.merge_function("save", f_save)
+    utils.merge_function("set_action_return_value", f_set_action_return_value)
 
     actions.script_runner.add_script_end_cb(scriptend_save_config)
 

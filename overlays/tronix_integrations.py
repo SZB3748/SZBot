@@ -2,7 +2,7 @@ from . import connections, layouts, media
 import actions
 import bs4
 import os
-from tronix import exceptions, script, script_builtins as builtins, utils
+from tronix import script, script_builtins as builtins, utils
 import tronix_integrations as ti
 from typing import Any, BinaryIO, Callable
 from uuid import UUID
@@ -668,13 +668,13 @@ def activate():
     add_media_element_loader_tag("a", load_media_onto_href)
 
 
-    script.SCRIPT_FUNCTION_TABLE["send_to_overlay"] = f_send_to_overlay
-    script.SCRIPT_FUNCTION_TABLE["get_media"] = f_get_media
-    script.SCRIPT_FUNCTION_TABLE["set_html_element_text"] = f_set_html_element_text
-    script.SCRIPT_FUNCTION_TABLE["set_html_element_media"] = f_set_html_element_media
-    script.SCRIPT_FUNCTION_TABLE["create_media_html_element"] = f_create_media_html_element
-    script.SCRIPT_FUNCTION_TABLE["resolve_layout_element_construction"] = f_resolve_layout_element_construction
-    script.SCRIPT_FUNCTION_TABLE["fail_layout_element_construction"] = f_fail_layout_element_construction
-    script.SCRIPT_FUNCTION_TABLE["add_sublayout"] = f_add_sublayout
-    script.SCRIPT_FUNCTION_TABLE["get_layout_element_html"] = f_get_layout_element_html
-    script.SCRIPT_FUNCTION_TABLE["construct_layout"] = f_construct_layout
+    utils.merge_function("send_to_overlay", f_send_to_overlay)
+    utils.merge_function("get_media", f_get_media)
+    utils.merge_function("set_html_element_text", f_set_html_element_text)
+    utils.merge_function("set_html_element_media", f_set_html_element_media)
+    utils.merge_function("create_media_html_element", f_create_media_html_element)
+    utils.merge_function("resolve_layout_element_construction", f_resolve_layout_element_construction)
+    utils.merge_function("fail_layout_element_construction", f_fail_layout_element_construction)
+    utils.merge_function("add_sublayout", f_add_sublayout)
+    utils.merge_function("get_layout_element_html", f_get_layout_element_html)
+    utils.merge_function("construct_layout", f_construct_layout)

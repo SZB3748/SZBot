@@ -928,18 +928,18 @@ def activate():
     utils.add_type(TwitchRewardLimitSettings, constructor=False)
     utils.add_type(TwitchContext, constructor=False)
     utils.add_type(AnalyticsWindow)
-    script.SCRIPT_FUNCTION_TABLE["send_twitch_message"] = f_send_twitch_message
-    script.SCRIPT_FUNCTION_TABLE["twitch_shoutout"] = f_twitch_shoutout
-    script.SCRIPT_FUNCTION_TABLE["twitch_timeout"] = f_twitch_timeout
-    script.SCRIPT_FUNCTION_TABLE["twitch_ban"] = f_twitch_ban
-    script.SCRIPT_FUNCTION_TABLE["twitch_unban"] = f_twitch_unban
-    script.SCRIPT_FUNCTION_TABLE["current_twitch_stream_window"] = f_current_twitch_stream_window
-    script.SCRIPT_FUNCTION_TABLE["is_this_twitch_user_first_message"] = f_is_this_twitch_user_first_message
-    script.SCRIPT_FUNCTION_TABLE["is_this_twitch_channel_first_message"] = f_is_this_twitch_channel_first_message
-    script.SCRIPT_FUNCTION_TABLE["is_this_twitch_user_first_redeem"] = f_is_this_twitch_user_first_redeem
-    script.SCRIPT_FUNCTION_TABLE["is_this_twitch_channel_first_redeem"] = f_is_this_twitch_channel_first_redeem
-    script.SCRIPT_FUNCTION_TABLE["count_redemptions_for_twitch_user"] = f_count_redemptions_for_twitch_user
-    script.SCRIPT_FUNCTION_TABLE["count_redemptions_for_twitch_channel"] = f_count_redemptions_for_twitch_channel
+    utils.merge_function("send_twitch_message", f_send_twitch_message)
+    utils.merge_function("twitch_shoutout", f_twitch_shoutout)
+    utils.merge_function("twitch_timeout", f_twitch_timeout)
+    utils.merge_function("twitch_ban", f_twitch_ban)
+    utils.merge_function("twitch_unban", f_twitch_unban)
+    utils.merge_function("current_twitch_stream_window", f_current_twitch_stream_window)
+    utils.merge_function("is_this_twitch_user_first_message", f_is_this_twitch_user_first_message)
+    utils.merge_function("is_this_twitch_channel_first_message", f_is_this_twitch_channel_first_message)
+    utils.merge_function("is_this_twitch_user_first_redeem", f_is_this_twitch_user_first_redeem)
+    utils.merge_function("is_this_twitch_channel_first_redeem", f_is_this_twitch_channel_first_redeem)
+    utils.merge_function("count_redemptions_for_twitch_user", f_count_redemptions_for_twitch_user)
+    utils.merge_function("count_redemptions_for_twitch_channel", f_count_redemptions_for_twitch_channel)
 
 def deactivate():
     utils.remove_type(TwitchUser)
