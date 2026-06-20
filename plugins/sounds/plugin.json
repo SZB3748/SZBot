@@ -1,0 +1,9 @@
+{
+    "name": "Sound Request",
+    "description": "Allows for users to request sounds to be played.",
+    "components": {
+        "api": ["normal", "remote", null],
+        "player": ["normal", null],
+        "tronix": ["normal", null]
+    }
+}

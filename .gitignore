@@ -8,6 +8,11 @@ data/*
 #Exclude non-builtin plugins
 plugins/*
 !plugins/soundreq/
+!plugins/sounds
 !plugins/pngoverlay/
 !plugins/microphone/
 !plugins/keybinds/
+
+#Exclude non-builtin prefabs
+prefabs/*
+!prefabs/basic_chat_overlay
