@@ -326,7 +326,7 @@ class Bot(commands.AutoBot):
     async def event_message(self, message:twitchio.ChatMessage) -> None:      
         print(datetime.now().strftime("[%Y-%M-%d %H:%M:%S]"), f"<{message.broadcaster}> {message.chatter}: {message.text}")
         await twitch.analytics.insert_stat_async(twitch.analytics.MessageStat.from_data(message))
-        if message.chatter.id == self.bot_id:
+        if message.chatter.id == self.bot_id and not message.chatter.broadcaster:
             return
         
         self.update_link_commands()
