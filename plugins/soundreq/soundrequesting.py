@@ -80,5 +80,5 @@ def handler_target(sound_keys:list[tuple[str, str|None, str|None]]=None):
 def invoke_handler():
     global queue_handler
     if queue_handler is None:
-        queue_handler = threading.Thread(target=handler_target, args=(popall_queue(),), daemon=True)
+        queue_handler = threading.Thread(target=handler_target, args=(popall_queue(),))
         queue_handler.start()

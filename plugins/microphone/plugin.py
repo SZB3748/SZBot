@@ -12,8 +12,6 @@ handler_thread:threading.Thread = None
 
 def on_load(ctx:plugins.LoadEvent):
     global handler_thread
-
-    #handler._meta = ctx.plugin.meta
     webroutes.web_loaded = True
 
     m_interface = ctx.plugin.get_component_mode(COMPONENT_INTERFACE)
@@ -40,7 +38,7 @@ def on_load(ctx:plugins.LoadEvent):
         
         if isinstance(devices, list):
             webroutes.main_handler.from_init(devices)
-            handler_thread = threading.Thread(target=webroutes.main_handler.handle, daemon=True)
+            handler_thread = threading.Thread(target=webroutes.main_handler.handle)
             handler_thread.start()
         else:
             print("Microphone: could not find initialization info from configs.")
@@ -49,12 +47,5 @@ def on_unload(ctx:plugins.UnloadEvent):
     global handler_thread
     webroutes.web_loaded = False
     if handler_thread:
-        old = handler_thread
+        webroutes.main_handler.stop()
         handler_thread = None
-        webroutes.main_handler.do_handle = False
-        print("Waiting for microphone handler to stop...")
-        old.join(0.5)
-        if old.is_alive():
-            print("Microphone handler failed to stop after 0.5 seconds")
-        else:
-            print("Microphone handler stopped")

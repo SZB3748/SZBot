@@ -1,6 +1,7 @@
 from . import keybind, keybind_triggers
 import actions
 import events
+import exiting
 from flask import Blueprint, Flask, render_template
 from flask_sock import Server
 import json
@@ -66,6 +67,15 @@ def keybinds_events(ws:Server):
     merged = keybind_triggers.merge_keybind_triggers()
     if merged:
         send_keybinds(merged)
+
+    @exiting.register_cleanup_listener
+    def _cleanup(ctx):
+        exiting.unregister_cleanup_listener(_cleanup)
+        keyevents.remove_bucket(bucket)
+        if ws.connected:
+            print(f"closing keybinds events connection {bucket.id}")
+            ws.close()
+            print(f"closed keybinds events connection {bucket.id}")
     try:
         while ws.connected:
             msg = ws.receive(0.001)
@@ -80,28 +90,28 @@ def keybinds_events(ws:Server):
                         keylisteners.handle_event(event)
             for event in bucket.dump():
                 ws.send(event.to_json())
-    except KeyboardInterrupt:
-        pass
     finally:
-        if ws.connected:
-            ws.close()
-        keyevents.remove_bucket(bucket)
+        _cleanup(None)
 
 @sock.route("/events/keys", bp=keybindsapi)
 @serve_when_loaded(web_loaded_callback)
 def keybinds_events_keys(ws:Server):
     bucket = keys_buckets.new_bucket()
+    @exiting.register_cleanup_listener
+    def _cleanup(ctx):
+        exiting.unregister_cleanup_listener(_cleanup)
+        keys_buckets.remove_bucket(bucket)
+        if ws.connected:
+            print(f"closing keybinds key events connection {bucket.id}")
+            ws.close()
+            print(f"closed keybinds key events connection {bucket.id}")
     try:
         while ws.connected:
             bucket.wait()
             for event in bucket.dump():
                 ws.send(event.to_json())
-    except KeyboardInterrupt:
-        pass
     finally:
-        if ws.connected:
-            ws.close()
-        keys_buckets.remove_bucket(bucket)
+        _cleanup(None)
 
 @keybindspages.get("/")
 @serve_when_loaded(web_loaded_callback)

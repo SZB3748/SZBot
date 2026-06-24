@@ -5,7 +5,7 @@ import os
 import re
 import sys
 from types import ModuleType
-from typing import Any, Callable
+from typing import Any, Callable, NoReturn
 
 from twitchio.ext.commands import Bot
 
@@ -42,6 +42,17 @@ ExcludedType = type("excluded", (), {"__repr__": lambda _: "excluded"})
 excluded = ExcludedType()
 
 PLUGINS_DIR = "plugins"
+
+def _default_must_have_remote_address(msg:str):
+    print(msg)
+    exit(-1)
+
+def must_have_remote_address(message:str="One of your plugins requires a remote address to be specified.", on_missing:Callable[[str], NoReturn]=_default_must_have_remote_address)->tuple[tuple[str,int], bool]:
+    import runtime as rt
+    if rt.remote_addr is rt.UNASSIGNED or rt.remote_secure is rt.UNASSIGNED or rt.remote_addr == rt.NO_REMOTE_ADDRESS:
+        on_missing(message)
+        assert False, "Must have remote address" #just in case the callback does not raise an exception
+    return rt.remote_addr, rt.remote_secure
 
 class PluginException(Exception):
     """Base class for Plugin Exceptions."""
@@ -262,52 +273,26 @@ def get_invalid_plugin_components(components:dict[str, str|None], meta:Meta)->li
 
 @dataclass
 class LoadEvent(EventCallbackContext):
-    plugin_list:dict[str, Plugin]
     plugin:Plugin
-    pconfig_path:str
     is_start:bool
-    host_addr:tuple[str, int]
-    remote_api_addr:str|None
-
-    def handle(self, plugin:Plugin):
-        return plugin.load(self)
-    
-    def raise_if_no_remote(self):
-        if self.remote_api_addr is None:
-            ... #TODO exception
 
 @dataclass
 class UnloadEvent(EventCallbackContext):
-    plugin_list:dict[str, Plugin]
     plugin:Plugin
     is_end:bool
     exception:Exception|None
-
-    def handle(self, plugin:Plugin):
-        return plugin.unload(self)
 
 @dataclass
 class TwitchBotLoadEvent(EventCallbackContext):
-    plugin_list:dict[str, Plugin]
     plugin:Plugin
-    pconfig_path:str
     is_start:bool
     bot:Bot
 
-    def handle(self, plugin:Plugin):
-        return plugin.twitch_bot_load(self)
-
 @dataclass
 class TwitchBotUnloadEvent(EventCallbackContext):
-    plugin_list:dict[str, Plugin]
     plugin:Plugin
     is_end:bool
     exception:Exception|None
-
-    def handle(self, plugin:Plugin):
-        return plugin.twitch_bot_unload(self)
-
-shared_plugins_list:dict[str, Plugin] = None
 
 def import_plugin_file(name:str, path:str)->ModuleType:
     spec = importlib.util.spec_from_file_location(name, path, submodule_search_locations=[os.path.dirname(path)])

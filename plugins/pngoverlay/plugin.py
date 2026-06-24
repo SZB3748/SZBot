@@ -2,6 +2,7 @@ from . import medialist, statemapping, webroutes
 import events
 import os
 import plugins
+import runtime as rt
 import threading
 import web
 
@@ -35,21 +36,22 @@ def on_load(ctx:plugins.LoadEvent):
     m_api = ctx.plugin.get_component_mode(COMPONENT_API)
     m_events = ctx.plugin.get_component_mode(COMPONENT_EVENTS)
 
-    microphone = ctx.plugin_list.get("microphone", None)
-    keybinds = ctx.plugin_list.get("keybinds", None)
+    microphone = rt.plugin_list.get("microphone", None)
+    keybinds = rt.plugin_list.get("keybinds", None)
 
     if not (microphone is None or microphone.module is None):
         statemapping.EVENT_CONDITION_TYPES[statemapping.MicActivityCondition.CATEGORY_NAME] = statemapping.MicActivityCondition
         microphone_m_api = microphone.get_component_mode(microphone.module.COMPONENT_API)
         if microphone_m_api == plugins.COMPONENT_MODE_NORMAL:
-            _args = f"{ctx.host_addr[0]}:{ctx.host_addr[1]}", ctx.host_addr[1] == 443
+            _args = f"{rt.host_addr[0]}:{rt.host_addr[1]}", web.SELF_SECURE
         elif microphone_m_api == plugins.COMPONENT_MODE_REMOTE:
-            _args = ctx.remote_api_addr, ctx.remote_api_addr.endswith(":443")
+            raddr, rsecure = plugins.must_have_remote_address(f"Plugin {ctx.plugin.name} requires a remote address to be specified.")
+            _args = f"{raddr[0]}:{raddr[1]}", rsecure
         else:
             _args = None
         if _args is not None:
             statemapping.mic_volumes_run = True
-            microphone_read_thread = threading.Thread(target=statemapping.mic_volume_background_runner, args=_args, daemon=True)
+            microphone_read_thread = threading.Thread(target=statemapping.mic_volume_background_runner, args=_args)
             microphone_read_thread.start()
     
     if keybinds is not None and keybinds.module is not None:
@@ -59,7 +61,7 @@ def on_load(ctx:plugins.LoadEvent):
             webroutes.attach_listeners()
         elif keybinds_m_api == plugins.COMPONENT_MODE_REMOTE:
             webroutes.keybinds_keylisteners = events.EventListenerCollection()
-            keybinds_key_events_thread = threading.Thread(target=webroutes.listen_remote_events_keys, args=(ctx.remote_api_addr, ctx.remote_api_addr.endswith(":443")), daemon=True)
+            keybinds_key_events_thread = threading.Thread(target=webroutes.listen_remote_events_keys, args=(ctx.remote_api_addr, ctx.remote_api_addr.endswith(":443")))
             keybinds_key_events_thread.start()
             webroutes.attach_listeners()
     else:
@@ -71,13 +73,13 @@ def on_load(ctx:plugins.LoadEvent):
         roverlay = m_overlay == plugins.COMPONENT_MODE_REMOTE
         vpngoverlaypages_parent = webroutes.Blueprint("proxy_pngoverlayparent", __name__, static_folder=webroutes.pngoverlaypages_parent.static_folder, template_folder=webroutes.pngoverlaypages_parent.template_folder, static_url_path=webroutes.pngoverlaypages_parent.static_url_path)
         if rinterface:
-            web.create_component_proxy(ctx.remote_api_addr, vpngoverlaypages_parent, webroutes.pngoverlaypages.name, webroutes.pngoverlaypages.url_prefix, socket=False)
+            web.create_component_proxy(vpngoverlaypages_parent, webroutes.pngoverlaypages.name, webroutes.pngoverlaypages.url_prefix, socket=False)
         if roverlay:
-            web.create_component_proxy(ctx.remote_api_addr, vpngoverlaypages_parent, webroutes.pngoverlayoverlays.name, webroutes.pngoverlayoverlays.url_prefix, socket=False)
+            web.create_component_proxy(vpngoverlaypages_parent, webroutes.pngoverlayoverlays.name, webroutes.pngoverlayoverlays.url_prefix, socket=False)
         if rinterface or roverlay:
             web.add_bp_if_new(web.app, vpngoverlaypages_parent)
         if m_api == plugins.COMPONENT_MODE_REMOTE:
-            web.create_component_proxy(ctx.remote_api_addr, web.api, webroutes.pngoverlayapi.name, webroutes.pngoverlayapi.url_prefix)
+            web.create_component_proxy(web.api, webroutes.pngoverlayapi.name, webroutes.pngoverlayapi.url_prefix)
 
     if m_api == plugins.COMPONENT_MODE_NORMAL:
         webroutes.init_statemap(ctx.plugin.meta)

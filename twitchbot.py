@@ -2,20 +2,23 @@ import actions
 import aiohttp
 import argparse
 import asyncio
+import atexit
 import base64
-import twitch.command_triggers
 import config
 from datetime import datetime, timedelta
+import exiting
 import inspect
 import json
 import os
 import pickle
 import plugins
+import runtime as rt
 from simple_websocket.errors import ConnectionClosed
 import threading
 import traceback
 import tronix
 import twitch.analytics
+import twitch.command_triggers
 import twitch.redeem_triggers
 import twitch.tronix_integrations as tti
 import twitchio
@@ -673,15 +676,33 @@ def _twitchbot_enque_script(uid:uuid.UUID, environment:str, s:tronix.Script, is_
 actions._enqueue_script = _twitchbot_enque_script
 
 def ws_run():
-    try:
-        ws.run_forever(reconnect=5)
-    except KeyboardInterrupt:
-        pass
+    _cleanup = exiting.make_websocket_cleanup(ws,
+        "closing script environment switch websocket",
+        "closed script environment switch websocket"
+    )
+    ws.run_forever(reconnect=5)
+    exiting.unregister_cleanup_listener(_cleanup)
 
 async def main():
     await bot.start(load_tokens=False, save_tokens=False)
 
 bot:Bot|None = None
+
+def exit_handler(e:Exception=None):
+    atexit.unregister(exit_handler)
+    print("unloading enabled plugins")
+    for plugin in rt.plugin_list.values():
+        if plugin.module is not None:
+            plugin.twitch_bot_unload(plugins.TwitchBotUnloadEvent(rt.plugin_list, plugin, True, e))
+    print("unloaded plugins")
+
+    if ws_thread is not None and ws_thread.is_alive():
+        ws.close()
+        ws_thread.join()
+
+    if analytics_thread is not None and analytics_thread.is_alive():
+        twitch.analytics.sqle_stop()
+        analytics_thread.join()
 
 if __name__ == "__main__":
     actions.current_environment_name = actions.generate_environment_name("twitchbot")
@@ -710,18 +731,17 @@ if __name__ == "__main__":
     )
 
     print("reading plugin list")
-    plugin_list = plugins.read_plugin_data(pconfig_path)
-    plugin_enabled_count = sum(1 for plugin in plugin_list.values() if plugin.module is not None)
-    print("read", len(plugin_list), "plugins with", plugin_enabled_count, "enabled plugins")
+    rt.plugin_list = plugins.read_plugin_data(pconfig_path)
+    plugin_enabled_count = sum(1 for plugin in rt.plugin_list.values() if plugin.module is not None)
+    print("read", len(rt.plugin_list), "plugins with", plugin_enabled_count, "enabled plugins")
     print("generating plugin load order")
-    load_order = plugins.generate_load_order(plugin_list)
+    load_order = plugins.generate_load_order(rt.plugin_list)
     print("loading enabled plugins")
     for plugin_name in load_order:
-        plugin = plugin_list[plugin_name]
+        plugin = rt.plugin_list[plugin_name]
         if plugin.module is not None and plugin.startup_load:
-            plugin.twitch_bot_load(plugins.TwitchBotLoadEvent(plugin_list, plugin, pconfig_path, True, bot))
+            plugin.twitch_bot_load(plugins.TwitchBotLoadEvent(plugin, pconfig_path, True, bot))
     print("loaded plugins")
-    plugins.shared_plugins_list = plugin_list
 
     if components:
         commands_mode = components.get(plugins.TWITCHBOT_COMPONENT_COMMANDS, plugins.COMPONENT_MODE_NORMAL)
@@ -762,16 +782,4 @@ if __name__ == "__main__":
         traceback.print_exception(_e)
         e = _e
 
-    print("unloading enabled plugins")
-    for plugin in plugin_list.values():
-        if plugin.module is not None:
-            plugin.twitch_bot_unload(plugins.TwitchBotUnloadEvent(plugin_list, plugin, True, e))
-    print("unloaded plugins")
-
-    if ws_thread is not None and ws_thread.is_alive():
-        ws.close()
-        ws_thread.join(timeout=0.5)
-
-    if analytics_thread is not None and analytics_thread.is_alive():
-        twitch.analytics.sqle_stop()
-        analytics_thread.join(timeout=0.5)
+    exit_handler(e)

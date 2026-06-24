@@ -5,6 +5,7 @@ import base64
 import config
 import datafile
 import events
+import exiting
 from flask import abort, Blueprint, Flask, render_template, request, Response, send_file, stream_with_context
 from flask_sock import Server, Sock
 from gevent.pywsgi import WSGIServer
@@ -16,6 +17,7 @@ from overlays import connections, layouts, media, overlays
 import pickle
 import plugins
 import requests
+import runtime as rt
 from simple_websocket.errors import ConnectionClosed
 import threading
 import traceback
@@ -30,6 +32,7 @@ HOST = "127.0.0.1"
 PORT = 6742
 SECRET_FILE = datafile.makepath("secret.txt")
 API_PROXY_BUFFER_SIZE = 8192
+SELF_SECURE = False #if you're making the flask app run with https, set this value to true
 
 DEFAULT_STYLES_FONT = "\"Fragment Mono\""
 DEFAULT_STYLES_BG_COLOR = "#000000"
@@ -81,10 +84,6 @@ def load_config_styles_css()->str:
     {loaded}
 }}
 </style>""")
-
-__host_addr = None
-__remote_addr = None
-__pconfig_path = None
 
 def serve_when_loaded(loaded_callback:Callable[[], bool], unloaded_error_code:int=404):
     def decor(f:Callable):
@@ -211,15 +210,22 @@ def overlay_route(name:str=""):
 @sock.route("/events", bp=coreapi)
 def api_events(ws:Server):
     bucket = events.new_bucket()
+    @exiting.register_cleanup_listener
+    def _cleanup(ctx):
+        exiting.unregister_cleanup_listener(_cleanup)
+        events.remove_bucket(bucket)
+        if ws.connected:
+            print(f"closing events connection {bucket.id}")
+            ws.close()
+            print(f"closed events connection {bucket.id}")
+
     try:
         while ws.connected:
             bucket.wait()
             for event in bucket.dump():
                 ws.send(event.to_json())
-    except KeyboardInterrupt:
-        ws.close()
     finally:
-        events.remove_bucket(bucket)
+        _cleanup(None)
 
 @sock.route("/overlay/connection", bp=coreapi)
 def api_overlay_connection(ws:Server):
@@ -228,9 +234,19 @@ def api_overlay_connection(ws:Server):
         ws.close(4400, "overlay name missing")
         return
     
+    @exiting.register_cleanup_listener
+    def _cleanup(ctx):
+        exiting.unregister_cleanup_listener(_cleanup)
+        connections.default_connection_manager.drop_connection(conn)
+        if ws.connected:
+            print("closing connection", conn.id, "for overlay", overlay_name)
+            ws.close()
+            print("closed connection", conn.id, "for overlay", overlay_name)
+
+
     conn = connections.default_connection_manager.new_connection(overlay_name) #TODO work on proxying substitute for remote mode situations
+    print("overlay", overlay_name, f"connected on {conn.id}")
     try:
-        print("overlay", overlay_name, f"connected on {conn.id}")
         while ws.connected:
             for d in conn.dump_data(timeout=0.1):
                 if isinstance(d, tronix.script.ScriptValue):
@@ -239,8 +255,7 @@ def api_overlay_connection(ws:Server):
                     d = json.dumps(d)
                 ws.send(d)
     finally:
-        print("dropping connection", conn.id, "for overlay", overlay_name)
-        connections.default_connection_manager.drop_connection(conn)
+        _cleanup(None)
 
 
 
@@ -278,23 +293,22 @@ def api_configs_meta():
                 combined[name] = meta_value
     return combined
 
-
 @coreapi.post("/plugins/load")
 def api_load_plugin():
     name = request.form["name"]
-    plugin = plugins.shared_plugins_list.get(name, None)
+    plugin = rt.plugin_list.get(name, None)
     if plugin is None:
         return "", 404
-    plugin.load(plugins.LoadEvent(plugins.shared_plugins_list, plugin, __pconfig_path, False, __host_addr, __remote_addr))
+    plugin.load(plugins.LoadEvent(plugin, False))
     return "", 204
 
 @coreapi.post("/plugins/unload")
 def api_unload_plugin():
     name = request.form["name"]
-    plugin = plugins.shared_plugins_list.get(name, None)
+    plugin = rt.plugin_list.get(name, None)
     if plugin is None:
         return "", 404
-    plugin.unload(plugins.UnloadEvent(plugins.shared_plugins_list, plugin, False, None))
+    plugin.unload(plugins.UnloadEvent(plugin, False, None))
     return "", 204
 
 class _layout_construct_loop_result:
@@ -333,11 +347,20 @@ async def layout_construct_loop():
 
 def layout_construct_handler():
     global _layout_construct_loop_run
+    @exiting.register_cleanup_listener
+    def _cleanup(ctx):
+        global _layout_construct_loop_run
+        exiting.unregister_cleanup_listener(_cleanup)
+        print("stopping layout construct loop")
+        _layout_construct_loop_run = False
+        _layout_construct_queue_ready.set()
+        print("stopped layout construct loop")
     _layout_construct_loop_run = True
     future = asyncio.run_coroutine_threadsafe(layout_construct_loop(), actions.shared_loop)
     future.result()
+    exiting.unregister_cleanup_listener(_cleanup)
     
-_layout_construct_thread = threading.Thread(target=layout_construct_handler, daemon=True)
+_layout_construct_thread = threading.Thread(target=layout_construct_handler)
 
 @coreapi.post("/layout/construct")
 def api_layout_construct():
@@ -470,21 +493,21 @@ def remote_api_script_env_handler():
     def ws_on_close(ws, status_code, msg:str|bytearray|memoryview):
         print("disconnected from script env switch")
 
-    _rapi_ready.wait(timeout=20)
-
     wsa = websocket.WebSocketApp(
-        f"ws{"s"*(__host_addr[1]==443)}://{__host_addr[0]}:{__host_addr[1]}/api/action/script/env-switch?name={actions.current_environment_name}",
+        f"ws{"s"*rt.remote_secure}://{rt.host_addr[0]}:{rt.host_addr[1]}/api/action/script/env-switch?name={actions.current_environment_name}",
         on_open=ws_on_open, on_message=ws_on_message,
         on_error=ws_on_error, on_close=ws_on_close,
         on_reconnect=ws_on_reconnect
     )
-    try:
-        wsa.run_forever(reconnect=5)
-    except KeyboardInterrupt:
-        pass
 
-_rapi_script_env_thread = threading.Thread(target=remote_api_script_env_handler, daemon=True)
-_rapi_ready = threading.Event()
+    _cleanup = exiting.make_websocket_cleanup(wsa,
+        "closing script environment switch websocket",
+        "closed script environment switch websocket",
+    )
+    wsa.run_forever(reconnect=5)
+    exiting.unregister_cleanup_listener(_cleanup)
+
+_rapi_script_env_thread = threading.Thread(target=remote_api_script_env_handler)
 
 _arl_queue:list[tuple[uuid.UUID, tronix.Script, str]] = []
 _arl_loop = None
@@ -525,7 +548,7 @@ def action_runner_local_handler():
     future = asyncio.run_coroutine_threadsafe(action_runner_local_loop(), actions.shared_loop)
     future.result()
 
-_arl_thread = threading.Thread(target=action_runner_local_handler, daemon=True)
+_arl_thread = threading.Thread(target=action_runner_local_handler)
 def start_action_runner_local():
     _arl_thread.start()
     return _arl_thread
@@ -733,26 +756,33 @@ def process_remote(remote_api_addr:str|None)->tuple[str|None, bool]:
     return remote_api_addr, secure_scheme or remote_api_addr.split(":",1) == "443"
 
 
-def create_endpoint_proxy(addr:str, routes:list[str], bp:Blueprint, normal=True, socket=True, endpoint_name:str|None=None):
-    processed_api_addr, secure = process_remote(addr)
-
+def create_endpoint_proxy(addr:tuple[str, int], secure:bool, routes:list[str], bp:Blueprint, normal=True, socket=True, endpoint_name:str|None=None):
+    addr_s = f"{addr[0]}:{addr[1]}"
     s = "s" * secure
-    proxy_host = f"http{s}://{processed_api_addr}/"
-    proxy_host_ws = f"ws{s}://{processed_api_addr}/"
+    proxy_host = f"http{s}://{addr_s}/"
+    proxy_host_ws = f"ws{s}://{addr_s}/"
 
     if socket:
         EXCLUDE_SOCK_HEADERS = {"host", "upgrade", "connection"}
         def ws_proxy(ws:Server, path:str):
             url = request.url.replace(request.host_url, proxy_host_ws, 1)
+            @exiting.register_cleanup_listener
+            def _cleanup(ctx):
+                exiting.unregister_cleanup_listener(_cleanup)
+                if client.keep_running or ws.connected:
+                    print("closing PROXY WS:", url)
+                    client.close()
+                    ws.close()
+                    print("closed PROXY WS:", url)
+
             print("PROXY WS:", url)
+
             def send_to_remote():
                 try:
                     while ws.connected and client.keep_running: 
                         msg = ws.receive()
                         if msg is not None:
                             client.send(msg, websocket.ABNF.OPCODE_BINARY if isinstance(msg, bytes) else websocket.ABNF.OPCODE_TEXT)
-                except KeyboardInterrupt:
-                    ws.close()
                 finally:
                     client.close()
             
@@ -841,33 +871,35 @@ def add_bp_if_new(t:Flask|Blueprint, bp:Blueprint):
     t.register_blueprint(bp)
     return True
 
-def create_component_proxy(address:str, dest:Flask|Blueprint, bpname:str, prefix:str|None=None, proxy_routes=["/", "/<path:path>"], normal:bool=True, socket:bool=True):
+def create_component_proxy(dest:Flask|Blueprint, bpname:str, prefix:str|None=None, proxy_routes=["/", "/<path:path>"], normal:bool=True, socket:bool=True, address:tuple[str,int]|tuple[None,None]|None=None, secure:bool|None=None):
     frame = inspect.currentframe()
     iname = __name__
     if frame is not None:
         frame = frame.f_back
         if frame is not None:
             iname = frame.f_globals["__name__"]
+    if address is None:
+        address = rt.remote_addr
+    if secure is None:
+        secure = rt.remote_secure
     vbp = Blueprint(bpname, iname, url_prefix=prefix)
-    create_endpoint_proxy(address, proxy_routes, vbp, normal=normal, socket=socket)
+    create_endpoint_proxy(address, secure, proxy_routes, vbp, normal=normal, socket=socket)
     add_bp_if_new(dest, vbp)
 
 
-def attach_core(interface_mode:str, overlay_mode:str, api_mode:str, tronix_mode:str, remote_addr:str|None=None):
-    global __remote_addr
-    __remote_addr = remote_addr
+def attach_core(interface_mode:str, overlay_mode:str, api_mode:str, tronix_mode:str):
     if interface_mode == plugins.COMPONENT_MODE_NORMAL:
         app.register_blueprint(coreinterface)
     elif interface_mode == plugins.COMPONENT_MODE_REMOTE:
         vcoreinterface = Blueprint("proxy_core_interface", __name__)
         for p in ["/", "/configs", "/actions"]:
-            create_endpoint_proxy(remote_addr, [p], vcoreinterface, socket=False)
+            create_endpoint_proxy(rt.remote_addr, rt.remote_secure, [p], vcoreinterface, socket=False)
 
     if overlay_mode == plugins.COMPONENT_MODE_NORMAL:
         app.register_blueprint(coreoverlay)
     elif overlay_mode == plugins.COMPONENT_MODE_REMOTE:
         vcoreoverlay = Blueprint("proxy_core_overlay", __name__)
-        create_endpoint_proxy(remote_addr, ["/overlay", "/overlay/<path:path>"], vcoreoverlay, socket=False)
+        create_endpoint_proxy(rt.remote_addr, rt.remote_secure, ["/overlay", "/overlay/<path:path>"], vcoreoverlay, socket=False)
 
     tronix_enabled = tronix_mode in (plugins.COMPONENT_MODE_NORMAL, plugins.COMPONENT_MODE_REMOTE)
 
@@ -884,26 +916,32 @@ def attach_core(interface_mode:str, overlay_mode:str, api_mode:str, tronix_mode:
             start_action_runner_local()
             _rapi_script_env_thread.start()
         for p in ["/configs", "/configs/meta", "/plugins/load", "/plugins/unload", "/layout/construct", "/media", "/events/dispatch", "/action/script/check", "/action/script/run", "/action/list", "/action"]:
-            create_endpoint_proxy(remote_addr, [p], vcoreapi, socket=False, endpoint_name=p[1:].replace("/", "_"))
-        create_endpoint_proxy(remote_addr, ["/events"], vcoreapi, normal=False, endpoint_name="events")
+            create_endpoint_proxy(rt.remote_addr, rt.remote_secure, [p], vcoreapi, socket=False, endpoint_name=p[1:].replace("/", "_"))
+        create_endpoint_proxy(rt.remote_addr, rt.remote_secure, ["/events"], vcoreapi, normal=False, endpoint_name="events")
         if tronix_enabled:
-            create_endpoint_proxy(remote_addr, ["/action/script/env-switch"], vcoreapi, normal=False, endpoint_name="script_env_switch")
+            create_endpoint_proxy(rt.remote_addr, rt.remote_secure, ["/action/script/env-switch"], vcoreapi, normal=False, endpoint_name="script_env_switch")
         api.register_blueprint(vcoreapi)
         #replace default_container.dispatch so that all events for the default event system get sent to the remote instance
         def proxy_dispatch(*e:events.Event):
             batch = [{"name":event.name, "data":event.data} for event in e]
-            r = requests.post(f"http{"s"*(__host_addr[1]==443)}://{__host_addr[0]}:{__host_addr[1]}/api/events/dispatch", data={"batch":json.dumps(batch)})
+            r = requests.post(f"http{"s"*rt.remote_secure}://{rt.host_addr[0]}:{rt.host_addr[1]}/api/events/dispatch", data={"batch":json.dumps(batch)})
             r.raise_for_status()
         events.default_container.dispatch = proxy_dispatch
 
 
-def serve(host:str=HOST, port:int=PORT, pconfig_path:str=config.PLUGIN_FILE):
-    global __host_addr, __pconfig_path
-
-    __host_addr = host, port
-    __pconfig_path = pconfig_path
-    _rapi_ready.set()
-
+def serve():
     app.register_blueprint(api)
-    server = WSGIServer((host, port), app)
+    server = WSGIServer(rt.host_addr, app)
+    @exiting.register_cleanup_listener
+    def server_cleanup(ctx):
+        exiting.unregister_cleanup_listener(server_cleanup)
+        event = getattr(server, "_stop_event", None)
+        print("forcing webserver exit")
+        if event is None:
+            print("failed to find webserver exit event")
+        elif event.is_set():
+            print("webserver is already closed")
+        else:
+            event.set()
+            print("forced webserver to exit")
     server.serve_forever()

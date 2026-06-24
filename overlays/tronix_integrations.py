@@ -678,3 +678,59 @@ def activate():
     utils.merge_function("add_sublayout", f_add_sublayout)
     utils.merge_function("get_layout_element_html", f_get_layout_element_html)
     utils.merge_function("construct_layout", f_construct_layout)
+
+def deactivate():
+    utils.remove_type(MediaEntry)
+    utils.remove_type(Layout)
+    utils.remove_type(LayoutElement)
+    utils.remove_type(HTMLElement)
+    utils.remove_type(HTMLElementChildList)
+    utils.remove_type(HTMLDocument)
+
+    builtins.remove_read_behavior("text/html", _read_html)
+    builtins.remove_write_behavior("text/html", _write_html, [HTMLDocument, HTMLElement, builtins.String])
+
+    mimetypes_to_remove = set()
+    for mime in builtins.all_mimetypes_of("image/"):
+        if mimetype_to_media_tag.get(mime,None) == "img":
+            mimetypes_to_remove.add(mime)
+    for mime in builtins.all_mimetypes_of("video/"):
+        if mimetype_to_media_tag.get(mime,None) == "video":
+            mimetypes_to_remove.add(mime)
+    for mime in builtins.all_mimetypes_of("audio/"):
+        if mimetype_to_media_tag.get(mime,None) == "audio":
+            mimetypes_to_remove.add(mime)
+
+
+    for mime in builtins.all_mimetypes_of("font/"):
+        if mimetype_to_media_tag.get(mime,None) == "link":
+            mimetypes_to_remove.add(mime)
+
+    for mime in builtins.all_mimetypes_of("text/"):
+        remove_media_element_loader_mimetype(mime, load_media_into_inner_text)
+        mimetype_to_media_tag[mime] = "p"
+    remove_media_element_loader_mimetype("text/html", load_media_into_inner_html)
+
+    mimetype_to_media_tag["text/html"] = "div"
+    mimetype_to_media_tag["text/css"] = "style"
+    mimetype_to_media_tag["text/javascript"] = mimetype_to_media_tag["application/javascript"] = "script"
+
+    remove_media_element_loader_tag("img", load_media_onto_src)
+    remove_media_element_loader_tag("video", load_media_onto_src)
+    remove_media_element_loader_tag("audio", load_media_onto_src)
+    remove_media_element_loader_tag("script", load_media_into_inner_text)
+    remove_media_element_loader_tag("style", load_media_into_inner_text)
+    remove_media_element_loader_tag("link", load_media_onto_href)
+    remove_media_element_loader_tag("a", load_media_onto_href)
+
+
+    utils.remove_function("send_to_overlay", f_send_to_overlay)
+    utils.remove_function("get_media", f_get_media)
+    utils.remove_function("set_html_element_text", f_set_html_element_text)
+    utils.remove_function("set_html_element_media", f_set_html_element_media)
+    utils.remove_function("create_media_html_element", f_create_media_html_element)
+    utils.remove_function("resolve_layout_element_construction", f_resolve_layout_element_construction)
+    utils.remove_function("fail_layout_element_construction", f_fail_layout_element_construction)
+    utils.remove_function("add_sublayout", f_add_sublayout)
+    utils.remove_function("get_layout_element_html", f_get_layout_element_html)
+    utils.remove_function("construct_layout", f_construct_layout)

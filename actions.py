@@ -2,6 +2,7 @@ import asyncio
 import base64
 import contextlib
 import datafile
+import exiting
 import inspect
 import json
 import os
@@ -288,9 +289,22 @@ def run_shared_loop():
     def _thread():
         global shared_loop
         shared_loop = asyncio.new_event_loop()
+        @exiting.register_cleanup_listener
+        def _cleanup(ctx):
+            exiting.unregister_cleanup_listener(_cleanup)
+            print("cleaning up shared loop")
+            shared_loop.call_soon_threadsafe(shared_loop.stop)
+            print("cancelling shared loop tasks")
+            pending = asyncio.all_tasks(shared_loop)
+            for task in pending:
+                task.cancel()
+            print(f"cancelled {len(pending)} shared loop task{"s"*bool(len(pending)-1)}")
+            print("cleaned up shared loop")
         ready.set()
         shared_loop.run_forever()
-    thread = threading.Thread(target=_thread, daemon=True)
+        exiting.unregister_cleanup_listener(_cleanup)
+
+    thread = threading.Thread(target=_thread)
     thread.start()
     return thread, ready
 

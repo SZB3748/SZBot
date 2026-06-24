@@ -3,6 +3,7 @@ import config
 import datafile
 from datetime import datetime, timedelta, timezone
 import events
+import exiting
 from flask import Blueprint, Flask, render_template, request, send_file
 import json
 import os
@@ -106,7 +107,13 @@ def listen_remote_events_keys(host:str, secure:bool):
         on_open=ws_on_open, on_reconnect=ws_on_reconnect, on_close=ws_on_close, 
         on_message=ws_on_message, on_error=ws_on_error
     )
+
+    _cleanup = exiting.make_websocket_cleanup(wsa,
+        "closing pngoverlay remote keybinds listener websocket",
+        "closed pngoverlay remote keybinds listener websocket"
+    )
     wsa.run_forever()
+    exiting.unregister_cleanup_listener(_cleanup)
 
 def init_statemap(meta:plugins.Meta):
     global navigator

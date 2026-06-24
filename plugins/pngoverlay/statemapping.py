@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 from enum import Enum
+import exiting
 import io
 import json
 import os
@@ -243,22 +244,29 @@ def mic_get_volume(id:str)->int:
 def mic_volume_background_runner(host:str, secure:bool):
     global _mic_volumes_proc
     _mic_volumes_proc = proc = subprocess.Popen([sys.executable, MIC_VOLUME_PROC_FILE, f"http{"s"*secure}://{host}"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
-    try:
-        while mic_volumes_run:
-            line = proc.stdout.readline()
-            if not line:
-                return
-            instruction:dict[str] = json.loads(line)
-            name:str = instruction["name"]
-            data = instruction["data"]
-            if name == "change_volume":
-                mic_id:str = data["id"]
-                volume:int = data["volume"]
-                _mic_volumes[mic_id] = volume
-    finally:
-        proc.terminate()
-        proc.wait(0.5)
+    
+    @exiting.register_cleanup_listener
+    def _cleanup_proc(ctx):
+        global mic_volumes_run
+        exiting.unregister_cleanup_listener(_cleanup_proc)
+        print("closing pngoverlay microphone background runner proc")
+        mic_volumes_run = False
         proc.kill()
+        print("closed pngoverlay microphone background runner proc")
+
+    while mic_volumes_run:
+        line = proc.stdout.readline()
+        if not line:
+            return
+        instruction:dict[str] = json.loads(line)
+        name:str = instruction["name"]
+        data = instruction["data"]
+        if name == "change_volume":
+            mic_id:str = data["id"]
+            volume:int = data["volume"]
+            _mic_volumes[mic_id] = volume
+
+    _cleanup_proc(None)
 
 class MicActivityCondition(EventCondition):
     """Condition that is met when microphone activity is above/below/between a desired volume (measured in rms)."""
@@ -675,7 +683,17 @@ class EventNegotiator:
                 self.activity_update_callback()
 
     def background_task(self):
+        @exiting.register_cleanup_listener
+        def _cleanup(ctx):
+            exiting.unregister_cleanup_listener(_cleanup)
+            print("stopping pngoverlay event negotiator background task")
+            self.keep_running = False
+            self.wait_flag.set()
+            print("stopped pngoverlay event negotiator background task")
+
         while self.keep_running:
             self.update_event_activity()
             if self.wait_flag.wait(self.background_task_wait_interval):
                 self.wait_flag.clear()
+
+        exiting.unregister_cleanup_listener(_cleanup)

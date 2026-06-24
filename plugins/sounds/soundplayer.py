@@ -2,6 +2,7 @@ import actions
 import aiohttp
 import asyncio
 import atexit
+import exiting
 from overlays import media
 import pyaudio
 import pydub
@@ -384,11 +385,23 @@ class Player:
 
     def handle(self):
         futures:set[asyncio.Future] = set()
+        
+        @exiting.register_cleanup_listener
+        def _cleanup(ctx):
+            exiting.unregister_cleanup_listener(_cleanup)
+            print("stopping sounds player handler")
+            self._run = False
+            self._queue_has_entries.set()
+            self.playback.stop()
+            print("stopped sounds player handler")
+
         while self._run:
             if not self._queue_has_entries.is_set():
                 for future in [future for future in futures if future.done()]:
                     futures.remove(future)
                 self._queue_has_entries.wait()
+                if not self._run:
+                    break
 
             with self._queuelock:
                 first = self._queue.peek()
@@ -428,12 +441,16 @@ class Player:
             self.playback.reset(self._current._audio, self._current.start_ms)
             self.playback.play()
             self.playback.wait()
+
+            if not self._run:
+                break
             
             with self._queuelock:
                 first = self._queue.peek()
                 if first is self._current:
                     self._queue.pop()
 
+        exiting.unregister_cleanup_listener(_cleanup)
 
 async def prep_sounds(sounds:list[PlayerQueueItem], download_chunk_size:int=DEFAULT_MEDIA_DOWNLOAD_CHUNK_SIZE):
     try:

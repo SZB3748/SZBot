@@ -2,6 +2,7 @@ from . import soundplayer, soundrequesting, twitchcommands, webroutes
 
 import os
 import plugins
+import runtime as rt
 import subprocess
 import sys
 import twitchbot
@@ -30,11 +31,11 @@ def on_load(ctx:plugins.LoadEvent):
     if ctx.is_start:
         webroutes.add_routes(web.api, m_api == plugins.COMPONENT_MODE_NORMAL)
         if m_api == plugins.COMPONENT_MODE_REMOTE:
-            web.create_component_proxy(ctx.remote_api_addr, web.api, webroutes.soundreqapi.name, webroutes.soundreqapi.url_prefix, socket=False)
+            web.create_component_proxy(web.api, webroutes.soundreqapi.name, webroutes.soundreqapi.url_prefix, socket=False)
 
     assert m_soundplayer != plugins.COMPONENT_MODE_REMOTE, "Sound Player has no remote mode."
     if m_soundplayer == plugins.COMPONENT_MODE_NORMAL:
-        args = [sys.executable, PLAYER_FILE, f"{ctx.host_addr[0]}:{ctx.host_addr[1]}"]
+        args = [sys.executable, PLAYER_FILE, f"{rt.host_addr[0]}:{rt.host_addr[1]}"]
         c = soundrequesting.get_configs()
         if "Sound-Request" in c:
             configs = c["Sound-Request"]

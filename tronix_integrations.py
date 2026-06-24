@@ -3,12 +3,11 @@ import config
 from overlays import tronix_integrations as oti
 import plugins
 import requests
+import runtime as rt
 from tronix import json_proxy, script, script_builtins as builtins, utils
 import twitch.tronix_integrations as tti
 from typing import Any, Callable
 
-_remote_addr = None
-_remote_secure = None
 
 s = requests.Session()
 
@@ -53,17 +52,17 @@ class _ActionType(script.ScriptDataType[actions.Action]):
     attrs.entry("script_environment").readonly(utils.SimpleGetAttribute())
 
 def config_mtime_remote():
-    r = s.head(f"http{"s"*_remote_secure}://{_remote_addr}/api/config")
+    r = s.head(f"http{"s"*rt.remote_secure}://{rt.remote_addr[0]}:{rt.remote_addr[1]}/api/config")
     r.raise_for_status()
     return int(r.headers["MTIME"])
 
 def config_load_remote():
-    r = s.get(f"http{"s"*_remote_secure}://{_remote_addr}/api/config")
+    r = s.get(f"http{"s"*rt.remote_secure}://{rt.remote_addr[0]}:{rt.remote_addr[1]}/api/config")
     r.raise_for_status()
     return r.json()
 
 def config_save_remote(data):
-    r = s.put(f"http{"s"*_remote_secure}://{_remote_addr}/api/config", json=data)
+    r = s.put(f"http{"s"*rt.remote_secure}://{rt.remote_addr[0]}:{rt.remote_addr[1]}/api/config", json=data)
     return r.ok
 
 def scriptend_save_config(s:script.Script):
@@ -127,12 +126,9 @@ async def set_action_return_value(ctx:script.ScriptContext, value:script.ScriptV
     else:
         ctx.script.scope[actions.ACTION_RETURN_VALUE_VAR_NAME] = ns.pop(actions.ACTION_RETURN_VALUE_VAR_NAME)
 
-def activate(api_mode:str|None, remote:str|None=None, secure:bool=False):
-    global _remote_addr, _remote_secure
+def activate():
 
-    if api_mode == plugins.COMPONENT_MODE_REMOTE:
-        _remote_addr = remote
-        _remote_secure = secure
+    if rt.core_components.get(plugins.CORE_COMPONENT_API,None) == plugins.COMPONENT_MODE_REMOTE:
         config_proxy.mtimefunc = config_mtime_remote
         config_proxy.loadfunc = config_load_remote
         config_proxy.savefunc = config_save_remote
@@ -174,8 +170,8 @@ def deactivate():
     actions.script_runner.remove_script_end_cb(scriptend_save_config)
 
     builtins.deactivate()
-    #oti.deactivate()
-    #tti.deactivate()
+    oti.deactivate()
+    tti.deactivate()
 
     for deactivation_handler in deactivation_handlers.values():
         deactivation_handler()

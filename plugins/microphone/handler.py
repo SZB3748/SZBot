@@ -1,5 +1,6 @@
 from . import exceptions
 import base64
+import exiting
 import json
 import os
 import pyaudio
@@ -202,6 +203,14 @@ class MicrophoneHandler:
         queue_thread = threading.Thread(target=queue_thread_handler, daemon=True)
         queue_thread.start()
 
+        @exiting.register_cleanup_listener
+        def _cleanup(ctx):
+            exiting.unregister_cleanup_listener(_cleanup)
+            print(f"stopping microphone handler loop for {self}")
+            self.do_handle = False
+            self.has_buckets.set()
+            print(f"stopped microphone handler loop for {self}")
+
         for id, mic in self.mics.items():
             if mic.enabled and self.mic_map.get(id, None):
                 self.start_stream(id, mic)
@@ -234,12 +243,24 @@ class MicrophoneHandler:
                     for bucket in (self.buckets[id] for id in bucket_ids):
                         bucket.add_frames((frame, mic.format, mic.channels))
             self.has_buckets.wait()
+
+        exiting.unregister_cleanup_listener(_cleanup)
     
     def handle(self):
         self.proc = subprocess.Popen([sys.executable, INPUT_PROC_FILE], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+        @exiting.register_cleanup_listener
+        def _cleanup(ctx):
+            exiting.unregister_cleanup_listener(_cleanup)
+            print(f"stopping microphone handler process for {self}")
+            self.proc.kill()
+            print(f"stopped microphone handler process for {self}")
+
         try:
             self.handle_buckets()
         finally:
-            self.proc.terminate()
-            self.proc.wait(0.5)
             self.proc.kill()
+            exiting.unregister_cleanup_listener(_cleanup)
+
+    def stop(self):
+        self.do_handle = False
+        self.has_buckets.set()

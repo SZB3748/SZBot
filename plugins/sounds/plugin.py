@@ -25,7 +25,7 @@ def on_load(ctx:plugins.LoadEvent):
     if ctx.is_start:
         webroutes.add_routes(web.api, m_api == plugins.COMPONENT_MODE_NORMAL)
         if m_api == plugins.COMPONENT_MODE_REMOTE:
-            web.create_component_proxy(ctx.remote_api_addr, web.api, webroutes.soundsapi.name, webroutes.soundsapi.url_prefix, socket=False)
+            web.create_component_proxy(web.api, webroutes.soundsapi.name, webroutes.soundsapi.url_prefix, socket=False)
     
     assert m_player != plugins.COMPONENT_MODE_REMOTE, "Sound Player has no remote mode."
     assert m_tronix != plugins.COMPONENT_MODE_REMOTE, "Sound Player has no remote mode."
