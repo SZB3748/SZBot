@@ -1,5 +1,5 @@
 from . import event_triggers, tronix_integrations as tti
-import datafile
+import actions
 import re
 import twitchio
 from typing import Callable
@@ -25,8 +25,6 @@ CONDITION_TYPE_REWARD_CURRENT_COUNT_LESS_THAN = "reward_current_count_lt"
 CONDITION_TYPE_REWARD_CURRENT_COUNT_EQUAL = "reward_current_count_eq"
 CONDITION_TYPE_REWARD_CURRENT_COUNT_NOT_EQUAL = "reward_current_count_ne"
 
-
-REDEEM_HANDLERS_PATH = datafile.makepath("redeem_triggers.json")
 
 CONDITION_MATCHERS:dict[str, Callable[[str, twitchio.ChannelPointsRedemptionAdd], bool]] = {
     CONDITION_TYPE_NONE: lambda value, redeem: True,
@@ -54,6 +52,7 @@ CONDITION_MATCHERS:dict[str, Callable[[str, twitchio.ChannelPointsRedemptionAdd]
 RedeemTrigger = event_triggers.EventTrigger[twitchio.ChannelPointsRedemptionAdd]
     
 class ActionRedeemTrigger(event_triggers.ActionEventTrigger[twitchio.ChannelPointsRedemptionAdd]):
+    TYPE_NAME = "twitch_redeem"
     def create_bot_script_context(self, bot, event):
         return tti.BotScriptContext(bot, redeem=event)
 
@@ -63,4 +62,4 @@ class CallbackRedeemTrigger(event_triggers.CallbackEventTrigger[twitchio.Channel
 
 callback_redeem_triggers:dict[str, CallbackRedeemTrigger] = {}
 
-load_redeem_handlers, save_redeem_handlers, merge_redeem_triggers = event_triggers.create_file_functions(ActionRedeemTrigger, callback_redeem_triggers, REDEEM_HANDLERS_PATH)
+merge_redeem_triggers = actions.create_triggers_merge_function(RedeemTrigger, ActionRedeemTrigger, callback_redeem_triggers)

@@ -109,11 +109,15 @@ class LayoutElementConstructActionValueMapping(actions.ActionValueMapping):
         self.extra_data:dict[str] = actions.extra_data_deserialize(d["extra_data"])
 
 class LayoutElementConstructTrigger(actions.Trigger):
+    def __init__(self):
+        super().__init__("")
+
     def handle(self, construct_ctx:LayoutElementConstructContext):
         raise NotImplementedError
     
 class ActionLayoutElementConstructTrigger(LayoutElementConstructTrigger):
     def __init__(self, action_name:str, action_mapping:LayoutElementConstructActionValueMapping):
+        super().__init__()
         self.action_name = action_name
         self.action_mapping = action_mapping
     

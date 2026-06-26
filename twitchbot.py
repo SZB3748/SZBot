@@ -210,7 +210,7 @@ class Bot(commands.AutoBot):
         return super().remove_command(name)
 
     def sync_commands(self):
-        loaded_commands = twitch.command_triggers.load_command_triggers()
+        loaded_commands = twitch.command_triggers.ActionCommandTrigger.load_all()
         cmd_difference = set(self.command_triggers.keys()) ^ set(loaded_commands.keys())
         for name in cmd_difference:
             if name in loaded_commands:

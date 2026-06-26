@@ -1,5 +1,5 @@
 from . import event_triggers, tronix_integrations as tti
-import datafile
+import actions
 import re
 import twitchio
 from typing import Callable
@@ -16,8 +16,6 @@ CONDITION_TYPE_CHANNEL_NAME = "channel_name"
 CONDITION_TYPE_LISTENED_CHANNEL_ID = "listened_channel_id"
 CONDITION_TYPE_LISTENED_CHANNEL_NAME = "listened_channel_name"
 CONDITION_TYPE_IS_SHARED = "is_shared"
-
-MESSAGE_TRIGGERS_PATH = datafile.makepath("message_triggers.json")
 
 CONDITION_MATCHERS:dict[str, Callable[[str, twitchio.ChatMessage], bool]] = {
     CONDITION_TYPE_NONE: lambda value, msg: True,
@@ -37,6 +35,7 @@ CONDITION_MATCHERS:dict[str, Callable[[str, twitchio.ChatMessage], bool]] = {
 MessageTrigger = event_triggers.EventTrigger[twitchio.ChatMessage]
 
 class ActionMessageTrigger(event_triggers.ActionEventTrigger[twitchio.ChatMessage]):
+    TYPE_NAME = "twitch_message"
     def create_bot_script_context(self, bot, event):
         return tti.BotScriptContext(bot, message=event)
         
@@ -46,4 +45,4 @@ class CallbackMessageTrigger(event_triggers.CallbackEventTrigger[twitchio.ChatMe
 
 callback_message_triggers:dict[str, CallbackMessageTrigger] = {}
 
-load_message_triggers, save_message_triggers, merge_message_triggers = event_triggers.create_file_functions(ActionMessageTrigger, callback_message_triggers, MESSAGE_TRIGGERS_PATH)
+merge_message_triggers = actions.create_triggers_merge_function(MessageTrigger, ActionMessageTrigger, callback_message_triggers)

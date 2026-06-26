@@ -1,12 +1,7 @@
 from . import keybind
 import actions
-import datafile
-import json
-import os
 from tronix import script
 from typing import Any, Callable
-
-KEYBIND_TRIGGER_PATH = datafile.makepath("keybind_triggers.json")
 
 KeyBindTriggerCallback = Callable[[str, keybind.KeyBind], Any]
 
@@ -39,13 +34,15 @@ class KeyBindActionValueMapping(actions.ActionValueMapping):
 
 class KeyBindTrigger(actions.Trigger):
     def __init__(self, name:str, kb:keybind.KeyBind):
-        self.name = name
+        super().__init__(name)
         self.kb = kb
 
     def handle(self):
         raise NotImplementedError
 
 class ActionKeyBindTrigger(KeyBindTrigger):
+
+    TYPE_NAME = "keybind"
 
     def __init__(self, name:str, kb:keybind.KeyBind, action_name:str, action_mapping:KeyBindActionValueMapping):
         super().__init__(name, kb)
@@ -138,26 +135,4 @@ class CallbackKeyBindTrigger(KeyBindTrigger):
 
 callback_keybind_triggers:dict[str, CallbackKeyBindTrigger] = {}
 
-def load_keybind_triggers(path:str=None)->dict[str,ActionKeyBindTrigger]:
-    if path is None:
-        path = KEYBIND_TRIGGER_PATH
-    if not os.path.isfile(path):
-        return {}
-    with open(path) as f:
-        d:dict[str,dict[str]] = json.load(f)
-    rtv = {}
-    for k,v in d.items():
-        rtv[k] = kbt = ActionKeyBindTrigger.__new__(ActionKeyBindTrigger)
-        kbt.__setstate__(v)
-        kbt.name = k
-    return rtv
-
-def save_keybind_triggers(triggers:dict[str, ActionKeyBindTrigger], path:str=None):
-    c = json.dumps({kbt.name:kbt.__getstate__() for kbt in triggers.values()}, indent=4)
-    with open(KEYBIND_TRIGGER_PATH if path is None else path, "w") as f:
-        f.write(c)
-
-def merge_keybind_triggers(path:str=None)->dict[str,KeyBindTrigger]:
-    d = callback_keybind_triggers.copy()
-    d.update(load_keybind_triggers(path))
-    return d
+merge_keybind_triggers = actions.create_triggers_merge_function(KeyBindTrigger, ActionKeyBindTrigger, callback_keybind_triggers)

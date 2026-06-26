@@ -1,5 +1,5 @@
 from . import event_triggers, tronix_integrations as tti
-import datafile
+import actions
 import twitchio
 from typing import Callable
 
@@ -13,8 +13,6 @@ CONDITION_TYPE_VIEWCOUNT_LESS_THAN = "viewcount_lt"
 CONDITION_TYPE_VIEWCOUNT_EQUAL = "viewcount_eq"
 CONDITION_TYPE_VIEWCOUNT_NOT_EQUAL = "viewcount_ne"
 
-RAID_TRIGGERS_PATH = datafile.makepath("raid_triggers.json")
-
 CONDITION_MATCHERS:dict[str, Callable[[str, twitchio.ChannelRaid], bool]] = {
     CONDITION_TYPE_NONE: lambda value, raid: True,
     CONDITION_TYPE_FROM_CHANNEL_ID: lambda value, raid: value == str(raid.from_broadcaster.id),
@@ -27,9 +25,10 @@ CONDITION_MATCHERS:dict[str, Callable[[str, twitchio.ChannelRaid], bool]] = {
     CONDITION_TYPE_VIEWCOUNT_NOT_EQUAL: lambda value, raid: raid.viewer_count != int(value),
 }
 
-FollowTrigger = event_triggers.EventTrigger[twitchio.ChannelRaid]
+RaidTrigger = event_triggers.EventTrigger[twitchio.ChannelRaid]
 
 class ActionRaidTrigger(event_triggers.ActionEventTrigger[twitchio.ChannelRaid]):
+    TYPE_NAME = "twitch_raid"
     def create_bot_script_context(self, bot, event):
         return tti.BotScriptContext(bot, raid=event)
     
@@ -38,4 +37,4 @@ class CallbackRaidTrigger(event_triggers.CallbackEventTrigger[twitchio.ChannelRa
 
 callback_raid_triggers:dict[str, CallbackRaidTrigger] = {}
 
-load_raid_triggers, save_raid_triggers, merge_raid_triggers = event_triggers.create_file_functions(ActionRaidTrigger, callback_raid_triggers, RAID_TRIGGERS_PATH)
+merge_raid_triggers = actions.create_triggers_merge_function(RaidTrigger, ActionRaidTrigger, callback_raid_triggers)

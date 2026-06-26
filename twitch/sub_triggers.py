@@ -1,5 +1,5 @@
 from . import event_triggers, tronix_integrations as tti
-import datafile
+import actions
 import re
 import twitchio
 from typing import Callable
@@ -33,10 +33,6 @@ CONDITION_TYPE_MSG_PREFIX = "msg_prefix"
 CONDITION_TYPE_MSG_SUFFIX = "msg_suffix"
 CONDITION_TYPE_MSG_CONTAINS = "msg_contains"
 CONDITION_TYPE_MSG_REGEX = "msg_regex"
-
-SUB_TRIGGERS_PATH = datafile.makepath("sub_triggers.json")
-SUB_MSG_TRIGGERS_PATH = datafile.makepath("sub_msg_triggers.json")
-GIFT_SUB_TRIGGERS_PATH = datafile.makepath("gift_sub_triggers.json")
 
 Sub_T = twitchio.ChannelSubscribe|twitchio.ChannelSubscriptionGift
 
@@ -107,6 +103,7 @@ GiftSubTrigger = event_triggers.EventTrigger[twitchio.ChannelSubscriptionGift]
 SubMessageTrigger = event_triggers.EventTrigger[twitchio.ChannelSubscriptionMessage]
     
 class ActionSubTrigger(event_triggers.ActionEventTrigger[twitchio.ChannelSubscribe]):
+    TYPE_NAME = "twitch_sub"
     def create_bot_script_context(self, bot, event):
         return tti.BotScriptContext(bot, sub=event)
     
@@ -114,6 +111,7 @@ class CallbackSubTrigger(event_triggers.CallbackEventTrigger[twitchio.ChannelSub
     pass
 
 class ActionGiftSubTrigger(event_triggers.ActionEventTrigger[twitchio.ChannelSubscriptionGift]):
+    TYPE_NAME = "twitch_gift_sub"
     def create_bot_script_context(self, bot, event):
         return tti.BotScriptContext(bot, gift_sub=event)
     
@@ -121,6 +119,7 @@ class CallbackGiftSubTrigger(event_triggers.CallbackEventTrigger[twitchio.Channe
     pass
 
 class ActionSubMessageTrigger(event_triggers.ActionEventTrigger[twitchio.ChannelSubscriptionMessage]):
+    TYPE_NAME = "twitch_sub_message"
     def create_bot_script_context(self, bot, event):
         return tti.BotScriptContext(bot, sub_msg=event)
     
@@ -132,6 +131,6 @@ callback_sub_triggers:dict[str, CallbackSubTrigger] = {}
 callback_gift_sub_triggers:dict[str, CallbackGiftSubTrigger] = {}
 callback_sub_msg_triggers:dict[str, CallbackSubMessageTrigger] = {}
 
-load_sub_triggers, save_sub_triggers, merge_sub_triggers = event_triggers.create_file_functions(ActionSubTrigger, callback_sub_triggers, SUB_TRIGGERS_PATH)
-load_gift_sub_triggers, save_gift_sub_triggers, merge_gift_sub_triggers = event_triggers.create_file_functions(ActionGiftSubTrigger, callback_gift_sub_triggers, GIFT_SUB_TRIGGERS_PATH)
-load_sub_msg_triggers, save_sub_msg_triggers, merge_sub_msg_triggers = event_triggers.create_file_functions(ActionSubMessageTrigger, callback_sub_msg_triggers, SUB_MSG_TRIGGERS_PATH)
+merge_sub_triggers = actions.create_triggers_merge_function(SubTrigger, ActionSubTrigger, callback_sub_triggers)
+merge_gift_sub_triggers = actions.create_triggers_merge_function(GiftSubTrigger, ActionGiftSubTrigger, callback_gift_sub_triggers)
+merge_sub_msg_triggers = actions.create_triggers_merge_function(SubMessageTrigger, ActionSubMessageTrigger, callback_sub_msg_triggers)

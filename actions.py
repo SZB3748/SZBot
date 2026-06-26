@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import contextlib
+import copy
 import datafile
 import exiting
 import inspect
@@ -10,10 +11,11 @@ import pickle
 import threading
 import traceback
 import tronix
-from typing import Any
+from typing import Any, Iterable, Self
 from uuid import UUID, uuid4
 
 ACTIONS_PATH = datafile.makepath("actions.json")
+TRIGGERS_PATH = datafile.makepath("triggers.json")
 
 ACTION_RETURN_VALUE_VAR_NAME = "SZBOT_ACTION_RETURN_VALUE"
 
@@ -48,10 +50,152 @@ class ActionValueMapping:
     def __setstate__(self, d):
         raise NotImplementedError
 
+
+TRIGGER_ABSTAIN = object()
+
 class Trigger:
-    def handle(self, *args):
+
+    TYPE_NAME:str = TRIGGER_ABSTAIN
+
+    def __init_subclass__(cls):
+        tn = getattr(cls, "TYPE_NAME", None)
+        if tn is TRIGGER_ABSTAIN:
+            return
+        assert isinstance(tn, str) and tn not in _trigger_types, "Trigger TYPE_NAME must be a unique name (str) to associate with this trigger type."
+        assert not (cls.__getstate__ is Trigger.__getstate__ or cls.__setstate__ is Trigger.__setstate__), "Trigger must have __getstate__ and __setstate__."
+        _trigger_types[tn] = cls
+        _trigger_cache[cls] = _trigger_cache_entry()
+
+
+    @classmethod
+    def load_all(cls):
+        ce = _trigger_cache.get(cls, None)
+        assert ce is not None, "Can only load and save triggers with TYPE_NAME."
+        _trigger_update_cache()
+        rtv:dict[str, Self] = {}
+        if ce.enabled:
+            d = ce.get()
+            for k, td in d.items():
+                td["name"] = k
+                t = cls.__new__(cls)
+                t.__setstate__(td)
+                rtv[t.name] = t
+        return rtv
+
+    @classmethod
+    def save_all(cls, triggers:Iterable[Self], clean_save:bool=True):
+        ce = _trigger_cache.get(cls, None)
+        assert ce is not None, "Can only load and save triggers with TYPE_NAME."
+        _trigger_update_cache()
+        if ce.enabled:
+            d = {}
+            for t in triggers:
+                t.__save(d)
+            ce.set(d, clean_save)
+            
+    @classmethod
+    def enabled(cls, value:bool):
+        ce = _trigger_cache.get(cls, None)
+        assert ce is not None, "Can only enable/disable triggers with TYPE_NAME."
+        ce.enabled = bool(value)
+
+    def __init__(self, name:str):
+        self.name = name
+
+    def __getstate__(self)->dict[str]:
+        raise NotImplementedError
+    
+    def __setstate__(self, d:dict[str]):
         raise NotImplementedError
 
+    def handle(self, *args):
+        raise NotImplementedError
+    
+    def save(self):
+        ce = _trigger_cache.get(type(self), None)
+        assert ce is not None, "Can only load and save triggers with TYPE_NAME."
+        _trigger_update_cache()
+        if ce.enabled:
+            d = ce.get()
+            self.__save(d)
+            if ce.set(d, clean=False):
+                _trigger_save()
+        else:
+            return {}
+
+    def __save(self, d:dict[str, dict[str]]):
+        x = self.__getstate__()
+        n = x.pop("name", self.name)
+        d[n] = x
+
+
+class _trigger_cache_entry:
+    def __init__(self, cache:dict[str, dict[str]]|None=None, lock:threading.Lock|None=None, enabled:bool=False):
+        self.cache:dict[str, dict[str]] = {} if cache is None else cache
+        self.lock = threading.Lock() if lock is None else lock
+        self.enabled = enabled
+
+    def get(self):
+        with self.lock:
+            return copy.deepcopy(self.cache)
+    
+    def set(self, value, clean:bool=True): #value must be of type dict[str, dict[str]]
+        if isinstance(value, dict):
+            pop_keys = []
+            for k, v in value.items():
+                if not (isinstance(k, str) and isinstance(v, dict) and all(isinstance(vk, str) for vk in v.keys())):
+                    pop_keys.append(k)
+            for k in pop_keys:
+                del value[k]
+        else:
+            return False
+        with self.lock:
+            if clean:
+                self.cache = value
+            else:
+                self.cache.update(value)
+        return True
+
+_trigger_mtime:float = 0.0
+_trigger_types:dict[str, type[Trigger]] = {}
+_trigger_cache:dict[type[Trigger], _trigger_cache_entry] = {}
+
+def _trigger_update_cache():
+    global _trigger_mtime
+
+    if not os.path.isfile(TRIGGERS_PATH):
+        return
+    mtime = os.stat(TRIGGERS_PATH).st_mtime
+    if mtime == _trigger_mtime:
+        return
+    _trigger_mtime = mtime
+    with open(TRIGGERS_PATH) as f:
+        c = json.load(f)
+    if isinstance(c, dict):
+        for tn, triggers in c.items():
+            tt = _trigger_types.get(tn, None)
+            if tt is None:
+                continue
+            ce = _trigger_cache[tt]
+            ce.set(triggers)
+
+def _trigger_save():
+    global _trigger_mtime
+
+    d = {tt.TYPE_NAME:ce.cache for tt,ce in _trigger_cache.items()}
+    c = json.dumps(d, indent=4)
+
+    with open(TRIGGERS_PATH) as f:
+        f.write(c)
+
+    _trigger_mtime = os.stat(TRIGGERS_PATH).st_mtime
+
+def create_triggers_merge_function[T:Trigger, U:Trigger, V:Trigger](t_type:type[T], at_type:type[U], callbacks:dict[str, V]):
+    def merge()->dict[str, T]:
+        d = callbacks.copy()
+        d.update(at_type.load_all())
+        return d
+    return merge
 
 class Action:
     def __init__(self, name:str, script:str, requested_values:dict[str, ActionRequestedValue]|None=None, script_environment:str|None=None):

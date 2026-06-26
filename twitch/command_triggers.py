@@ -14,7 +14,6 @@ CommandParameter = tuple[str, type|Any]
 EmptyValue = inspect.Parameter.empty
 CommandCallback = Callable[..., Any]
 
-COMMAND_TRIGGERS_PATH = datafile.makepath("command_triggers.json")
 COMMANDS_PATH = datafile.makepath("commands.json")
 
 type_names = {
@@ -194,14 +193,14 @@ class CommandActionValueMapping(actions.ActionValueMapping):
         self.extra_data:dict[str] = actions.extra_data_deserialize(d["extra_data"])
 
 class CommandTrigger(actions.Trigger):
-    def __init__(self, name:str):
-        self.name = name
-    
     def to_twitch_command(self):
         raise NotImplementedError
 
 
 class ActionCommandTrigger(CommandTrigger):
+
+    TYPE_NAME = "twitch_command"
+
     def __init__(self, name:str, action_name:str, action_mapping:CommandActionValueMapping):
         super().__init__(name)
         self.action_name = action_name
@@ -345,25 +344,6 @@ class CallbackCommandTrigger(CommandTrigger):
     
     def __call__(self, *args, **kwargs):
         return self.handle(*args, **kwargs)
-    
-
-def load_command_triggers(path:str=None)->dict[str, ActionCommandTrigger]:
-    if path is None:
-        path = COMMAND_TRIGGERS_PATH
-    if not os.path.isfile(path):
-        return {}
-    with open(path) as f:
-        d:dict[str,dict[str]] = json.load(f)
-    rtv = {}
-    for k,v in d.items():
-        rtv[k] = cmd = ActionCommandTrigger.__new__(ActionCommandTrigger)
-        cmd.__setstate__(v)
-    return rtv
-
-def save_command_triggers(commands:dict[str, ActionCommandTrigger], path:str=None):
-    c = json.dumps({c.name:c.__getstate__() for c in commands.values() if isinstance(c, ActionCommandTrigger)}, indent=4)
-    with open(COMMAND_TRIGGERS_PATH if path is None else path, "w") as f:
-        f.write(c)
 
 def load_commands(path:str=None)->dict[str, Command]:
     if path is None:

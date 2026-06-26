@@ -1,5 +1,5 @@
 from . import event_triggers, tronix_integrations as tti
-import datafile
+import actions
 import twitchio
 from typing import Callable
 
@@ -32,10 +32,6 @@ CONDITION_TYPE_HIGHEST_TOTAL_EQUAL = "highest_total_eq"
 CONDITION_TYPE_HIGHEST_TOTAL_NOT_EQUAL = "highest_total_ne"
 CONDITION_TYPE_IS_SHARED = "is_shared"
 CONDITION_TYPE_TRAIN_TYPE = "train_type"
-
-HYPETRAIN_BEGIN_TRIGGERS_PATH = datafile.makepath("hypetrain_begin_triggers.json")
-HYPETRAIN_PROGRESS_TRIGGERS_PATH = datafile.makepath("hypetrain_progress_triggers.json")
-HYPETRAIN_END_TRIGGERS_PATH = datafile.makepath("hypetrain_end_triggers.json")
 
 BEGIN_CONDITION_MATCHERS:dict[str, Callable[[str, twitchio.HypeTrainBegin], bool]] = {
     CONDITION_TYPE_NONE: lambda value, train: True,
@@ -112,6 +108,7 @@ END_CONDITION_MATCHERS:dict[str, Callable[[str, twitchio.HypeTrainEnd], bool]] =
 HypeTrainBeginTrigger = event_triggers.EventTrigger[twitchio.HypeTrainBegin]
 
 class ActionHypeTrainBeginTrigger(event_triggers.ActionEventTrigger[twitchio.HypeTrainBegin]):
+    TYPE_NAME = "twitch_train_begin"
     def create_bot_script_context(self, bot, event):
         return tti.BotScriptContext(bot, train_begin=event)
     
@@ -121,6 +118,7 @@ class CallbackHypeTrainBeginTrigger(event_triggers.CallbackEventTrigger[twitchio
 HypeTrainProgressTrigger = event_triggers.EventTrigger[twitchio.HypeTrainProgress]
 
 class ActionHypeTrainProgressTrigger(event_triggers.ActionEventTrigger[twitchio.HypeTrainProgress]):
+    TYPE_NAME = "twitch_train_progress"
     def create_bot_script_context(self, bot, event):
         return tti.BotScriptContext(bot, train_progress=event)
     
@@ -130,6 +128,7 @@ class CallbackHypeTrainProgressTrigger(event_triggers.CallbackEventTrigger[twitc
 HypeTrainEndTrigger = event_triggers.EventTrigger[twitchio.HypeTrainEnd]
 
 class ActionHypeTrainEndTrigger(event_triggers.ActionEventTrigger[twitchio.HypeTrainEnd]):
+    TYPE_NAME = "twitch_train_end"
     def create_bot_script_context(self, bot, event):
         return tti.BotScriptContext(bot, train_end=event)
     
@@ -140,6 +139,6 @@ callback_hypetrain_begin_triggers:dict[str, HypeTrainBeginTrigger] = {}
 callback_hypetrain_progress_triggers:dict[str, HypeTrainProgressTrigger] = {}
 callback_hypetrain_end_triggers:dict[str, HypeTrainEndTrigger] = {}
 
-load_hypetrain_begin_triggers, save_hypetrain_begin_triggers, merge_hypetrain_begin_triggers = event_triggers.create_file_functions(ActionHypeTrainBeginTrigger, callback_hypetrain_begin_triggers, HYPETRAIN_BEGIN_TRIGGERS_PATH)
-load_hypetrain_progress_triggers, save_hypetrain_progress_triggers, merge_hypetrain_progress_triggers = event_triggers.create_file_functions(ActionHypeTrainProgressTrigger, callback_hypetrain_progress_triggers, HYPETRAIN_PROGRESS_TRIGGERS_PATH)
-load_hypetrain_end_triggers, save_hypetrain_end_triggers, merge_hypetrain_end_triggers = event_triggers.create_file_functions(ActionHypeTrainEndTrigger, callback_hypetrain_end_triggers, HYPETRAIN_END_TRIGGERS_PATH)
+merge_hypetrain_begin_triggers = actions.create_triggers_merge_function(HypeTrainBeginTrigger, ActionHypeTrainBeginTrigger, callback_hypetrain_begin_triggers)
+merge_hypetrain_progress_triggers = actions.create_triggers_merge_function(HypeTrainProgressTrigger, ActionHypeTrainProgressTrigger, callback_hypetrain_progress_triggers)
+merge_hypetrain_end_triggers = actions.create_triggers_merge_function(HypeTrainEndTrigger, ActionHypeTrainEndTrigger, callback_hypetrain_end_triggers)

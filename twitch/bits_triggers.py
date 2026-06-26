@@ -1,5 +1,5 @@
 from . import event_triggers, tronix_integrations as tti
-import datafile
+import actions
 import re
 import twitchio
 from typing import Callable
@@ -18,9 +18,6 @@ CONDITION_TYPE_MSG_PREFIX = "msg_prefix"
 CONDITION_TYPE_MSG_SUFFIX = "msg_suffix"
 CONDITION_TYPE_MSG_CONTAINS = "msg_contains"
 CONDITION_TYPE_MSG_REGEX = "msg_regex"
-
-CHEER_TRIGGERS_PATH = datafile.makepath("cheer_triggers.json")
-BITSUSE_TRIGGERS_PATH = datafile.makepath("bitsuse_triggers.json")
 
 CHEER_CONDITION_MATCHERS:dict[str, Callable[[str, twitchio.ChannelCheer], bool]] = {
     CONDITION_TYPE_NONE: lambda value, cheer: True,
@@ -60,6 +57,7 @@ CheerTrigger = event_triggers.EventTrigger[twitchio.ChannelCheer]
 BitsUseTrigger = event_triggers.EventTrigger[twitchio.ChannelBitsUse]
 
 class ActionCheerTrigger(event_triggers.ActionEventTrigger[twitchio.ChannelCheer]):
+    TYPE_NAME = "twitch_cheer"
     def create_bot_script_context(self, bot, event):
         return tti.BotScriptContext(bot, cheer=event)
 
@@ -67,6 +65,7 @@ class CallbackCheerTrigger(event_triggers.CallbackEventTrigger[twitchio.ChannelC
     pass
 
 class ActionBitsUseTrigger(event_triggers.ActionEventTrigger[twitchio.ChannelBitsUse]):
+    TYPE_NAME = "twitch_bitsuse"
     def create_bot_script_context(self, bot, event):
         return tti.BotScriptContext(bot, bitsuse=event)
     
@@ -76,5 +75,5 @@ class CallbackCheerTrigger(event_triggers.CallbackEventTrigger[twitchio.ChannelB
 callback_cheer_triggers:dict[str, CallbackCheerTrigger] = {}
 callback_bitsuse_triggers:dict[str, CallbackCheerTrigger] = {}
 
-load_cheer_triggers, save_cheer_triggers, merge_cheer_triggers = event_triggers.create_file_functions(ActionCheerTrigger, callback_cheer_triggers, CHEER_TRIGGERS_PATH)
-load_bitsuse_triggers, save_bitsuse_triggers, merge_bitsuse_triggers = event_triggers.create_file_functions(ActionBitsUseTrigger, callback_bitsuse_triggers, BITSUSE_TRIGGERS_PATH)
+merge_cheer_triggers = actions.create_triggers_merge_function(CheerTrigger, ActionCheerTrigger, callback_cheer_triggers)
+merge_bitsuse_triggers = actions.create_triggers_merge_function(BitsUseTrigger, ActionBitsUseTrigger, callback_bitsuse_triggers)

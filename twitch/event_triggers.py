@@ -49,7 +49,7 @@ class EventActionValueMapping[T](actions.ActionValueMapping):
 
 class EventTrigger[T](actions.Trigger):
     def __init__(self, name:str, conditions:list[Condition[T]]):
-        self.name = name
+        super().__init__(name)
         self.conditions = conditions
     
     def match(self, event:T, condition_matchers:dict[str,Callable[[str, T], bool]]):
@@ -138,31 +138,3 @@ class CallbackEventTrigger[T](EventTrigger[T]):
 
     def __call__(self, bot:commands.Bot, event:T):
         return self.handle(bot, event)
-    
-
-def create_file_functions[T](aet_type:type[ActionEventTrigger[T]], callbacks:dict[str, CallbackEventTrigger[T]], default_path:str):
-    def load(path:str=None)->dict[str, ActionEventTrigger[T]]:
-        if path is None:
-            path = default_path
-        if not os.path.isfile(path):
-            return {}
-        with open(path) as f:
-            d:dict[str,dict[str]] = json.load(f)
-        rtv = {}
-        for k,v in d.items():
-            rtv[k] = aet = aet_type.__new__(aet_type)
-            aet.__setstate__(v)
-        return rtv
-    
-    def save(aets:dict[str, ActionEventTrigger[T]], path:str=None):
-        c = json.dumps({t.name:t.__getstate__() for t in aets.values() if isinstance(c, ActionEventTrigger[T])}, indent=4)
-        with open(default_path if path is None else path, "w") as f:
-            f.write(c)
-
-    def merge(path:str=None)->dict[str,EventTrigger[T]]:
-        d = callbacks.copy()
-        d.update(load(path))
-        return d
-    
-
-    return load, save, merge
