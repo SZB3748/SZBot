@@ -3,6 +3,7 @@ import aiohttp
 import asyncio
 import atexit
 import exiting
+import logenv
 from overlays import media
 import pyaudio
 import pydub
@@ -389,11 +390,11 @@ class Player:
         @exiting.register_cleanup_listener
         def _cleanup(ctx):
             exiting.unregister_cleanup_listener(_cleanup)
-            print("stopping sounds player handler")
+            logenv.main.info("stopping sounds player handler")
             self._run = False
             self._queue_has_entries.set()
             self.playback.stop()
-            print("stopped sounds player handler")
+            logenv.main.info("stopped sounds player handler")
 
         while self._run:
             if not self._queue_has_entries.is_set():
@@ -459,7 +460,7 @@ async def prep_sounds(sounds:list[PlayerQueueItem], download_chunk_size:int=DEFA
         elif len(sounds):
             await sounds[0].prep(download_chunk_size=download_chunk_size)
     except Exception as e:
-        traceback.print_exception(e)
+        logenv.main.error_exception(e, logenv.EXCEPTION_TRACEBACK)
 
 
 main_player:Player|None = None

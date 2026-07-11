@@ -9,13 +9,14 @@ from datetime import datetime, timedelta
 import exiting
 import inspect
 import json
+import logenv
 import os
 import pickle
 import plugins
 import runtime as rt
+import signal
 from simple_websocket.errors import ConnectionClosed
 import threading
-import traceback
 import tronix
 import twitch.analytics
 import twitch.command_triggers
@@ -47,13 +48,27 @@ def define_endpoints(host:str, port:int):
 
 parser = argparse.ArgumentParser(description="SZBot twitchbot program.")
 parser.add_argument("-d", "--addr", default=f"{web.HOST}:{web.PORT}", help="The address main.py is listening on.")
+parser.add_argument("--addr-secure", default="no", choices=["yes", "no"], help="If the twitch process should make secure connections (https) when connecting to the main process.")
 parser.add_argument("-p", "--plugin-configs", default=config.PLUGIN_FILE, help="Path to the plugin config file to use.")
 parser.add_argument("-c", "--configs", default=config.CONFIG_FILE, help="Path to the config file to use.")
 parser.add_argument("-C", "--bot-component", action="append", default=[], help="Set modes for twitchbot components (twitchbot:*) with <name>=<mode> syntax. These modes can be normal|remote|off")
+parser.add_argument("-L", "--logfile", default=logenv.LOG_FILE, help="Path to the log file to use.")
+parser.add_argument("--logfile-prefix", default="", help="If you'd still like to use the default path but would like to prepend something to it, specify a prefix for that path here.")
+parser.add_argument("--logfile-mode", default="auto", choices=["off", "new", "truncate", "append", "auto"], help="How to open the file, or off to not log to a file.")
+parser.add_argument("--logfile-encoding", default="utf-8", help="The encoding to use for the logfile.")
 
-def get_args()->tuple[tuple[str, int], str, str, dict[str, str|None]]:
+def get_args()->tuple[tuple[str, int], bool, str, str, dict[str, str|None], str, str, str, str|None]:
     args = parser.parse_args()
     addr_arg:str = args.addr
+    secure = args.addr_secure
+
+    if secure == "yes":
+        addr_secure = True
+    elif secure == "no":
+        addr_secure = False
+    else:
+        assert False, f"unexpected value for addr-secure: {repr(secure)}"
+
     if ":" in addr_arg:
         host, port = addr_arg.split(":", 1)
         host = host.strip().lower()
@@ -92,7 +107,7 @@ def get_args()->tuple[tuple[str, int], str, str, dict[str, str|None]]:
             print("Bot component must be in the <name>=<mode> format, got:", expr)
             exit(-1)
     
-    return addr_arg, args.configs, args.plugin_configs, components
+    return addr_arg, addr_secure, args.configs, args.plugin_configs, components, args.logfile, args.logfile_prefix, args.logfile_mode, args.logfile_encoding or None
 
 
 def ratelimit(max_times:int, duration:timedelta, limited_callback:Callable[[commands.Context, datetime], Awaitable[None]]|None=None, channel_list:set[str]|None=None, is_whitelist:bool=True):
@@ -255,13 +270,17 @@ class Bot(commands.AutoBot):
         for trigger in merged.values():
             if trigger.match(event, matchers):
                 matched.append(trigger)
+        logenv.main.debug("matched {count} triggers from {total} available", count=len(matched), total=len(merged))
         return matched
     
     async def run_matches(self, event, matched:list[twitch.event_triggers.EventTrigger]):
-        for trigger in matched:
-            c = trigger.handle(self, event)
-            if inspect.isawaitable(c):
-                await c
+        with logenv.MessageBuilder(logenv.szlogging.levels.DEBUG, logenv.main) as b:
+            b.append("matched {count} triggers:", count=len(matched))
+            for trigger in matched:
+                b.append(f"trigger {trigger}")
+                c = trigger.handle(self, event)
+                if inspect.isawaitable(c):
+                    await c
 
 
     async def setup_hook(self):
@@ -289,7 +308,7 @@ class Bot(commands.AutoBot):
         oauth = config.read(config.OAUTH_TWITCH_FILE)
         channels = oauth.get("channels", None)
         user = await self.fetch_user(id=resp.user_id)
-        print("added token for user", user)
+        logenv.main.info("added token for user", user, human_text=f"Loaded Twitch API token for user {user.display_name} ({user.id})")
         if isinstance(channels, dict):
             channels[user.name] = respdata
         else:
@@ -307,27 +326,28 @@ class Bot(commands.AutoBot):
                     await self.add_token(d["token"], d["refresh_token"])
         resp:twitchio.MultiSubscribePayload = await self.multi_subscribe(self.subs)
         if resp.errors:
-            print("Failed to subscribe to", repr(resp.errors))
+            logenv.main.error("Failed to subscribe to", repr(resp.errors), human_text=f"Got {len(resp.errors)} errors while setting up Twitch API event listeners")
         else:
-            print("Successfully subscribed")
+            logenv.main.info("Successfully subscribed", human_text=f"Set up all Twitch API event listeners")
 
         bot.sync_commands()
 
-        print("twitch bot ready")
+        logenv.main.info("twitch bot ready")
 
     async def event_follow(self, payload:twitchio.ChannelFollow):
-        print(datetime.now().strftime("[%Y-%M-%d %H:%M:%S]"), f"<{payload.broadcaster}> new follow: {payload.user}")
+        logenv.main.info(f"<{payload.broadcaster}> new follow: {payload.user}", payload=payload)
         await self.run_matches(payload, self.get_matches(payload, twitch.follow_triggers.merge_follow_triggers(), twitch.follow_triggers.CONDITION_MATCHERS))
     
     async def event_cheer(self, payload:twitchio.ChannelCheer):
-        print(datetime.now().strftime("[%Y-%M-%d %H:%M:%S]"), f"<{payload.broadcaster}> {payload.user} cheered {payload.bits}: {payload.message}")
+        logenv.main.info(f"<{payload.broadcaster}> {payload.user} cheered {payload.bits}: {payload.message}", payload=payload)
         await self.run_matches(payload, self.get_matches(payload, twitch.bits_triggers.merge_cheer_triggers(), twitch.bits_triggers.CHEER_CONDITION_MATCHERS))
 
     async def event_raid(self, payload:twitchio.ChannelRaid):
+        logenv.main.info(f"<{payload.to_broadcaster}> raided by {payload.from_broadcaster}", payload=payload)
         await self.run_matches(payload, self.get_matches(payload, twitch.raid_triggers.merge_raid_triggers(), twitch.raid_triggers.CONDITION_MATCHERS))
 
     async def event_message(self, message:twitchio.ChatMessage) -> None:      
-        print(datetime.now().strftime("[%Y-%M-%d %H:%M:%S]"), f"<{message.broadcaster}> {message.chatter}: {message.text}")
+        logenv.main.info(f"<{message.broadcaster}> {message.chatter}: {message.text}", payload=message)
         await twitch.analytics.insert_stat_async(twitch.analytics.MessageStat.from_data(message))
         if message.chatter.id == self.bot_id and not message.chatter.broadcaster:
             return
@@ -339,50 +359,49 @@ class Bot(commands.AutoBot):
     async def event_command_error(self, payload:commands.CommandErrorPayload):
         if isinstance(payload.exception, commands.ArgumentError):
             await payload.context.send("Bad command usage. Use !help <command_name> to view command usage details.")
-            print("command error:", type(payload.exception).__name__, payload.exception)
+            logenv.main.error_exception(e, f"command error {logenv.EXCEPTION_NAME}: {logenv.EXCEPTION_MESSAGE}")
         else:
-            print("command error:")
-            traceback.print_exception(payload.exception)
+            logenv.main.error_exception(e, f"command error:\n{logenv.EXCEPTION_TRACEBACK}")
 
     async def event_bits_use(self, payload:twitchio.ChannelBitsUse):
-        print(datetime.now().strftime("[%Y-%M-%d %H:%M:%S]"), f"<{payload.broadcaster}> {payload.user} used {payload.bits} bits")
+        logenv.main.info(f"<{payload.broadcaster}> {payload.user} used {payload.bits} bits", payload=payload)
         await self.run_matches(payload, self.get_matches(payload, twitch.bits_triggers.merge_bitsuse_triggers(), twitch.bits_triggers.BITSUSE_CONDITION_MATCHERS))
 
     async def event_custom_redemption_add(self, payload:twitchio.ChannelPointsRedemptionAdd):
-        print(datetime.now().strftime("[%Y-%M-%d %H:%M:%S]"), f"<{payload.broadcaster}> {payload.user} redeemed {payload.reward.title} ({payload.reward.id}//{payload.id})")
+        logenv.main.info(f"<{payload.broadcaster}> {payload.user} redeemed {payload.reward.title} ({payload.reward.id}//{payload.id})", payload=payload)
         await twitch.analytics.insert_stat_async(twitch.analytics.RedeemStat.from_data(payload))
         await self.run_matches(payload, self.get_matches(payload, twitch.redeem_triggers.merge_redeem_triggers(), twitch.redeem_triggers.CONDITION_MATCHERS))
         
     async def event_hype_train(self, payload:twitchio.HypeTrainBegin):
-        print(datetime.now().strftime("[%Y-%M-%d %H:%M:%S]"), f"<{payload.broadcaster}> hype train started")
+        logenv.main.info(f"<{payload.broadcaster}> hype train started", payload=payload)
         await self.run_matches(payload, self.get_matches(payload, twitch.hypetrain_triggers.merge_hypetrain_begin_triggers(), twitch.hypetrain_triggers.BEGIN_CONDITION_MATCHERS))
 
     async def event_hype_train_progress(self, payload:twitchio.HypeTrainProgress):
-        print(datetime.now().strftime("[%Y-%M-%d %H:%M:%S]"), f"<{payload.broadcaster}> hype train progress")
+        logenv.main.info(f"<{payload.broadcaster}> hype train progress", payload=payload)
         await self.run_matches(payload, self.get_matches(payload, twitch.hypetrain_triggers.merge_hypetrain_progress_triggers(), twitch.hypetrain_triggers.PROGRESS_CONDITION_MATCHERS))
 
     async def event_hype_train_end(self, payload:twitchio.HypeTrainEnd):
-        print(datetime.now().strftime("[%Y-%M-%d %H:%M:%S]"), f"<{payload.broadcaster}> hype train end")
+        logenv.main.info(f"<{payload.broadcaster}> hype train end", payload=payload)
         await self.run_matches(payload, self.get_matches(payload, twitch.hypetrain_triggers.merge_hypetrain_end_triggers(), twitch.hypetrain_triggers.END_CONDITION_MATCHERS))
 
     async def event_subscription(self, payload:twitchio.ChannelSubscribe):
-        print(datetime.now().strftime("[%Y-%M-%d %H:%M:%S]"), f"<{payload.broadcaster}> subscription: {payload.user}")
+        logenv.main.info(f"<{payload.broadcaster}> subscription: {payload.user}", payload=payload)
         await self.run_matches(payload, self.get_matches(payload, twitch.sub_triggers.merge_sub_triggers(), twitch.sub_triggers.SUB_CONDITION_MATCHERS))
 
     async def event_subscription_gift(self, payload:twitchio.ChannelSubscriptionGift):
-        print(datetime.now().strftime("[%Y-%M-%d %H:%M:%S]"), f"<{payload.broadcaster}> {payload.user} gifted a sub")
+        logenv.main.info(f"<{payload.broadcaster}> {payload.user} gifted a sub", payload=payload)
         await self.run_matches(payload, self.get_matches(payload, twitch.sub_triggers.merge_gift_sub_triggers(), twitch.sub_triggers.GSUB_CONDITION_MATCHERS))
 
     async def event_subscription_message(self, payload:twitchio.ChannelSubscriptionMessage):
-        print(datetime.now().strftime("[%Y-%M-%d %H:%M:%S]"), f"<{payload.broadcaster}> {payload.user} announced their sub: {payload.message}")
+        logenv.main.info(f"<{payload.broadcaster}> {payload.user} announced their sub: {payload.message}", payload=payload)
         await self.run_matches(payload, self.get_matches(payload, twitch.sub_triggers.merge_sub_msg_triggers(), twitch.sub_triggers.SUB_MSG_CONDITION_MATCHERS))
 
     async def event_stream_online(self, payload:twitchio.StreamOnline):
-        print(datetime.now().strftime("[%Y-%M-%d %H:%M:%S]"), f"<{payload.broadcaster}> went live")
+        logenv.main.info(f"<{payload.broadcaster}> went live", payload=payload)
         await twitch.analytics.insert_stat_async(twitch.analytics.StreamStartStat.from_data(payload))
     
     async def event_stream_offline(self, payload:twitchio.StreamOffline):
-        print(datetime.now().strftime("[%Y-%M-%d %H:%M:%S]"), f"<{payload.broadcaster}> is now offline")
+        logenv.main.info(f"<{payload.broadcaster}> is now offline", payload=payload)
         await twitch.analytics.insert_stat_async(twitch.analytics.StreamEndStat.from_data(payload))
 
 
@@ -467,7 +486,7 @@ class CoreComponent(commands.Component):
                 await ctx.send(f"Loaded plugin {name}")
                 return
             else:
-                print(f"[fail] /api/plugins/load name={name} ({r.status})")
+                logenv.main.error(f"[fail] /api/plugins/load name={name} ({r.status})")
         await ctx.send(f"Failed to load plugin {name}")
 
     @twitch.command_triggers.CallbackCommandTrigger.create("punload", permissions=twitch.command_triggers.CommandPermissions(requires_moderator=True))
@@ -487,7 +506,7 @@ class CoreComponent(commands.Component):
                 await ctx.send(f"Unloaded plugin {name}")
                 return
             else:
-                print(f"[fail] /api/plugins/unload name={name} ({r.status})")
+                logenv.main.error(f"[fail] /api/plugins/unload name={name} ({r.status})")
         await ctx.send(f"Failed to unload plugin {name}")
 
 async def pload_request(action:str, name:str):
@@ -571,7 +590,7 @@ async def _action_runner_local_task(ws:websocket.WebSocket, task_id:uuid.UUID, s
     try:
         results = await actions.run_scripts(*scripts)
         script_lookup = {uid:script for uid, script, *_ in scripts}
-        print(f"script env switch: finished running scripts: {", ".join(str(uid) for uid, *_ in results)}")
+        logenv.main.info(f"script env switch: finished running scripts: {", ".join(str(uid) for uid, *_ in results)}")
         ws.send(json.dumps({
             "instruction": "done",
             "scripts": {
@@ -587,10 +606,10 @@ async def _action_runner_local_task(ws:websocket.WebSocket, task_id:uuid.UUID, s
             _arl_futures.pop(task_id,None)
 
 def ws_on_open(ws):
-    print("connected to script env switch as", actions.current_environment_name)
+    logenv.main.info("connected to script env switch as", actions.current_environment_name)
 
 def ws_on_reconnect(ws):
-    print("reconnected to script env switch")
+    logenv.main.info("reconnected to script env switch")
 
 def ws_on_message(ws:websocket.WebSocket, msg:str|bytearray|memoryview):
     if isinstance(msg, memoryview):
@@ -599,7 +618,7 @@ def ws_on_message(ws:websocket.WebSocket, msg:str|bytearray|memoryview):
     if not isinstance(data, dict):
         return
     instruction = data["instruction"]
-    print("script env switch got instruction:", instruction)
+    logenv.main.info("script env switch got instruction:", instruction)
     if instruction == "run":
         assert bot._loop is not None, "Twitchbot _loop was not set"
         scripts = data.get("scripts",None)
@@ -624,12 +643,11 @@ def ws_on_message(ws:websocket.WebSocket, msg:str|bytearray|memoryview):
                         s = tronix.Script(script["content"], scope)
                         add_run.append((uid, s, env))
             if add_run:
-                print(f"script env switch: running scripts: {", ".join(str(uid) for uid, *_ in add_run)}")
+                logenv.main.info(f"script env switch: running scripts: {", ".join(str(uid) for uid, *_ in add_run)}")
                 task_id = uuid.uuid4()
                 with _arl_futures_lock:
                     _arl_futures[task_id] = asyncio.run_coroutine_threadsafe(_action_runner_local_task(ws, task_id, add_run), loop=bot._loop)
     elif instruction == "done":
-        #TODO refactor to handle return values
         scripts = data.get("scripts",None)
         if isinstance(scripts, dict):
             for id_s, values in scripts.items():
@@ -646,13 +664,12 @@ def ws_on_message(ws:websocket.WebSocket, msg:str|bytearray|memoryview):
 
 def ws_on_error(ws, e:Exception):
     if isinstance(e, (ConnectionRefusedError, ConnectionClosed)):
-        print(f"script env switch error ({type(e).__name__}):", e)
+        logenv.main.error_exception(e, f"script env switch error ({logenv.EXCEPTION_NAME}): {logenv.EXCEPTION_MESSAGE}")
     else:
-        print(f"script env switch error ({type(e).__name__}):")
-        traceback.print_exception(e)
+        logenv.main.error_exception(e, f"script env switch error ({logenv.EXCEPTION_NAME}):\n{logenv.EXCEPTION_TRACEBACK}")
 
 def ws_on_close(ws, status_code, msg:str|bytearray|memoryview):
-    print("disconnected from script env switch")
+    logenv.main.info("disconnected from script env switch")
 
 
 def _twitchbot_enque_script(uid:uuid.UUID, environment:str, s:tronix.Script, is_done:actions._env_switch_done_entry):
@@ -684,17 +701,30 @@ def ws_run():
     exiting.unregister_cleanup_listener(_cleanup)
 
 async def main():
+    _future = None
+    @exiting.register_cleanup_listener
+    def _cleanup(ctx):
+        nonlocal _future
+        exiting.unregister_cleanup_listener(_cleanup)
+        logenv.main.info("stopping twitchio bot")
+        async def close():
+            await bot.close()
+            logenv.main.info("stopped twitchio bot")
+        _future = asyncio.ensure_future(close(), loop=bot._loop)
     await bot.start(load_tokens=False, save_tokens=False)
 
 bot:Bot|None = None
 
 def exit_handler(e:Exception=None):
     atexit.unregister(exit_handler)
-    print("unloading enabled plugins")
+
+    exiting.cleanup(exiting.ExitContext())
+
+    logenv.main.info("unloading enabled plugins")
     for plugin in rt.plugin_list.values():
         if plugin.module is not None:
-            plugin.twitch_bot_unload(plugins.TwitchBotUnloadEvent(rt.plugin_list, plugin, True, e))
-    print("unloaded plugins")
+            plugin.twitch_bot_unload(plugins.TwitchBotUnloadEvent(plugin, True, e))
+    logenv.main.info("unloaded plugins")
 
     if ws_thread is not None and ws_thread.is_alive():
         ws.close()
@@ -704,12 +734,50 @@ def exit_handler(e:Exception=None):
         twitch.analytics.sqle_stop()
         analytics_thread.join()
 
+logfile_modes = {
+    "new": "x",
+    "truncate": "w",
+    "append": "a",
+    "auto": "a"
+}
+
 if __name__ == "__main__":
     actions.current_environment_name = actions.generate_environment_name("twitchbot")
 
-    addr, config_path, pconfig_path, components = get_args()
-    config.CONFIG_FILE = config_path
-    define_endpoints(*addr)
+    addr, addr_secure, config_path, pconfig_path, components, logfile, logfile_prefix, logfile_mode, logfile_encoding = get_args()
+    rt.host_addr = rt.remote_addr = addr
+    rt.remote_secure = addr_secure
+    rt.core_components = components
+    if config_path != config.CONFIG_FILE:
+        config.CONFIG_FILE = os.path.abspath(config_path)
+    if pconfig_path:
+        config.PLUGIN_FILE = os.path.abspath(pconfig_path)
+    if logfile_mode != "off":
+        if logfile_prefix:
+            logfile = logfile_prefix + logfile
+        if logfile != logenv.LOG_FILE:
+            logenv.LOG_FILE = os.path.abspath(logfile)
+        os.makedirs(os.path.dirname(logenv.LOG_FILE), exist_ok=True)
+        logenv.init_logfile(logfile_modes[logfile_mode], logfile_encoding)
+        logger_thread = threading.Thread(target=logenv.run_logger)
+        logger_thread.start()
+        logenv.logger_running.wait()
+
+    def sigexit(sig, frame):
+        logenv.main.debug(f"Received signal {sig}, closing...")
+        try:
+            exiting.cleanup(exiting.ExitContext(sig, frame))
+        finally:
+            exiting.clear()
+            exit(0)
+    
+    atexit.register(exit_handler)
+    signal.signal(signal.SIGINT, sigexit)
+    signal.signal(signal.SIGBREAK, sigexit)
+
+    define_endpoints(*rt.host_addr)
+
+    twitch.enable_event_triggers(True)
 
     #assign __main__ over twitchbot so importing twitchbot imports __main__ instead
     #and the redefinition of the endpoints is used by plugins instead of the defaults
@@ -730,18 +798,21 @@ if __name__ == "__main__":
         on_reconnect=ws_on_reconnect
     )
 
-    print("reading plugin list")
-    rt.plugin_list = plugins.read_plugin_data(pconfig_path)
-    plugin_enabled_count = sum(1 for plugin in rt.plugin_list.values() if plugin.module is not None)
-    print("read", len(rt.plugin_list), "plugins with", plugin_enabled_count, "enabled plugins")
-    print("generating plugin load order")
-    load_order = plugins.generate_load_order(rt.plugin_list)
-    print("loading enabled plugins")
-    for plugin_name in load_order:
-        plugin = rt.plugin_list[plugin_name]
-        if plugin.module is not None and plugin.startup_load:
-            plugin.twitch_bot_load(plugins.TwitchBotLoadEvent(plugin, pconfig_path, True, bot))
-    print("loaded plugins")
+    logenv.main.info("reading plugin list", path=config.PLUGIN_FILE)
+    rt.plugin_list = plugins.read_plugin_data(path=config.PLUGIN_FILE)
+    plugin_enabled_count = sum(1 for plugin in rt.plugin_list.values() if plugin.module is not None and plugin.startup_load)
+    logenv.main.info("read", len(rt.plugin_list), "plugins with", plugin_enabled_count, f"enabled plugin{"s" * (not plugin_enabled_count)}", count=len(rt.plugin_list), enabled_count=plugin_enabled_count)
+    logenv.main.info("generating plugin load order")
+    rt.plugin_load_order = plugins.generate_load_order(rt.plugin_list)
+    if rt.plugin_load_order:
+        logenv.main.info("loading enabled plugins")
+        for plugin_name in rt.plugin_load_order:
+            plugin = rt.plugin_list[plugin_name]
+            if plugin.module is not None and plugin.startup_load:
+                plugin.twitch_bot_load(plugins.TwitchBotLoadEvent(plugin, True, bot))
+        logenv.main.info("loaded plugins")
+    elif plugin_enabled_count:
+        logenv.main.warn("no plugins made it into the load order\nmake sure that any dependenant plugins are enabled")
 
     if components:
         commands_mode = components.get(plugins.TWITCHBOT_COMPONENT_COMMANDS, plugins.COMPONENT_MODE_NORMAL)
@@ -755,19 +826,19 @@ if __name__ == "__main__":
     assert tronix_mode != plugins.COMPONENT_MODE_REMOTE, "Twitchbot tronix has no remote mode."
     assert analytics_mode != plugins.COMPONENT_MODE_REMOTE, "Twitchbot analytics has no remote mode."
     if tronix_mode == plugins.COMPONENT_MODE_NORMAL:
-        print("loading script environment")
+        logenv.main.info("loading script environment")
         import tronix_integrations
-        tronix_integrations.activate(plugins.COMPONENT_MODE_NORMAL)
-        print("loaded script environment")
+        tronix_integrations.activate()
+        logenv.main.info("loaded script environment")
 
-        print("starting script env switch connection")
+        logenv.main.info("starting script env switch connection")
         ws_thread = threading.Thread(target=ws_run)
         ws_thread.start()
     else:
         ws_thread = None
 
     if analytics_mode == plugins.COMPONENT_MODE_NORMAL:
-        print("setting up analytics")
+        logenv.main.info("setting up analytics")
         analytics_thread = threading.Thread(target=twitch.analytics.sql_executor_loop_handle, daemon=True)
         analytics_thread.start()
     else:
@@ -776,10 +847,8 @@ if __name__ == "__main__":
     e = None
     try:
         asyncio.run(main())
-    except KeyboardInterrupt:
-        print("^C")
     except Exception as _e:
-        traceback.print_exception(_e)
+        logenv.main.error_exception(_e, logenv.EXCEPTION_TRACEBACK)
         e = _e
 
     exit_handler(e)

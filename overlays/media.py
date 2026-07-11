@@ -39,7 +39,10 @@ class MediaEntry:
         self.mimetype = self._mimetype = None if (mt:=d["mimetype"]) is None else str(mt)
 
     def get_path(self):
-        return os.path.join(MEDIA_DIR, self._old_name)
+        return get_media_path(self._old_name)
+
+def get_media_path(name:str):
+    return os.path.join(MEDIA_DIR, name)
 
 def load_media_entries(path:str=None)->dict[str, MediaEntry]:
     if path is None:

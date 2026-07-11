@@ -1,3 +1,4 @@
+import logenv
 import traceback
 from typing import Any, Callable
 import websocket
@@ -30,9 +31,9 @@ def cleanup(ctx:ExitContext):
         try:
             l(ctx)
         except Exception as e:
-            traceback.print_exception(e)
+            logenv.main.error_exception(e, logenv.EXCEPTION_TRACEBACK)
         i += 1
-    print(f"ran {i} cleanup listener{"s"*bool(i-1)}")
+    logenv.main.info(f"ran {i} cleanup listener{"s"*bool(i-1)}")
 
 def clear():
     _cleanup_listener_lookup.clear()
@@ -43,8 +44,8 @@ def make_websocket_cleanup(wsa:websocket.WebSocketApp, log_pre:str|None=None, lo
     def _cleanup(ctx):
         unregister_cleanup_listener(_cleanup)
         if log_pre is not None:
-            print(log_pre)
+            logenv.main.info(log_pre)
         wsa.close()
         if log_post is not None:
-            print(log_post)
+            logenv.main.info(log_post)
     return _cleanup

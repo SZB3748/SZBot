@@ -11,6 +11,7 @@ from flask_sock import Server, Sock
 from gevent.pywsgi import WSGIServer
 import inspect
 import json
+import logenv
 from markupsafe import Markup
 import os
 from overlays import connections, layouts, media, overlays
@@ -20,7 +21,6 @@ import requests
 import runtime as rt
 from simple_websocket.errors import ConnectionClosed
 import threading
-import traceback
 import tronix
 from typing import Callable, Sequence
 import uuid
@@ -215,9 +215,9 @@ def api_events(ws:Server):
         exiting.unregister_cleanup_listener(_cleanup)
         events.remove_bucket(bucket)
         if ws.connected:
-            print(f"closing events connection {bucket.id}")
+            logenv.main.info(f"closing events connection {bucket.id}")
             ws.close()
-            print(f"closed events connection {bucket.id}")
+            logenv.main.info(f"closed events connection {bucket.id}")
 
     try:
         while ws.connected:
@@ -239,13 +239,13 @@ def api_overlay_connection(ws:Server):
         exiting.unregister_cleanup_listener(_cleanup)
         connections.default_connection_manager.drop_connection(conn)
         if ws.connected:
-            print("closing connection", conn.id, "for overlay", overlay_name)
+            logenv.main.info("closing connection", conn.id, "for overlay", overlay_name)
             ws.close()
-            print("closed connection", conn.id, "for overlay", overlay_name)
+            logenv.main.info("closed connection", conn.id, "for overlay", overlay_name)
 
 
     conn = connections.default_connection_manager.new_connection(overlay_name) #TODO work on proxying substitute for remote mode situations
-    print("overlay", overlay_name, f"connected on {conn.id}")
+    logenv.main.info("overlay", overlay_name, f"connected on {conn.id}")
     try:
         while ws.connected:
             for d in conn.dump_data(timeout=0.1):
@@ -351,10 +351,10 @@ def layout_construct_handler():
     def _cleanup(ctx):
         global _layout_construct_loop_run
         exiting.unregister_cleanup_listener(_cleanup)
-        print("stopping layout construct loop")
+        logenv.main.info("stopping layout construct loop")
         _layout_construct_loop_run = False
         _layout_construct_queue_ready.set()
-        print("stopped layout construct loop")
+        logenv.main.info("stopped layout construct loop")
     _layout_construct_loop_run = True
     future = asyncio.run_coroutine_threadsafe(layout_construct_loop(), actions.shared_loop)
     future.result()
@@ -472,10 +472,10 @@ def remote_api_script_env_handler():
     import websocket
 
     def ws_on_open(ws):
-        print("connected to script env switch")
+        logenv.main.info("connected to script env switch")
 
     def ws_on_reconnect(ws):
-        print("reconnected to script env switch")
+        logenv.main.info("reconnected to script env switch")
 
     def ws_on_message(ws, msg:str|bytearray|memoryview):
         if isinstance(msg, memoryview):
@@ -485,13 +485,12 @@ def remote_api_script_env_handler():
 
     def ws_on_error(ws, e:Exception):
         if isinstance(e, (ConnectionRefusedError, ConnectionClosed)):
-            print(f"script env switch error: ({type(e).__name__}):", e)
+            logenv.main.error_exception(e, "script env switch error: ({exception_name}):", logenv.EXCEPTION_MESSAGE)
         else:
-            print(f"script env switch error: error ({type(e).__name__}):")
-            traceback.print_exception(e)
+            logenv.main.error_exception(e, f"script env switch error: error ({{exception_name}}):\n{logenv.EXCEPTION_TRACEBACK}")
 
     def ws_on_close(ws, status_code, msg:str|bytearray|memoryview):
-        print("disconnected from script env switch")
+        logenv.main.info("disconnected from script env switch", )
 
     wsa = websocket.WebSocketApp(
         f"ws{"s"*rt.remote_secure}://{rt.host_addr[0]}:{rt.host_addr[1]}/api/action/script/env-switch?name={actions.current_environment_name}",
@@ -555,7 +554,7 @@ def start_action_runner_local():
 
 def _handle_env_switch_instruction(data:dict[str]):
     instruction = data["instruction"]
-    print("script env switch got instruction:", instruction)
+    logenv.main.debug("script env switch got instruction: {instruction}", instruction=instruction)
     if instruction == "run":
         scripts = data.get("scripts",None)
         if isinstance(scripts, list):
@@ -615,21 +614,21 @@ def sock_action_environment_switch(ws:Server):
         _esq = actions._env_switch_queue[environment_name] = []
     with _arl_done_lock:
         _arldq = _arl_done[environment_name] = []
-    print("script environment", environment_name, "connected to the switch")
+    logenv.main.info("script environment {environment_name} connected to the switch", environment_name=environment_name)
     try:
         while ws.connected:
             msg = ws.receive(0.001)
             if isinstance(msg, (str, bytes)):
                 try:
                     data = json.loads(msg)
-                except json.JSONDecodeError:
-                    print("script env switch:\tmessage invalid json:", msg)
+                except json.JSONDecodeError as e:
+                    logenv.main.error_exception(e, "script env switch:\tmessage invalid json: {msg}", msg=msg)
                 else:
                     if isinstance(data, dict):
                         try:
                             _handle_env_switch_instruction(data)
                         except Exception as e:
-                            traceback.print_exception(e)
+                            logenv.main.error_exception(e, logenv.EXCEPTION_TRACEBACK, human_text="Got an unexpected exception while running the script environment.")
             if _esq:
                 with actions._env_switch_queue_lock:
                     _esq = q = actions._env_switch_queue.get(environment_name,None)
@@ -770,12 +769,12 @@ def create_endpoint_proxy(addr:tuple[str, int], secure:bool, routes:list[str], b
             def _cleanup(ctx):
                 exiting.unregister_cleanup_listener(_cleanup)
                 if client.keep_running or ws.connected:
-                    print("closing PROXY WS:", url)
+                    logenv.main.info("closing PROXY WS: {url}", url=url)
                     client.close()
                     ws.close()
-                    print("closed PROXY WS:", url)
+                    logenv.main.info("closed PROXY WS: {url}", url=url)
 
-            print("PROXY WS:", url)
+            logenv.main.info("PROXY WS: {url}", url=url)
 
             def send_to_remote():
                 try:
@@ -789,7 +788,7 @@ def create_endpoint_proxy(addr:tuple[str, int], secure:bool, routes:list[str], b
             send_thread = threading.Thread(target=send_to_remote, daemon=True)
 
             def on_open(cws:websocket.WebSocket):
-                print("PROXY WS FORWARD START:", url)
+                logenv.main.info("PROXY WS FORWARD START: {url}", url=url)
                 send_thread.start()
 
             def on_message(cws:websocket.WebSocket, msg:str|bytearray|memoryview):
@@ -801,10 +800,9 @@ def create_endpoint_proxy(addr:tuple[str, int], secure:bool, routes:list[str], b
 
             def on_error(cws:websocket.WebSocket, e:Exception):
                 if isinstance(e, (ConnectionRefusedError, ConnectionClosed)):
-                    print(f"PROXY WS ERROR ({url}) {type(e).__name__}: {e}")
+                    logenv.main.error(f"PROXY WS ERROR ({{url}}) {logenv.EXCEPTION_NAME}: {logenv.EXCEPTION_MESSAGE}")
                 else:
-                    print(f"PROXY WS ERROR ({url}):")
-                    traceback.print_exception(e)
+                    logenv.main.error(f"PROXY WS ERROR ({{url}}):\n{logenv.EXCEPTION_TRACEBACK}", url=url)
 
             def on_close(cws:websocket.WebSocket, status_code, reason):
                 ws.close(status_code, reason)
@@ -821,7 +819,7 @@ def create_endpoint_proxy(addr:tuple[str, int], secure:bool, routes:list[str], b
                 on_close=on_close
             )
 
-            print("PROXY WS RETURN START", url)
+            logenv.main.info("PROXY WS RETURN START {url}", url=url)
             client.run_forever()
 
         if endpoint_name is not None:
@@ -836,7 +834,7 @@ def create_endpoint_proxy(addr:tuple[str, int], secure:bool, routes:list[str], b
         methods = ["GET", "HEAD", "POST", "PUT", "DELETE", "CONNECT", "OPTIONS", "TRACE", "PATCH"]
         def normal_proxy(path:str):
             url = request.url.replace(request.host_url, proxy_host, 1)
-            print("PROXY:", url)
+            logenv.main.info("PROXY: {url}", url=url)
             resp = requests.request(
                 method=request.method,
                 url=url,
@@ -936,12 +934,12 @@ def serve():
     def server_cleanup(ctx):
         exiting.unregister_cleanup_listener(server_cleanup)
         event = getattr(server, "_stop_event", None)
-        print("forcing webserver exit")
+        logenv.main.info("forcing webserver exit")
         if event is None:
-            print("failed to find webserver exit event")
+            logenv.main.info("failed to find webserver exit event")
         elif event.is_set():
-            print("webserver is already closed")
+            logenv.main.info("webserver is already closed")
         else:
             event.set()
-            print("forced webserver to exit")
+            logenv.main.info("forced webserver to exit")
     server.serve_forever()

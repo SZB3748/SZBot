@@ -6,6 +6,7 @@ import events
 import exiting
 from flask import Blueprint, Flask, render_template, request, send_file
 import json
+import logenv
 import os
 import plugins
 import shutil
@@ -73,10 +74,10 @@ def listen_remote_events_keys(host:str, secure:bool):
     global remote_event_keys_websocket
 
     def ws_on_open(ws):
-        print("connected to keybinds keys")
+        logenv.main.info("connected to keybinds keys")
 
     def ws_on_reconnect(ws):
-        print("reconnected to keybinds keys")
+        logenv.main.info("reconnected to keybinds keys")
 
     def ws_on_message(ws, msg:str|bytearray|memoryview):
         if isinstance(msg, memoryview):
@@ -85,7 +86,7 @@ def listen_remote_events_keys(host:str, secure:bool):
         try:
             data = json.loads(msg)
         except json.JSONDecodeError:
-            print("pngoverlay:\t keybinds events message invalid json:", msg)
+            logenv.main.error("pngoverlay:\t keybinds events message invalid json:", msg)
         else:
             if isinstance(data, dict) and isinstance((event_name := data.get("name", None)), str):
                 event = events.Event(event_name, data.get("data"))
@@ -93,15 +94,14 @@ def listen_remote_events_keys(host:str, secure:bool):
 
     def ws_on_error(ws, e:Exception):
         if isinstance(e, (ConnectionRefusedError, ConnectionClosed)):
-            print(f"keybinds keys error: ({type(e).__name__}):", e)
+            logenv.main.error_exception(e, f"keybinds keys error {logenv.EXCEPTION_NAME}: {logenv.EXCEPTION_MESSAGE}")
         else:
-            print(f"keybinds keys error: error ({type(e).__name__}):")
-            traceback.print_exception(e)
+            logenv.main.error_exception(e, f"keybinds keys error:\n{logenv.EXCEPTION_TRACEBACK}")
 
     def ws_on_close(ws, status_code, msg:str|bytearray|memoryview):
-        print("disconnected from keybinds keys")
+        logenv.main.info("disconnected from keybinds keys")
 
-    print("pngoverlay: connecting to remote keybinds keys")
+    logenv.main.info("pngoverlay: connecting to remote keybinds keys")
     remote_event_keys_websocket = wsa = websocket.WebSocketApp(
         f"ws{"s"*secure}://{host}/api/keybinds/events/keys",
         on_open=ws_on_open, on_reconnect=ws_on_reconnect, on_close=ws_on_close, 

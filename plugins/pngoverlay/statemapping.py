@@ -3,6 +3,7 @@ from enum import Enum
 import exiting
 import io
 import json
+import logenv
 import os
 import subprocess
 import sys
@@ -249,10 +250,10 @@ def mic_volume_background_runner(host:str, secure:bool):
     def _cleanup_proc(ctx):
         global mic_volumes_run
         exiting.unregister_cleanup_listener(_cleanup_proc)
-        print("closing pngoverlay microphone background runner proc")
+        logenv.main.info("closing pngoverlay microphone background runner proc")
         mic_volumes_run = False
         proc.kill()
-        print("closed pngoverlay microphone background runner proc")
+        logenv.main.info("closed pngoverlay microphone background runner proc")
 
     while mic_volumes_run:
         line = proc.stdout.readline()
@@ -629,7 +630,7 @@ class EventNegotiator:
         self.active_queue = EventQueue()
         self.__activity_state_default = datetime.now(timezone.utc)
         self.wait_flag = threading.Event()
-        self.background_task_wait_interval = 0.1
+        self.background_task_wait_interval = 0.05
         self.keep_running = True
         self._update_lock = threading.Lock()
 
@@ -650,7 +651,7 @@ class EventNegotiator:
                 is_active &= condition.handle(self, event)
                 some_success = True
             except Exception as e:
-                traceback.print_exception(e)
+                logenv.main.error_exception(e, logenv.EXCEPTION_TRACEBACK)
         return some_success and is_active
     
     def update_event_activity(self):
@@ -686,10 +687,10 @@ class EventNegotiator:
         @exiting.register_cleanup_listener
         def _cleanup(ctx):
             exiting.unregister_cleanup_listener(_cleanup)
-            print("stopping pngoverlay event negotiator background task")
+            logenv.main.info("stopping pngoverlay event negotiator background task")
             self.keep_running = False
             self.wait_flag.set()
-            print("stopped pngoverlay event negotiator background task")
+            logenv.main.info("stopped pngoverlay event negotiator background task")
 
         while self.keep_running:
             self.update_event_activity()

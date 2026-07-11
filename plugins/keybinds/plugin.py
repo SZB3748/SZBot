@@ -1,6 +1,6 @@
-from . import webroutes
-import events
+from . import keybind_triggers, webroutes
 import exiting
+import logenv
 import os
 import plugins
 import runtime as rt
@@ -23,13 +23,13 @@ def keyboard_listener_cleanup(ctx):
     global keyboard_listener_proc
     exiting.unregister_cleanup_listener(keyboard_listener_cleanup)
     if keyboard_listener_proc is None or keyboard_listener_proc.poll() is None:
-        print("keyboard key listener process has already ended")
+        logenv.main.info("keyboard key listener process has already ended")
         keyboard_listener_proc = None
     else:
-        print("ending keyboard key listener process")
+        logenv.main.info("ending keyboard key listener process")
         keyboard_listener_proc.kill()
         keyboard_listener_proc = None
-        print("ended keyboard key listener process")
+        logenv.main.info("ended keyboard key listener process")
 
 
 def run_keyboard_listener(api_host_address:tuple[str,int], secure_api:bool=False):
@@ -45,6 +45,8 @@ def on_load(ctx:plugins.LoadEvent):
     m_interface = ctx.plugin.get_component_mode(COMPONENT_INTERFACE)
     m_api = ctx.plugin.get_component_mode(COMPONENT_API)
     m_listener = ctx.plugin.get_component_mode(COMPONENT_LISTENER)
+
+    keybind_triggers.ActionKeyBindTrigger.enabled(True)
 
     if ctx.is_start:
         webroutes.add_routes(web.app, web.api, m_interface == plugins.COMPONENT_MODE_NORMAL, m_api == plugins.COMPONENT_MODE_NORMAL)
@@ -67,6 +69,7 @@ def on_load(ctx:plugins.LoadEvent):
 
 def on_unload(ctx:plugins.UnloadEvent):
     webroutes.web_loaded = False
+    keybind_triggers.ActionKeyBindTrigger.enabled(False)
     keyboard_listener_cleanup(None)
 
 

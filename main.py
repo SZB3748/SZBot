@@ -13,12 +13,12 @@ import argparse
 import atexit
 import config
 import exiting
+import logenv
 import os
 import plugins
 import runtime as rt
 import signal
 import threading
-import traceback
 import web
 
 parser = argparse.ArgumentParser(description="SZBot main program.")
@@ -28,8 +28,12 @@ parser.add_argument("--remote-secure", default="auto", choices=["yes", "no", "au
 parser.add_argument("-p", "--plugin-configs", default=config.PLUGIN_FILE, help="Path to the plugin config file to use.")
 parser.add_argument("-c", "--configs", default=config.CONFIG_FILE, help="Path to the config file to use.")
 parser.add_argument("-C", "--core-component", action="append", default=[], help="Set modes for core components with <name>=<mode> syntax. These modes can be normal|remote|off")
+parser.add_argument("-L", "--logfile", default=logenv.LOG_FILE, help="Path to the log file to use.")
+parser.add_argument("--logfile-prefix", default="", help="If you'd still like to use the default path but would like to prepend something to it, specify a prefix for that path here.")
+parser.add_argument("--logfile-mode", default="auto", choices=["off", "new", "truncate", "append", "auto"], help="How to open the file, or off to not log to a file.")
+parser.add_argument("--logfile-encoding", default="utf-8", help="The encoding to use for the logfile.")
 
-def get_args()->tuple[tuple[str, int], tuple[str,int]|tuple[None,None], bool, str, str, dict[str, str|None]]:
+def get_args()->tuple[tuple[str, int], tuple[str,int]|tuple[None,None], bool, str, str, dict[str, str|None], str, str, str, str|None]:
     args = parser.parse_args()
     addr_arg:str = args.addr
     remote_arg:str = args.remote_addr
@@ -78,7 +82,7 @@ def get_args()->tuple[tuple[str, int], tuple[str,int]|tuple[None,None], bool, st
         elif secure == "auto":
             remote_secure = bool(protocol and protocol.lower() in ("https", "sftp", "wss"))
         else:
-            assert False, f"unexpected value for remote-secure: {repr(remote_secure)}"
+            assert False, f"unexpected value for remote-secure: {repr(secure)}"
         
         if slash > -1:
             raddr = raddr_raw.split("/", 1)[0]
@@ -115,7 +119,7 @@ def get_args()->tuple[tuple[str, int], tuple[str,int]|tuple[None,None], bool, st
             print("Core component must be in the <name>=<mode> format, got:", expr)
             exit(-1)
     
-    return addr, remote_addr, remote_secure, args.configs, args.plugin_configs, components
+    return addr, remote_addr, remote_secure, args.configs, args.plugin_configs, components, args.logfile, args.logfile_prefix, args.logfile_mode, args.logfile_encoding or None
 
 trigger_runner_thread:threading.Thread|None = None
 
@@ -124,12 +128,12 @@ def exit_handler(e:Exception|None=None):
 
     exiting.cleanup(exiting.ExitContext())
 
-    print("unloading enabled plugins")
+    logenv.main.info("unloading enabled plugins")
     for plugin_name in reversed(rt.plugin_load_order):
         plugin = rt.plugin_list[plugin_name]
         if plugin.module is not None:
             plugin.unload(plugins.UnloadEvent(plugin, True, e))
-    print("unloaded plugins")
+    logenv.main.info("unloaded plugins")
 
     if trigger_runner_thread is not None:
         actions.stop_trigger_loop()
@@ -137,30 +141,33 @@ def exit_handler(e:Exception|None=None):
 def run():
     global trigger_runner_thread
 
-    print("reading plugin list")
+    logenv.main.info("reading plugin list", path=config.PLUGIN_FILE)
     rt.plugin_list = plugins.read_plugin_data(path=config.PLUGIN_FILE)
     plugin_enabled_count = sum(1 for plugin in rt.plugin_list.values() if plugin.module is not None and plugin.startup_load)
-    print("read", len(rt.plugin_list), "plugins with", plugin_enabled_count, f"enabled plugin{"s" * (not plugin_enabled_count)}")
-    print("generating plugin load order")
+    logenv.main.info("read", len(rt.plugin_list), "plugins with", plugin_enabled_count, f"enabled plugin{"s" * (not plugin_enabled_count)}", count=len(rt.plugin_list), enabled_count=plugin_enabled_count)
+    logenv.main.info("generating plugin load order")
     rt.plugin_load_order = plugins.generate_load_order(rt.plugin_list)
     if rt.plugin_load_order:
-        print("loading enabled plugins")
+        logenv.main.info("loading enabled plugins")
         for plugin_name in rt.plugin_load_order:
             plugin = rt.plugin_list[plugin_name]
             if plugin.module is not None and plugin.startup_load:
                 plugin.load(plugins.LoadEvent(plugin, True))
-        print("loaded plugins")
-    else:
-        print("no plugins made it into the load order\nmake sure that any dependenant plugins are enabled")
+        logenv.main.info("loaded plugins")
+    elif plugin_enabled_count:
+        logenv.main.warn("no plugins made it into the load order\nmake sure that any dependenant plugins are enabled")
     
-    print("bot must be started manually")
+    logenv.main.info("twitch bot must be started manually")
 
     if rt.core_components:
         core_meta = plugins.parse_plugin_meta(plugins.CORE_CONFIGS_META)
         invalid_components = plugins.get_invalid_plugin_components(rt.core_components, core_meta)
         if invalid_components:
-            raise plugins.InvalidComponentError(f"Component(s) have invalid modes: {", ".join(invalid_components)}")
-        
+            raise logenv.main.error_exception(
+                plugins.InvalidComponentError(f"Component(s) have invalid modes: {", ".join(invalid_components)}"),
+                logenv.EXCEPTION_MESSAGE,
+                human_text=f"Some of the components of the main process of the bot were told to run with invalid modes.\nINVALID (name=mode):\n{"\n".join(f"{n}={"off" if (m :=rt.core_components[n]) is None else m}" for n in invalid_components)}"
+            )
         interface_mode = rt.core_components.get(plugins.CORE_COMPONENT_INTERFACE, plugins.COMPONENT_MODE_NORMAL)
         overlay_mode = rt.core_components.get(plugins.CORE_COMPONENT_OVERLAY, plugins.COMPONENT_MODE_NORMAL)
         api_mode = rt.core_components.get(plugins.CORE_COMPONENT_API, plugins.COMPONENT_MODE_NORMAL)
@@ -170,31 +177,78 @@ def run():
 
     
     if api_mode == plugins.COMPONENT_MODE_REMOTE and rt.remote_addr == rt.NO_REMOTE_ADDRESS:
-        print("Remote address needed to use core API in remote mode.")
+        logenv.main.error("Remote address needed to use core API in remote mode.")
         exit(-1)
 
     if tronix_mode == plugins.COMPONENT_MODE_NORMAL:
-        print("loading script environment")
+        logenv.main.info("loading script environment")
         import tronix_integrations
         tronix_integrations.activate()
-        print("loaded script environment")
+        logenv.main.info("loaded script environment")
         trigger_runner_thread = threading.Thread(target=actions.run_triggers_thread_handler)
     elif tronix_mode == plugins.COMPONENT_MODE_REMOTE:
-        print("setting up proxy script environment")
+        logenv.main.info("setting up proxy script environment")
         actions.script_runner = web.ProxyScriptRunner()
-        print("set up proxy script environment")
+        logenv.main.info("set up proxy script environment")
         trigger_runner_thread = threading.Thread(target=actions.run_triggers_thread_handler)
     else:
         trigger_runner_thread = None
 
+    with logenv.MessageBuilder(logenv.szlogging.levels.DEBUG, logenv.main) as b:
+        b.append("start-time loaded trigger types:")
+        for name, t in actions._trigger_types.items():
+            b.append(name, t)
+
     if trigger_runner_thread is not None:
-        print("starting trigger runner thread")
+        logenv.main.info("starting trigger runner thread")
         trigger_runner_thread.start()
 
     web.attach_core(interface_mode, overlay_mode, api_mode, tronix_mode)
 
+    logenv.main.info("starting web server")
+    e = None
+    try:
+        web.serve()
+    except Exception as _e:
+        logenv.main.error_exception(
+            _e,
+            f"Got an unexpected error while running the web server:\n{logenv.EXCEPTION_TRACEBACK}",
+            human_text="Got an unexpected error while running the web server"
+        )
+        e = _e
+    exit_handler(e)
+
+logfile_modes = {
+    "new": "x",
+    "truncate": "w",
+    "append": "a",
+    "auto": "a"
+}
+
+if __name__ == "__main__":
+    actions.current_environment_name = actions.generate_environment_name("main")
+    addr, remote_addr, remote_secure, config_path, pconfig_path, core_components, logfile, logfile_prefix, logfile_mode, logfile_encoding = get_args()
+    rt.host_addr = addr
+    rt.remote_addr = remote_addr
+    rt.remote_secure = remote_secure
+    rt.core_components = core_components
+    if config_path != config.CONFIG_FILE:
+        config.CONFIG_FILE = os.path.abspath(config_path)
+    if pconfig_path != config.PLUGIN_FILE:
+        config.PLUGIN_FILE = os.path.abspath(pconfig_path)
+    if logfile_mode != "off":
+        if logfile_prefix:
+            logfile = logfile_prefix + logfile
+        if logfile != logenv.LOG_FILE:
+            logenv.LOG_FILE = os.path.abspath(logfile)
+        os.makedirs(os.path.dirname(logenv.LOG_FILE), exist_ok=True)
+        logenv.init_logfile(logfile_modes[logfile_mode], logfile_encoding)
+        logger_thread = threading.Thread(target=logenv.run_logger, kwargs=dict(hook_gevent=True))
+        logger_thread.start()
+        logenv.logger_running.wait()
+
     def sigexit(sig, frame):
-        print(f"Received signal {sig}, closing...")
+        logenv.main.debug(f"Received signal {sig}, closing...")
         try:
             exiting.cleanup(exiting.ExitContext(sig, frame))
         finally:
@@ -205,30 +259,6 @@ def run():
     signal.signal(signal.SIGINT, sigexit)
     signal.signal(signal.SIGBREAK, sigexit)
 
-    print("starting web server")
-    e = None
-    try:
-        web.serve()
-    except KeyboardInterrupt:
-        pass
-    except Exception as _e:
-        traceback.print_exception(_e)
-        e = _e
-    
-    exit_handler(e)
-
-if __name__ == "__main__":
-    actions.current_environment_name = actions.generate_environment_name("main")
-    oauth = config.read(path=config.OAUTH_TWITCH_FILE)
-    addr, remote_addr, remote_secure, config_path, pconfig_path, core_components = get_args()
-    rt.host_addr = addr
-    rt.remote_addr = remote_addr
-    rt.remote_secure = remote_secure
-    rt.core_components = core_components
-    if config_path != config.CONFIG_FILE:
-        config.CONFIG_FILE = os.path.abspath(config_path)
-    if pconfig_path != config.PLUGIN_FILE:
-        config.PLUGIN_FILE = os.path.abspath(pconfig_path)
     shared_loop_thread, shared_loop_ready = actions.run_shared_loop()
     shared_loop_ready.wait()
     run()

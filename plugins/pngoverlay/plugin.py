@@ -1,5 +1,6 @@
 from . import medialist, statemapping, webroutes
 import events
+import logenv
 import os
 import plugins
 import runtime as rt
@@ -90,7 +91,7 @@ def on_load(ctx:plugins.LoadEvent):
             webroutes.event_negotiator_thread = threading.Thread(target=event_negotiator.background_task)
             webroutes.event_negotiator_thread.start()
     elif m_events == plugins.COMPONENT_MODE_NORMAL:
-        print("PNG Overlay event negotiator will not be run due to api component mode:", m_api)
+        logenv.main.warn("PNG Overlay event negotiator will not be run due to api component mode:", m_api)
 
 def on_unload(ctx:plugins.UnloadEvent):
     global microphone_read_thread, keybinds_key_events_thread

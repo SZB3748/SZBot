@@ -6,12 +6,12 @@ import datafile
 import exiting
 import inspect
 import json
+import logenv
 import os
 import pickle
 import threading
-import traceback
 import tronix
-from typing import Any, Iterable, Self
+from typing import Any, Iterable, Self, Union
 from uuid import UUID, uuid4
 
 ACTIONS_PATH = datafile.makepath("actions.json")
@@ -58,6 +58,7 @@ class Trigger:
     TYPE_NAME:str = TRIGGER_ABSTAIN
 
     def __init_subclass__(cls):
+        super().__init_subclass__()
         tn = getattr(cls, "TYPE_NAME", None)
         if tn is TRIGGER_ABSTAIN:
             return
@@ -128,9 +129,8 @@ class Trigger:
         n = x.pop("name", self.name)
         d[n] = x
 
-
 class _trigger_cache_entry:
-    def __init__(self, cache:dict[str, dict[str]]|None=None, lock:threading.Lock|None=None, enabled:bool=False):
+    def __init__(self, cache:dict[str, dict[str]]|None=None, lock:Union[threading.Lock, None]=None, enabled:bool=False):
         self.cache:dict[str, dict[str]] = {} if cache is None else cache
         self.lock = threading.Lock() if lock is None else lock
         self.enabled = enabled
@@ -194,6 +194,7 @@ def create_triggers_merge_function[T:Trigger, U:Trigger, V:Trigger](t_type:type[
     def merge()->dict[str, T]:
         d = callbacks.copy()
         d.update(at_type.load_all())
+        logenv.main.debug(d)
         return d
     return merge
 
@@ -333,12 +334,16 @@ async def _run_script(uid:UUID, s:tronix.Script, *x):
         await script_runner.run_async(s)
     except Exception as e:
         #TODO handle exceptions
-        traceback.print_exception(e)
-        import tronix.exceptions
-        if isinstance(e, tronix.exceptions.TExpectedEvaluable):
-            print(e.target)
+        #TODO be more helpful in the human text, especially if its a script exception and not a python one
+        logenv.main.error_exception(
+            e,
+            f"Script {{uid}} encountered an exception:\n{logenv.EXCEPTION_TRACEBACK}",
+            human_text="Script encountered an error",
+            uid=str(uid)
+        )
     else:
         success = True
+    logenv.main.debug("_run_script success: {uid} {success}", uid=uid, success=success)
     return uid, success, *x
 
 async def run_scripts(*pairs:tuple[UUID,tronix.Script,str]):
@@ -436,14 +441,14 @@ def run_shared_loop():
         @exiting.register_cleanup_listener
         def _cleanup(ctx):
             exiting.unregister_cleanup_listener(_cleanup)
-            print("cleaning up shared loop")
+            logenv.main.info("cleaning up shared loop")
             shared_loop.call_soon_threadsafe(shared_loop.stop)
-            print("cancelling shared loop tasks")
+            logenv.main.info("cancelling shared loop tasks")
             pending = asyncio.all_tasks(shared_loop)
             for task in pending:
                 task.cancel()
-            print(f"cancelled {len(pending)} shared loop task{"s"*bool(len(pending)-1)}")
-            print("cleaned up shared loop")
+            logenv.main.info(f"cancelled {len(pending)} shared loop task{"s"*bool(len(pending)-1)}")
+            logenv.main.info("cleaned up shared loop")
         ready.set()
         shared_loop.run_forever()
         exiting.unregister_cleanup_listener(_cleanup)

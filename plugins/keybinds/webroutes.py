@@ -5,6 +5,7 @@ import exiting
 from flask import Blueprint, Flask, render_template
 from flask_sock import Server
 import json
+import logenv
 import os
 import plugins
 from web import add_bp_if_new, serve_when_loaded, sock
@@ -34,7 +35,7 @@ def event_key_press(event:events.Event):
     names = keybind.parse_keybind_string(keys)
     mode = keybind.KeyBindMode(event.data["mode"])
     keys_buckets.dispatch(event)
-    print("keybinds: press", keys, mode.name)
+    logenv.main.debug("keybinds: press {keys} {mode}", keys=keys, mode=mode.name)
     triggers:list[tuple[keybind_triggers.KeyBindTrigger, tuple, dict]] = []
     for kbt in keybind_triggers.merge_keybind_triggers().values():
         if mode != kbt.kb.mode:
@@ -48,9 +49,10 @@ def event_key_press(event:events.Event):
 @keylisteners.listener("failed_keybinds")
 def event_keybind_fail(event:events.Event):
     binds:list[tuple[str,int]] = event.data["binds"]
-    print("keybinds: failed to register:")
-    for keys, mode in binds:
-        print("keybinds:", keys, keybind.KeyBindMode(mode).name if mode in keybind.KeyBindMode else f"unknown ({mode})")
+    with logenv.MessageBuilder(logenv.szlogging.levels.INFO, logenv.main) as builder:
+        builder.append("keybinds: failed to register:")
+        for keys, mode in binds:
+            builder.append(f"{keys} {keybind.KeyBindMode(mode).name if mode in keybind.KeyBindMode else f"unknown ({mode})"}")
 
 keybindspages_parent = Blueprint("keybindsparent", __name__, static_folder=STATIC_DIR, static_url_path="/static/keybinds")
 keybindspages = Blueprint("keybinds", __name__, url_prefix="/keybinds", template_folder=TEMPATES_DIR)
@@ -73,9 +75,9 @@ def keybinds_events(ws:Server):
         exiting.unregister_cleanup_listener(_cleanup)
         keyevents.remove_bucket(bucket)
         if ws.connected:
-            print(f"closing keybinds events connection {bucket.id}")
+            logenv.main.info("closing keybinds events connection {bucket_id}", bucket_id=bucket.id)
             ws.close()
-            print(f"closed keybinds events connection {bucket.id}")
+            logenv.main.info("closed keybinds events connection {bucket_id}", bucket_id=bucket.id)
     try:
         while ws.connected:
             msg = ws.receive(0.001)
@@ -83,7 +85,7 @@ def keybinds_events(ws:Server):
                 try:
                     data = json.loads(msg)
                 except json.JSONDecodeError:
-                    print("keybinds:\tapi /events message invalid json:", msg)
+                    logenv.main.error("keybinds:\tapi /events message invalid json:", msg)
                 else:
                     if isinstance(data, dict) and isinstance((event_name := data.get("name", None)), str):
                         event = events.Event(event_name, data.get("data"))
@@ -102,9 +104,9 @@ def keybinds_events_keys(ws:Server):
         exiting.unregister_cleanup_listener(_cleanup)
         keys_buckets.remove_bucket(bucket)
         if ws.connected:
-            print(f"closing keybinds key events connection {bucket.id}")
+            logenv.main.info("closing keybinds key events connection {bucket_id}", bucket_id=bucket.id)
             ws.close()
-            print(f"closed keybinds key events connection {bucket.id}")
+            logenv.main.info("closed keybinds key events connection {bucket_id}", bucket_id=bucket.id)
     try:
         while ws.connected:
             bucket.wait()

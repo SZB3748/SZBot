@@ -1,5 +1,6 @@
 from . import webroutes
 import config
+import logenv
 import plugins
 import threading
 import web
@@ -41,7 +42,7 @@ def on_load(ctx:plugins.LoadEvent):
             handler_thread = threading.Thread(target=webroutes.main_handler.handle)
             handler_thread.start()
         else:
-            print("Microphone: could not find initialization info from configs.")
+            logenv.main.error("Microphone: could not find initialization info from configs.")
 
 def on_unload(ctx:plugins.UnloadEvent):
     global handler_thread

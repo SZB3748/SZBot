@@ -3,10 +3,10 @@ import config
 import contextlib
 import datafile
 from datetime import datetime, timezone
+import logenv
 import math
 import sqlite3
 import threading
-import traceback
 import twitchio
 from typing import Any
 from uuid import UUID
@@ -132,7 +132,7 @@ def sql_executor_loop():
                     conn.close()
                     return
                 except Exception as e:
-                    traceback.print_exception(e)
+                    logenv.main.error_exception(e, logenv.EXCEPTION_TRACEBACK)
                     for _, _, result in transaction:
                         result.done(None, was_rolled_back=True)
                     conn.rollback()

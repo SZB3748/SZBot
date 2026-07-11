@@ -1,6 +1,7 @@
 import config
 from dataclasses import dataclass
 import importlib.util
+import logenv
 import os
 import re
 import sys
@@ -44,7 +45,7 @@ excluded = ExcludedType()
 PLUGINS_DIR = "plugins"
 
 def _default_must_have_remote_address(msg:str):
-    print(msg)
+    logenv.main.error(msg)
     exit(-1)
 
 def must_have_remote_address(message:str="One of your plugins requires a remote address to be specified.", on_missing:Callable[[str], NoReturn]=_default_must_have_remote_address)->tuple[tuple[str,int], bool]:

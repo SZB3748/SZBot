@@ -2,13 +2,13 @@ from . import exceptions
 import base64
 import exiting
 import json
+import logenv
 import os
 import pyaudio
 import queue
 import subprocess
 import sys
 import threading
-import traceback
 from typing import Generator
 from uuid import UUID, uuid4, uuid5
 
@@ -206,10 +206,10 @@ class MicrophoneHandler:
         @exiting.register_cleanup_listener
         def _cleanup(ctx):
             exiting.unregister_cleanup_listener(_cleanup)
-            print(f"stopping microphone handler loop for {self}")
+            logenv.main.info(f"stopping microphone handler loop for {self}")
             self.do_handle = False
             self.has_buckets.set()
-            print(f"stopped microphone handler loop for {self}")
+            logenv.main.info(f"stopped microphone handler loop for {self}")
 
         for id, mic in self.mics.items():
             if mic.enabled and self.mic_map.get(id, None):
@@ -224,8 +224,7 @@ class MicrophoneHandler:
                 self.do_handle = False
                 break
             except Exception as e:
-                print(f"microphone {mic.name} ({mic_id}) got {type(e).__name__} error:")
-                traceback.print_exception(e)
+                logenv.main.error_exception(e, f"microphone handler {self} got error:\n{logenv.EXCEPTION_TRACEBACK}")
                 self.stop_stream(mic_id)
                 continue
             if name == INST_FRAME:
@@ -251,9 +250,9 @@ class MicrophoneHandler:
         @exiting.register_cleanup_listener
         def _cleanup(ctx):
             exiting.unregister_cleanup_listener(_cleanup)
-            print(f"stopping microphone handler process for {self}")
+            logenv.main.info(f"stopping microphone handler process for {self}")
             self.proc.kill()
-            print(f"stopped microphone handler process for {self}")
+            logenv.main.info(f"stopped microphone handler process for {self}")
 
         try:
             self.handle_buckets()
