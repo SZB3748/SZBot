@@ -475,12 +475,12 @@ class CoreComponent(commands.Component):
         if not ctx.author.moderator:
             return
         
-        plugin = plugins.shared_plugins_list.get(name, None)
+        plugin = rt.plugin_list.get(name, None)
         if plugin is not None:
             if plugin.module is None:
                 await ctx.send(f"Plugin {name} is disabled")
                 return
-            plugin.twitch_bot_load(plugins.TwitchBotLoadEvent(plugins.shared_plugins_list, plugin, pconfig_path, False, bot))
+            plugin.twitch_bot_load(plugins.TwitchBotLoadEvent(plugin, False, bot))
             r = await pload_request("load", name)
             if r.ok:
                 await ctx.send(f"Loaded plugin {name}")
@@ -495,12 +495,12 @@ class CoreComponent(commands.Component):
         if not ctx.author.moderator:
             return
         
-        plugin = plugins.shared_plugins_list.get(name, None)
+        plugin = rt.plugin_list.get(name, None)
         if plugin is not None:
             if plugin.module is None:
                 await ctx.send(f"Plugin {name} is disabled")
                 return
-            plugin.twitch_bot_unload(plugins.TwitchBotUnloadEvent(plugins.shared_plugins_list, plugin, False, None))
+            plugin.twitch_bot_unload(plugins.TwitchBotUnloadEvent(plugin, False, None))
             r = await pload_request("unload", name)
             if r.ok:
                 await ctx.send(f"Unloaded plugin {name}")
