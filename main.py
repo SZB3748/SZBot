@@ -257,7 +257,6 @@ if __name__ == "__main__":
 
     atexit.register(exit_handler)
     signal.signal(signal.SIGINT, sigexit)
-    signal.signal(signal.SIGBREAK, sigexit)
 
     shared_loop_thread, shared_loop_ready = actions.run_shared_loop()
     shared_loop_ready.wait()

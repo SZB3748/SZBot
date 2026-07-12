@@ -773,7 +773,6 @@ if __name__ == "__main__":
     
     atexit.register(exit_handler)
     signal.signal(signal.SIGINT, sigexit)
-    signal.signal(signal.SIGBREAK, sigexit)
 
     define_endpoints(*rt.host_addr)
 
