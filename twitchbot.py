@@ -759,9 +759,9 @@ if __name__ == "__main__":
             logenv.LOG_FILE = os.path.abspath(logfile)
         os.makedirs(os.path.dirname(logenv.LOG_FILE), exist_ok=True)
         logenv.init_logfile(logfile_modes[logfile_mode], logfile_encoding)
-        logger_thread = threading.Thread(target=logenv.run_logger)
-        logger_thread.start()
-        logenv.logger_running.wait()
+    logger_thread = threading.Thread(target=logenv.run_logger)
+    logger_thread.start()
+    logenv.logger_running.wait()
 
     def sigexit(sig, frame):
         logenv.main.debug(f"Received signal {sig}, closing...")
