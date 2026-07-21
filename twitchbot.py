@@ -359,9 +359,9 @@ class Bot(commands.AutoBot):
     async def event_command_error(self, payload:commands.CommandErrorPayload):
         if isinstance(payload.exception, commands.ArgumentError):
             await payload.context.send("Bad command usage. Use !help <command_name> to view command usage details.")
-            logenv.main.error_exception(e, f"command error {logenv.EXCEPTION_NAME}: {logenv.EXCEPTION_MESSAGE}")
+            logenv.main.error_exception(payload.exception, f"command error {logenv.EXCEPTION_NAME}: {logenv.EXCEPTION_MESSAGE}")
         else:
-            logenv.main.error_exception(e, f"command error:\n{logenv.EXCEPTION_TRACEBACK}")
+            logenv.main.error_exception(payload.exception, f"command error:\n{logenv.EXCEPTION_TRACEBACK}")
 
     async def event_bits_use(self, payload:twitchio.ChannelBitsUse):
         logenv.main.info(f"<{payload.broadcaster}> {payload.user} used {payload.bits} bits", payload=payload)
