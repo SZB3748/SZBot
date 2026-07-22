@@ -359,9 +359,9 @@ class Bot(commands.AutoBot):
     async def event_command_error(self, payload:commands.CommandErrorPayload):
         if isinstance(payload.exception, commands.ArgumentError):
             await payload.context.send("Bad command usage. Use !help <command_name> to view command usage details.")
-            logenv.main.error_exception(e, f"command error {logenv.EXCEPTION_NAME}: {logenv.EXCEPTION_MESSAGE}")
+            logenv.main.error_exception(payload.exception, f"command error {logenv.EXCEPTION_NAME}: {logenv.EXCEPTION_MESSAGE}")
         else:
-            logenv.main.error_exception(e, f"command error:\n{logenv.EXCEPTION_TRACEBACK}")
+            logenv.main.error_exception(payload.exception, f"command error:\n{logenv.EXCEPTION_TRACEBACK}")
 
     async def event_bits_use(self, payload:twitchio.ChannelBitsUse):
         logenv.main.info(f"<{payload.broadcaster}> {payload.user} used {payload.bits} bits", payload=payload)
@@ -475,12 +475,12 @@ class CoreComponent(commands.Component):
         if not ctx.author.moderator:
             return
         
-        plugin = plugins.shared_plugins_list.get(name, None)
+        plugin = rt.plugin_list.get(name, None)
         if plugin is not None:
             if plugin.module is None:
                 await ctx.send(f"Plugin {name} is disabled")
                 return
-            plugin.twitch_bot_load(plugins.TwitchBotLoadEvent(plugins.shared_plugins_list, plugin, pconfig_path, False, bot))
+            plugin.twitch_bot_load(plugins.TwitchBotLoadEvent(plugin, False, bot))
             r = await pload_request("load", name)
             if r.ok:
                 await ctx.send(f"Loaded plugin {name}")
@@ -495,12 +495,12 @@ class CoreComponent(commands.Component):
         if not ctx.author.moderator:
             return
         
-        plugin = plugins.shared_plugins_list.get(name, None)
+        plugin = rt.plugin_list.get(name, None)
         if plugin is not None:
             if plugin.module is None:
                 await ctx.send(f"Plugin {name} is disabled")
                 return
-            plugin.twitch_bot_unload(plugins.TwitchBotUnloadEvent(plugins.shared_plugins_list, plugin, False, None))
+            plugin.twitch_bot_unload(plugins.TwitchBotUnloadEvent(plugin, False, None))
             r = await pload_request("unload", name)
             if r.ok:
                 await ctx.send(f"Unloaded plugin {name}")
@@ -759,9 +759,9 @@ if __name__ == "__main__":
             logenv.LOG_FILE = os.path.abspath(logfile)
         os.makedirs(os.path.dirname(logenv.LOG_FILE), exist_ok=True)
         logenv.init_logfile(logfile_modes[logfile_mode], logfile_encoding)
-        logger_thread = threading.Thread(target=logenv.run_logger)
-        logger_thread.start()
-        logenv.logger_running.wait()
+    logger_thread = threading.Thread(target=logenv.run_logger)
+    logger_thread.start()
+    logenv.logger_running.wait()
 
     def sigexit(sig, frame):
         logenv.main.debug(f"Received signal {sig}, closing...")
@@ -773,7 +773,6 @@ if __name__ == "__main__":
     
     atexit.register(exit_handler)
     signal.signal(signal.SIGINT, sigexit)
-    signal.signal(signal.SIGBREAK, sigexit)
 
     define_endpoints(*rt.host_addr)
 

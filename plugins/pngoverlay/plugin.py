@@ -62,7 +62,7 @@ def on_load(ctx:plugins.LoadEvent):
             webroutes.attach_listeners()
         elif keybinds_m_api == plugins.COMPONENT_MODE_REMOTE:
             webroutes.keybinds_keylisteners = events.EventListenerCollection()
-            keybinds_key_events_thread = threading.Thread(target=webroutes.listen_remote_events_keys, args=(ctx.remote_api_addr, ctx.remote_api_addr.endswith(":443")))
+            keybinds_key_events_thread = threading.Thread(target=webroutes.listen_remote_events_keys, args=(rt.remote_addr, rt.remote_secure))
             keybinds_key_events_thread.start()
             webroutes.attach_listeners()
     else:

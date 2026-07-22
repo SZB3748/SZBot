@@ -707,7 +707,7 @@ async def _query_current_stream_window(broadcaster_id:int, seconds:int|float, er
             f"SELECT {starts.COLUMN_HAPPENED} FROM {starts.TABLE_NAME} WHERE {starts.COLUMN_BROADCASTER_ID}=? AND (? - {starts.COLUMN_HAPPENED}) <= ? ORDER BY {starts.COLUMN_HAPPENED}",
             broadcaster_id, last_end, seconds, query_count=1
         )
-    return script.wrap_python_value(analytics_window(None if executed.result is None else (r0 := executed.result[0] if isinstance(r0, datetime) else datetime.fromtimestamp(r0, timezone.utc))-timedelta(seconds=error), None))
+    return script.wrap_python_value(analytics_window(None if executed.result is None or (isinstance(executed.result, (tuple, list)) and executed.result[0] is None) else (r0 if isinstance(r0 := executed.result[0], datetime) else datetime.fromtimestamp(r0, timezone.utc))-timedelta(seconds=error), None))
 
 async def _is_first_item(window:ScriptVariable[analytics_window], check_name:str, check_stat:type[analytics.Statistic], check, filter_parts:list[str], filter_values:list):
     aw = window.get().inner

@@ -24,10 +24,10 @@ def on_load(ctx:plugins.LoadEvent):
         rinterface = m_interface == plugins.COMPONENT_MODE_REMOTE
         vmicrophonepages_parent = webroutes.Blueprint("proxy_microphoneparent", __name__, static_folder=webroutes.microphone_parent.static_folder, template_folder=webroutes.microphone_parent.template_folder, static_url_path=webroutes.microphone_parent.static_url_path)
         if rinterface:
-            web.create_component_proxy(ctx.remote_api_addr, vmicrophonepages_parent, webroutes.microphonepages.name, webroutes.microphonepages.url_prefix, socket=False)
+            web.create_component_proxy(vmicrophonepages_parent, webroutes.microphonepages.name, webroutes.microphonepages.url_prefix, socket=False)
             web.add_bp_if_new(web.app, vmicrophonepages_parent)
         if m_api == plugins.COMPONENT_MODE_REMOTE:
-            web.create_component_proxy(ctx.remote_api_addr, web.api, webroutes.microphoneapi.name, webroutes.microphoneapi.url_prefix)
+            web.create_component_proxy(web.api, webroutes.microphoneapi.name, webroutes.microphoneapi.url_prefix)
     
     assert m_handler != plugins.COMPONENT_MODE_REMOTE, "Microphone handler has no remote mode."
     if m_handler == plugins.COMPONENT_MODE_NORMAL:
