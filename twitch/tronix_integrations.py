@@ -188,7 +188,7 @@ class _TwitchRewardType(script.ScriptDataType[twitchio.ChannelPointsReward]):
     attrs.entry("max_per_stream").readonly(utils.SimpleGetAttribute())
     attrs.entry("max_per_user_per_stream").readonly(utils.SimpleGetAttribute())
     attrs.entry("global_cooldown").readonly(utils.SimpleGetAttribute())
-    attrs.entry("default_image").readonly(lambda o, n: script.wrap_python_value(None if o.inner.default_image is None else builtins._rodict_dummy(o.inner.default_image)))
+    attrs.entry("default_image").readonly(lambda o, n: script.wrap_python_value(builtins._RODICT_EMPTY if o.inner.default_image is None else builtins._rodict_wrapper(o.inner.default_image)))
     attrs.entry("current_stream_redeems").readonly(utils.SimpleGetAttribute())
 
 _TwitchRedeemTypeAttrs = utils.ScriptAttributeHandler[twitchio.ChannelPointsRedemptionAdd,Any](no_subscripting=True)
@@ -672,7 +672,7 @@ async def twitch_timeout(ctx:script.ScriptContext, user:ScriptVariable[str|int|t
 async def twitch_ban(ctx:script.ScriptContext, user:ScriptVariable[str|int|twitchio.PartialUser], reason:ScriptVariable[str|None], broadcaster:ScriptVariable[str|int|twitchio.PartialUser|None]):
     tctx = get_tctx(ctx)
     if broadcaster.get().inner is None:
-        b = _resolve_user(tctx)
+        b = _resolve_broadcaster(tctx)
     else:
         b = await _resolve_user(tctx, broadcaster)
         if b is None:
