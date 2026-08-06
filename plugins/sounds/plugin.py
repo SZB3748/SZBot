@@ -1,8 +1,9 @@
 from . import soundplayer, tronix_integrations as sti, webroutes
 
 
+import actions
+import asyncio
 import plugins
-import threading
 import tronix_integrations as ti
 import web
 
@@ -11,10 +12,10 @@ COMPONENT_API = "api"
 COMPONENT_PLAYER = "player"
 COMPONENT_TRONIX = "tronix"
 
-handle_thread:threading.Thread|None = None
+player_handle:asyncio.Handle|None = None
 
 def on_load(ctx:plugins.LoadEvent):
-    global handle_thread
+    global player_handle
 
     webroutes.web_loaded = True
 
@@ -32,8 +33,7 @@ def on_load(ctx:plugins.LoadEvent):
 
     if m_player == plugins.COMPONENT_MODE_NORMAL:
         soundplayer.main_player = soundplayer.Player()
-        handle_thread = threading.Thread(target=soundplayer.main_player.handle)
-        handle_thread.start()
+        player_handle = actions.shared_loop.call_soon_threadsafe(soundplayer.main_player.handle)
     
     if m_tronix == plugins.COMPONENT_MODE_NORMAL:
         if ctx.is_start:
@@ -43,7 +43,7 @@ def on_load(ctx:plugins.LoadEvent):
         ti.deactivation_handlers[ctx.plugin.name] = sti.deactivate
 
 def on_unload(ctx:plugins.UnloadEvent):
-    global handle_thread
+    global player_handle
     webroutes.web_loaded = False
     
     tronix_deactivate = ti.deactivation_handlers.pop(ctx.plugin.name, None)
@@ -53,6 +53,6 @@ def on_unload(ctx:plugins.UnloadEvent):
     if soundplayer.main_player is not None:
         soundplayer.main_player.stop()
         soundplayer.main_player = None
-    if handle_thread is not None:
-        handle_thread.join(0.5)
-        handle_thread = None
+    if player_handle is not None:
+        player_handle.cancel()
+        player_handle = None

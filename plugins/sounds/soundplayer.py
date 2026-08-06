@@ -9,7 +9,6 @@ import pyaudio
 import pydub
 import tempfile
 import threading
-import traceback
 from typing import Literal
 from uuid import UUID, uuid4
 
@@ -32,7 +31,7 @@ class PlayerQueueItem:
         self.output_device_name = output_device_name
         self._audio:pydub.AudioSegment|None = None
         self._started_prepping = False
-        self._done_prepping = threading.Event()
+        self._done_prepping = asyncio.Event()
         self._id = uuid4()
         self._next:PlayerQueueItem|None = None
 
@@ -79,8 +78,8 @@ class PlayerQueueItem:
     def is_done_prep(self):
         return self._done_prepping.is_set()
 
-    def wait_for_prep(self):
-        self._done_prepping.wait()
+    async def wait_for_prep(self):
+        await self._done_prepping.wait()
         x = self.is_prepped()
         return x
 
@@ -207,7 +206,7 @@ class Playback:
         self._stream:pyaudio.Stream|None = None
         self._last_output_name:str|None = None
         self._last_output_index:int|None = None
-        self._event = threading.Event()
+        self._event = asyncio.Event()
         self._bytes_per_second:int|None=None
 
     def _get_output_device_index(self)->int|None:
@@ -322,10 +321,10 @@ class Playback:
         #if theres a little more audio to play then the stream may still be active
         return self.audio is None or self._stream is None or (self._elapsed >= len(self.audio.raw_data) and not self._stream.is_active())
         
-    def wait(self):
+    async def wait(self):
         while not self.is_done():
             if self._stream is None:
-                self._event.wait()
+                await self._event.wait()
             else:
                 self._stream
             self._event.clear()
@@ -338,18 +337,18 @@ class Player:
         self.playback = Playback()
         self._run = True
         self._queue = PlayerQueue()
-        self._queuelock = threading.Lock()
-        self._queue_has_entries = threading.Event()
+        self._queuelock = asyncio.Lock()
+        self._queue_has_entries = asyncio.Event()
 
-    def add_to_queue(self, media_name:str, location_type:LocationType, url_prefix:str|None=None, output_device_name:str|None=None):
+    async def add_to_queue(self, media_name:str, location_type:LocationType, url_prefix:str|None=None, output_device_name:str|None=None):
         item = PlayerQueueItem(media_name, location_type, url_prefix=url_prefix, output_device_name=output_device_name)
-        with self._queuelock:
+        async with self._queuelock:
             self._queue.enqueue(item)
             self._queue_has_entries.set()
             return item._id, len(self._queue)
 
-    def skip(self, position:int=0, count:int=1):
-        with self._queuelock:
+    async def skip(self, position:int=0, count:int=1):
+        async with self._queuelock:
             popped = self._queue.pop(position, count)
             if len(self._queue) < 1:
                 self._queue_has_entries.clear()
@@ -361,12 +360,12 @@ class Player:
                         break
         return popped
     
-    def skip_id(self, id:UUID|PlayerQueueItem, count:int=1)->list[PlayerQueueItem]:
+    async def skip_id(self, id:UUID|PlayerQueueItem, count:int=1)->list[PlayerQueueItem]:
         i = 0
         index = None
         cur = self._queue._head
         if isinstance(id, UUID):
-            with self._queuelock:
+            async with self._queuelock:
                 while cur is not None:
                     if cur._id == id:
                         index = i
@@ -374,7 +373,7 @@ class Player:
                     cur = cur._next
                     i += 1
         else:
-            with self._queuelock:
+            async with self._queuelock:
                 while cur is not None:
                     if cur is id:
                         index = i
@@ -382,25 +381,27 @@ class Player:
                     cur = cur._next
                     i += 1
         if index is not None:
-            return self.skip(index, count)
+            return await self.skip(index, count)
         else:
             return []
 
-    def stop(self):
+    def _stop(self):
         self._run = False
         self._queue_has_entries.set()
         self.playback.stop()
+        
 
-    def handle(self):
+    def stop(self):
+        actions.shared_loop.call_soon_threadsafe(self._stop)
+
+    async def handle(self):
         futures:set[asyncio.Future] = set()
         
         @exiting.register_cleanup_listener
         def _cleanup(ctx):
             exiting.unregister_cleanup_listener(_cleanup)
             logenv.main.info("stopping sounds player handler")
-            self._run = False
-            self._queue_has_entries.set()
-            self.playback.stop()
+            self.stop()
             logenv.main.info("stopped sounds player handler")
 
         while self._run:
@@ -411,7 +412,7 @@ class Player:
                 if not self._run:
                     break
 
-            with self._queuelock:
+            async with self._queuelock:
                 first = self._queue.peek()
                 if first is None:
                     self._queue_has_entries.clear()
@@ -420,15 +421,15 @@ class Player:
                 prep_count = min(self.prep_first, 1)
                 needs_prep = [item for item in self._queue.peek_slice(stop=prep_count) if not item.started_prep()]
                 if needs_prep:
-                    future = asyncio.run_coroutine_threadsafe(prep_sounds(needs_prep), loop=actions.shared_loop)
+                    prep_sounds_coro = prep_sounds(needs_prep)
                     if first in needs_prep:
-                        future.result()
+                        await prep_sounds_coro
                     else:
-                        futures.add(future)
+                        futures.add(asyncio.ensure_future(prep_sounds_coro, loop=actions.shared_loop))
 
                 #remove any that failed to prep
                 
-                while not first.wait_for_prep():
+                while not await first.wait_for_prep():
                     self._queue.pop()
                     first = self._queue.peek()
                     while first is not None and first.failed_prep():
@@ -437,8 +438,7 @@ class Player:
                     if first is None:
                         break
                     if not first.started_prep():
-                        future = asyncio.run_coroutine_threadsafe(prep_sounds([first]), loop=actions.shared_loop)
-                        future.result()
+                        await prep_sounds([first])
 
                 if first is None:
                     self._queue_has_entries.clear()
@@ -448,12 +448,12 @@ class Player:
 
             self.playback.reset(self._current._audio, self._current.start_ms)
             self.playback.play()
-            self.playback.wait()
+            await self.playback.wait()
 
             if not self._run:
                 break
             
-            with self._queuelock:
+            async with self._queuelock:
                 first = self._queue.peek()
                 if first is self._current:
                     self._queue.pop()
