@@ -73,6 +73,7 @@ class ActionKeyBindTrigger(KeyBindTrigger):
 
     def __getstate__(self)->dict[str]:
         return {
+            "name": self.name,
             "keybind": {
                 "keys": self.kb.keys,
                 "mode": self.kb.mode
@@ -86,6 +87,7 @@ class ActionKeyBindTrigger(KeyBindTrigger):
         action_mapping = KeyBindActionValueMapping.__new__(KeyBindActionValueMapping)
         action_mapping.__setstate__(d["action_mapping"])
 
+        self.name = str(d["name"])
         self.kb = keybind.KeyBind(kb["keys"], keybind.KeyBindMode(kb["mode"]))
         self.action_name = str(d["action_name"])
         self.action_mapping = action_mapping
