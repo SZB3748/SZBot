@@ -52,17 +52,17 @@ class _ActionType(script.ScriptDataType[actions.Action]):
     attrs.entry("script_environment").readonly(utils.SimpleGetAttribute())
 
 def config_mtime_remote():
-    r = s.head(f"http{"s"*rt.remote_secure}://{rt.remote_addr[0]}:{rt.remote_addr[1]}/api/config")
+    r = s.head(f"http{"s"*rt.remote_secure}://{rt.remote_addr[0]}:{rt.remote_addr[1]}/api/configs")
     r.raise_for_status()
     return int(r.headers["MTIME"])
 
 def config_load_remote():
-    r = s.get(f"http{"s"*rt.remote_secure}://{rt.remote_addr[0]}:{rt.remote_addr[1]}/api/config")
+    r = s.get(f"http{"s"*rt.remote_secure}://{rt.remote_addr[0]}:{rt.remote_addr[1]}/api/configs")
     r.raise_for_status()
     return r.json()
 
 def config_save_remote(data):
-    r = s.put(f"http{"s"*rt.remote_secure}://{rt.remote_addr[0]}:{rt.remote_addr[1]}/api/config", json=data)
+    r = s.put(f"http{"s"*rt.remote_secure}://{rt.remote_addr[0]}:{rt.remote_addr[1]}/api/configs", json=data)
     return r.ok
 
 def scriptend_save_config(s:script.Script):
