@@ -47,20 +47,24 @@ class PlayerQueueItem:
                     mime = entry.resolve_type()
                     if mime is not None and mime.startswith("audio/"):
                         self._audio = pydub.AudioSegment.from_file(entry.get_path())
-                #TODO warn audio media entry of given name could not be found
             elif self.location_type == "url":
                 async with aiohttp.ClientSession() as s:
                     async with s.get(f"{self.url_prefix}/api/media?name={self.media_name}") as r:
-                        r.raise_for_status()
+                        if r.ok:
+                            logenv.main.info("got media ({status_code}): {media_name}", status_code=r.status, media_name=self.media_name)
+                        else:
+                            logenv.main.warn("failed to get media ({status_code}): {media_name}", status_code=r.status, media_name=self.media_name)
                         if r.content_type.startswith("audio/"):
                             with tempfile.TemporaryFile("wb", delete_on_close=False) as tf:
                                 logenv.main.info("loading media {media_name} from {url_prefix}", media_name=self.media_name, url_prefix=self.url_prefix)
                                 async for chunk in r.content.iter_chunked(download_chunk_size):
-                                    tf.write(chunk)
+                                    await asyncio.to_thread(tf.write, chunk) #perform write on another thread, wait for write to finish asynchronously
                                 logenv.main.info("loaded media {media_name}", media_name=self.media_name)
                                 tf.close()
                                 self._audio = pydub.AudioSegment.from_file(tf.name)
         finally:
+            if self._audio is None:
+                logenv.main.warn(f"audio media entry of name {repr(self.media_name)} could not be found", media_name=self.media_name)
             self._done_prepping.set()
     
     def is_prepped(self):
