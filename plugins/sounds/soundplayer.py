@@ -53,9 +53,12 @@ class PlayerQueueItem:
                     async with s.get(f"{self.url_prefix}/api/media?name={self.media_name}") as r:
                         r.raise_for_status()
                         if r.content_type.startswith("audio/"):
-                            with tempfile.TemporaryFile("wb") as tf:
+                            with tempfile.TemporaryFile("wb", delete_on_close=False) as tf:
+                                logenv.main.info("loading media {media_name} from {url_prefix}", media_name=self.media_name, url_prefix=self.url_prefix)
                                 async for chunk in r.content.iter_chunked(download_chunk_size):
                                     tf.write(chunk)
+                                logenv.main.info("loaded media {media_name}", media_name=self.media_name)
+                                tf.close()
                                 self._audio = pydub.AudioSegment.from_file(tf.name)
         finally:
             self._done_prepping.set()

@@ -79,6 +79,7 @@ f_get_action = utils.ScriptFunction()
 f_run_action = utils.ScriptFunction()
 f_set_action_return_value = utils.ScriptFunction()
 f_save = utils.ScriptFunction()
+f_get_current_host_url = utils.ScriptFunction()
 
 @f_get_action.overload(("name", builtins.String))
 async def get_action(name:script.ScriptVariable[str]):
@@ -126,6 +127,20 @@ async def set_action_return_value(ctx:script.ScriptContext, value:script.ScriptV
     else:
         ctx.script.scope[actions.ACTION_RETURN_VALUE_VAR_NAME] = ns.pop(actions.ACTION_RETURN_VALUE_VAR_NAME)
 
+@f_get_current_host_url.overload(("schema", builtins.Bool, True), ("address", builtins.Bool, True), ("port", builtins.Bool, True), ("secure", builtins.Bool, False))
+def get_current_host_url(schema:script.ScriptVariable[bool], address:script.ScriptVariable[bool], port:script.ScriptVariable[bool], secure:script.ScriptVariable[bool]):
+    parts = []
+    if schema.get().inner:
+        if secure.get().inner:
+            parts.append("https://")
+        else:
+            parts.append("http://")
+    if address.get().inner:
+        parts.append(rt.host_addr[0])
+    if port.get().inner:
+        parts.append(f":{rt.host_addr[1]}")
+    return script.ScriptValue(builtins.String, "".join(parts))
+
 def activate():
 
     if rt.core_components.get(plugins.CORE_COMPONENT_API,None) == plugins.COMPONENT_MODE_REMOTE:
@@ -146,6 +161,7 @@ def activate():
     utils.merge_function("run_action", f_run_action)
     utils.merge_function("save", f_save)
     utils.merge_function("set_action_return_value", f_set_action_return_value)
+    utils.merge_function("get_current_host_url", f_get_current_host_url)
 
     actions.script_runner.add_script_end_cb(scriptend_save_config)
 
@@ -166,6 +182,7 @@ def deactivate():
     utils.remove_function("run_action", f_run_action)
     utils.remove_function("save", f_save)
     utils.remove_function("set_action_return_value", f_set_action_return_value)
+    utils.remove_function("get_current_host_url", f_get_current_host_url)
 
     actions.script_runner.remove_script_end_cb(scriptend_save_config)
 

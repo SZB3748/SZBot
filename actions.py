@@ -185,7 +185,7 @@ def _trigger_save():
     d = {tt.TYPE_NAME:ce.cache for tt,ce in _trigger_cache.items()}
     c = json.dumps(d, indent=4)
 
-    with open(TRIGGERS_PATH) as f:
+    with open(TRIGGERS_PATH, "w") as f:
         f.write(c)
 
     _trigger_mtime = os.stat(TRIGGERS_PATH).st_mtime
