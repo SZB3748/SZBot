@@ -8,7 +8,6 @@ from overlays import media
 import pyaudio
 import pydub
 import tempfile
-import threading
 from typing import Literal
 from uuid import UUID, uuid4
 
@@ -265,6 +264,7 @@ class Playback:
     def pause(self):
         if self._stream is not None:
             self._stream.stop_stream()
+        self._event.set()
     
     def stop(self):
         if self.audio is not None:
@@ -323,11 +323,11 @@ class Playback:
         
     async def wait(self):
         while not self.is_done():
-            if self._stream is None:
-                await self._event.wait()
+            if self.is_playing():
+                await asyncio.sleep(0.01)
             else:
-                self._stream
-            self._event.clear()
+                await self._event.wait()
+                self._event.clear()
 
 
 class Player:
@@ -408,7 +408,7 @@ class Player:
             if not self._queue_has_entries.is_set():
                 for future in [future for future in futures if future.done()]:
                     futures.remove(future)
-                self._queue_has_entries.wait()
+                await self._queue_has_entries.wait()
                 if not self._run:
                     break
 

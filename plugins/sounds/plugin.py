@@ -12,7 +12,7 @@ COMPONENT_API = "api"
 COMPONENT_PLAYER = "player"
 COMPONENT_TRONIX = "tronix"
 
-player_handle:asyncio.Handle|None = None
+player_handle:asyncio.Future|None = None
 
 def on_load(ctx:plugins.LoadEvent):
     global player_handle
@@ -33,7 +33,7 @@ def on_load(ctx:plugins.LoadEvent):
 
     if m_player == plugins.COMPONENT_MODE_NORMAL:
         soundplayer.main_player = soundplayer.Player()
-        player_handle = actions.shared_loop.call_soon_threadsafe(soundplayer.main_player.handle)
+        player_handle = asyncio.run_coroutine_threadsafe(soundplayer.main_player.handle(), loop=actions.shared_loop)
     
     if m_tronix == plugins.COMPONENT_MODE_NORMAL:
         if ctx.is_start:

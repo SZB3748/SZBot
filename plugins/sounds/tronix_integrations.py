@@ -75,7 +75,7 @@ def _player_or_default(ap:script.ScriptValue[soundplayer.Player]):
         return ap.inner
 
 @f_play_sound.overload(("media_entry", [oti.MediaEntry, builtins.String]), ("audio_player", [AudioPlayer, builtins.NullType], None), ("output_device_name", [builtins.String, builtins.NullType], None), ("url_prefix", [builtins.String, builtins.NullType], None))
-def play_sound(media_entry:script.ScriptVariable[media.MediaEntry|str], audio_player:script.ScriptVariable[soundplayer.Player|None], output_device_name:script.ScriptVariable[str|None], url_prefix:script.ScriptVariable[str|None]):
+async def play_sound(media_entry:script.ScriptVariable[media.MediaEntry|str], audio_player:script.ScriptVariable[soundplayer.Player|None], output_device_name:script.ScriptVariable[str|None], url_prefix:script.ScriptVariable[str|None]):
     v = media_entry.get()
     if v.type.issubtype(oti.MediaEntry):
         assert isinstance(v.inner, media.MediaEntry)
@@ -92,11 +92,11 @@ def play_sound(media_entry:script.ScriptVariable[media.MediaEntry|str], audio_pl
     p = _player_or_default(audio_player.get())
     urlp = url_prefix.get().inner
     ltype = soundplayer.LOC_TYPE_LOCAL if urlp is None else soundplayer.LOC_TYPE_URL
-    uid, l = p.add_to_queue(name, ltype, urlp, output_device_name.get().inner)
+    uid, l = await p.add_to_queue(name, ltype, urlp, output_device_name.get().inner)
     return script.wrap_python_value(SoundRequest.inner(uid, l-1))
 
 @f_skip_sound.overload(("request", [SoundRequest, builtins.UUID]), ("audio_player", [AudioPlayer, builtins.NullType], None))
-def skip_sound(request:script.ScriptVariable[SoundRequest_t|UUID], audio_player:script.ScriptVariable[soundplayer.Player|None]):
+async def skip_sound(request:script.ScriptVariable[SoundRequest_t|UUID], audio_player:script.ScriptVariable[soundplayer.Player|None]):
     r = request.get()
     if r.type.issubtype(SoundRequest):
         assert isinstance(r.inner, SoundRequest_t)
@@ -105,7 +105,7 @@ def skip_sound(request:script.ScriptVariable[SoundRequest_t|UUID], audio_player:
         assert isinstance(r.inner, UUID)
         rid = r.inner
     p = _player_or_default(audio_player.get())
-    skipped = p.skip_id(rid)
+    skipped = await p.skip_id(rid)
     return script.wrap_python_value([item._id for item in skipped])
     
 
