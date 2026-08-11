@@ -139,7 +139,7 @@ class PlayerQueue:
                 node._next = None
                 node = nnode
                 i += 1
-            self._head = node._next
+            self._head = node
             if self._head is None:
                 self._tail = None
         elif pre._next is None:
@@ -156,7 +156,7 @@ class PlayerQueue:
                 i += 1
             if node is self._tail:
                 self._tail = pre
-            pre._next = node._next
+            pre._next = node
 
         self._length = max(self._length - len(l), 0)
         return l
@@ -418,7 +418,7 @@ class Player:
                     self._queue_has_entries.clear()
                     continue
 
-                prep_count = min(self.prep_first, 1)
+                prep_count = max(self.prep_first, 1)
                 needs_prep = [item for item in self._queue.peek_slice(stop=prep_count) if not item.started_prep()]
                 if needs_prep:
                     prep_sounds_coro = prep_sounds(needs_prep)
