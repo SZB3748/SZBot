@@ -134,6 +134,7 @@ class PlayerQueue:
             while i < count:
                 l.append(node)
                 if node._next is None:
+                    node = None
                     break
                 nnode = node._next
                 node._next = None
@@ -149,6 +150,7 @@ class PlayerQueue:
             while i < count:
                 l.append(node)
                 if node._next is None:
+                    node = None
                     break
                 nnode = node._next
                 node._next = None
@@ -194,6 +196,15 @@ class PlayerQueue:
                 return l
             l.append(cur)
         return l
+
+    # def _debug_print(self, pre:str=None):
+    #     if pre is not None:
+    #         print(pre)
+    #     cur = self._head
+    #     while cur is not None:
+    #         print(cur.media_name, "->", end=" ")
+    #         cur = cur._next
+    #     print("QUEUE END")
 
 class Playback:
     def __init__(self, audio:pydub.AudioSegment|None=None, start_ms:int=0, output_device_name:str|None=None, frames_per_write:int=1024):
