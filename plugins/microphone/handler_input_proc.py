@@ -96,7 +96,7 @@ if __name__ == "__main__":
                 stream.close()
                 remove_after.append(id)
             else:
-                sys.stdout.write(f"{json.dumps({"name": INST_FRAME, "data": {"id": str(id), "frame": base64.b64encode(frame).decode("utf-8")}})}\n")
+                sys.stdout.write(f"{json.dumps({"name": INST_FRAME, "data": {"id": str(id), "frame": base64.b64encode(frame).decode("utf-8")}}, ensure_ascii=False)}\n")
                 sys.stdout.flush()
         if remove_after:
             for id in remove_after:

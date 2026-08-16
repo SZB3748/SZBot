@@ -359,6 +359,6 @@ def load_commands(path:str=None)->dict[str, Command]:
     return rtv
 
 def save_commands(commands:dict[str, Command], path:str=None):
-    c = json.dumps({c.name:c.__getstate__() for c in commands.values() if isinstance(c, Command)}, indent=4)
+    c = json.dumps({c.name:c.__getstate__() for c in commands.values() if isinstance(c, Command)}, indent=4, ensure_ascii=False)
     with open(COMMANDS_PATH if path is None else path, "w") as f:
         f.write(c)

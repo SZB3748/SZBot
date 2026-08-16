@@ -238,7 +238,7 @@ def mic_get_volume(id:str)->int:
         return _mic_volumes[id]
     if _mic_volumes_proc is not None:
         _mic_volumes[id] = 0
-        _mic_volumes_proc.stdin.write(f"{json.dumps({"name": "new_mic", "data": {"id": id}})}\n")
+        _mic_volumes_proc.stdin.write(f"{json.dumps({"name": "new_mic", "data": {"id": id}}, ensure_ascii=False)}\n")
         _mic_volumes_proc.stdin.flush()
     return 0
 

@@ -134,7 +134,7 @@ def load_overlays(path:str=None)->dict[str,Overlay]:
     return rtv
 
 def save_overlays(overlays:dict[str,Overlay], path:str=None):
-    c = json.dumps({o.name:o.__getstate__() for o in overlays.values()})
+    c = json.dumps({o.name:o.__getstate__() for o in overlays.values()}, ensure_ascii=False)
     with open(OVERLAYS_PATH if path is None else path, "w") as f:
         f.write(c)
 

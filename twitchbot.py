@@ -600,7 +600,7 @@ async def _action_runner_local_task(ws:websocket.WebSocket, task_id:uuid.UUID, s
                 }
                 for uid, success, *_ in results
             }
-        }))
+        }, ensure_ascii=False))
     finally:
         with _arl_futures_lock:
             _arl_futures.pop(task_id,None)
@@ -685,7 +685,7 @@ def _twitchbot_enque_script(uid:uuid.UUID, environment:str, s:tronix.Script, is_
                 } if isinstance(s, tronix.Script) else s
             }
         ]
-    }))
+    }, ensure_ascii=False))
     with actions._env_switch_queue_lock:
         actions._env_switch_done[uid] = is_done
     return uid, environment, s, is_done

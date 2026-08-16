@@ -75,7 +75,7 @@ def save_media_entries(entries:dict[str, MediaEntry], path:str=None):
             os.path.join(MEDIA_DIR, entry.name),
             entry
         ))
-    c = json.dumps({entry.name:entry.__getstate__() for entry in entries.values()})
+    c = json.dumps({entry.name:entry.__getstate__() for entry in entries.values()}, ensure_ascii=False)
     with open(MEDIA_FILE if path is None else path, "w") as f:
         f.write(c)
     for old_path, new_path, entry in renames:

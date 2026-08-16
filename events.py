@@ -12,7 +12,7 @@ class Event:
         return json.dumps({
             "name": self.name,
             "data": self.data
-        })
+        }, ensure_ascii=False)
 
 class EventBucket:
     """Collects events so that they can later be handled all at once."""

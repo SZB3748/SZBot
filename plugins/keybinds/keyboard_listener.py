@@ -496,7 +496,7 @@ def handle_socket_event(name:str, data:dict[str]):
                 "data": {
                     "binds": failed
                 }
-            }))
+            }, ensure_ascii=False))
     else:
         print("keybinds:\tbad event", name, data)
 
@@ -530,7 +530,7 @@ def send_keypress(keybind:str, mode:keybind.KeyBindMode, hold_start:bool=None, n
             "hold_start": hold_start
         }
     }
-    ws.send(json.dumps(ev))
+    ws.send(json.dumps(ev, ensure_ascii=False))
 
 ws = websocket.WebSocketApp(sys.argv[1], on_open=on_open, on_message=on_message, on_error=on_error)
 

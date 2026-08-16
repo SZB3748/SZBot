@@ -15,5 +15,5 @@ def load_media_list(path=MEDIA_LIST_PATH)->MediaList:
     
 def save_media_list(mlist:MediaList, path=MEDIA_LIST_PATH):
     with open(path, "w") as f:
-        json.dump(mlist, f, indent="    ")
+        json.dump(mlist, f, indent=4, ensure_ascii=False)
     

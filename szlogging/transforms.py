@@ -145,7 +145,11 @@ class JsonTransformation(Transformation[str]):
         super().__init__(self._makefunc())
         self.serializer = serializer
         self.end = end
-        self.json_options = {} if json_options is None else json_options
+        if json_options is None:
+            self.json_options = dict(ensure_ascii=False)
+        else:
+            json_options.setdefault("ensure_ascii", False)
+            self.json_options = json_options
     
     def _makefunc(self):
         def func(message:messages.Message):

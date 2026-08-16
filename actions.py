@@ -183,7 +183,7 @@ def _trigger_save():
     global _trigger_mtime
 
     d = {tt.TYPE_NAME:ce.cache for tt,ce in _trigger_cache.items()}
-    c = json.dumps(d, indent=4)
+    c = json.dumps(d, indent=4, ensure_ascii=False)
 
     with open(TRIGGERS_PATH, "w") as f:
         f.write(c)
@@ -378,7 +378,7 @@ def load_action_table(path:str=None)->dict[str, Action]:
     return rtv
 
 def save_action_table(table:dict[str, Action], path:str=None):
-    c = json.dumps({action.name:action.__getstate__() for action in table.values()}, indent=4)
+    c = json.dumps({action.name:action.__getstate__() for action in table.values()}, indent=4, ensure_ascii=False)
     with open(ACTIONS_PATH if path is None else path, "w") as f:
         f.write(c)
 

@@ -35,7 +35,7 @@ def handle_mic(mic_id:str, r:requests.Response, flag:CloseFlag):
         volume = int.from_bytes(chunk, "big", signed=False)
         if volume != last_volume:
             with _out_lock:
-                sys.stdout.write(f"{json.dumps({"name":"change_volume", "data":{"id": mic_id, "volume": volume}})}\n")
+                sys.stdout.write(f"{json.dumps({"name":"change_volume", "data":{"id": mic_id, "volume": volume}}, ensure_ascii=False)}\n")
                 sys.stdout.flush()
             last_volume = volume
         if flag:

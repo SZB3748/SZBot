@@ -44,7 +44,7 @@ def write(new_configs:dict[str]|None=None, config_updates:dict[str]|None=None, p
             f.seek(0)
             f.truncate()
             try:
-                json.dump(configs, f, indent=4)
+                json.dump(configs, f, indent=4, ensure_ascii=False)
             except:
                 f.write(contents)
                 raise
@@ -54,10 +54,10 @@ def write(new_configs:dict[str]|None=None, config_updates:dict[str]|None=None, p
         else:
             d = new_configs
         with open(path, "w") as f:
-            json.dump(d, f, indent=4)
+            json.dump(d, f, indent=4, ensure_ascii=False)
     elif config_updates:
         with open(path, "w") as f:
-            json.dump(config_updates, f, indent=4)
+            json.dump(config_updates, f, indent=4, ensure_ascii=False)
     else:
         with open(path, "w") as f:
             f.write("{}")

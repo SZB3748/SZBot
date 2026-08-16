@@ -250,9 +250,9 @@ def api_overlay_connection(ws:Server):
         while ws.connected:
             for d in conn.dump_data(timeout=0.1):
                 if isinstance(d, tronix.script.ScriptValue):
-                    d = json.dumps(tronix.utils.serialize_value(d, type_str=True))
+                    d = json.dumps(tronix.utils.serialize_value(d, type_str=True), ensure_ascii=False)
                 elif not isinstance(d, bytes):
-                    d = json.dumps(d)
+                    d = json.dumps(d, ensure_ascii=False)
                 ws.send(d)
     finally:
         _cleanup(None)

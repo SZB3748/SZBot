@@ -135,12 +135,12 @@ class MicrophoneHandler:
             self.mics[uuid5(NS_UUID, f"{name}\n{nameindex}")] = Microphone(name=name, enabled=enabled, format=format, channels=channels, rate=rate, frames_per_buffer=frames_per_buffer)
 
     def start_stream(self, micid:UUID, mic:Microphone):
-        self.proc.stdin.write(f"{json.dumps({"name":INST_STREAM_START, "data":{"id":str(micid), **mic.__getstate__()}})}\n")
+        self.proc.stdin.write(f"{json.dumps({"name":INST_STREAM_START, "data":{"id":str(micid), **mic.__getstate__()}}, ensure_ascii=False)}\n")
         self.proc.stdin.flush()
         mic.is_on = True
             
     def stop_stream(self, micid:UUID, mic:Microphone):
-        self.proc.stdin.write(f"{json.dumps({"name":INST_STREAM_STOP, "data": {"id": str(micid)}})}\n")
+        self.proc.stdin.write(f"{json.dumps({"name":INST_STREAM_STOP, "data": {"id": str(micid)}}, ensure_ascii=False)}\n")
         self.proc.stdin.flush()
         mic.is_on = False
 
