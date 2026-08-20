@@ -2,7 +2,7 @@ from . import soundplayer
 from typing import Any
 
 from overlays import media, tronix_integrations as oti
-from tronix import duration_types as durtypes, script, script_builtins as builtins, utils
+from tronix import duration_types as durtypes, number_units as numunits, script, script_builtins as builtins, utils
 from uuid import UUID
 
 def _player_paused_setter(o:script.ScriptValue[soundplayer.Player], n:str, v:script.ScriptVariable[bool]):
@@ -37,8 +37,13 @@ def _player_cursor_setter(o:script.ScriptValue[soundplayer.Player], n:str, v:scr
 
     return script.wrap_python_value(durtypes._complex_duration(secs=0 if o.inner.playback.audio is None else o.inner.playback.set_elapsed(s)).simplify())
 
+def _player_volume_setter(o:script.ScriptValue[soundplayer.Player], n:str, v:script.ScriptVariable[numunits.percent|int|float]):
+    o.inner.playback.main_volume = vol = float(v.get().inner)
+    return script.wrap_python_value(numunits.percent(vol))
 
 _AudioPlayerTypeAttrs = utils.ScriptAttributeHandler[soundplayer.Player, Any]()
+@_AudioPlayerTypeAttrs.attach
+@_AudioPlayerTypeAttrs.enforce_child_attrs()
 class _AudioPlayerType(script.ScriptDataType[soundplayer.Player]):
 
     attrs = _AudioPlayerTypeAttrs
@@ -50,6 +55,7 @@ class _AudioPlayerType(script.ScriptDataType[soundplayer.Player]):
     attrs.entry("is_playing").getter(lambda o, n: builtins.true if o.inner.playback.is_playing() else builtins.false).setter(utils.TypedSetter(builtins.Bool, _player_playing_setter)).nodel()
     attrs.entry("current_id").readonly(lambda o, n: builtins.null if o.inner._current is None else script.wrap_python_value(o.inner._current._id))
     attrs.entry("current_duration").readonly(lambda o, n: script.wrap_python_value(durtypes._complex_duration(ms=0 if o.inner._current is None else o.inner.playback.get_duration_ms()).simplify()))
+    attrs.entry("volume").getter(lambda o, n: script.wrap_python_value(numunits.percent(o.inner.playback.main_volume))).setter(utils.TypedSetter([builtins.Integer, builtins.Float, builtins.Percent], _player_volume_setter)).nodel()
 
 
 class SoundRequest_t(builtins._pair[UUID, int]):
@@ -64,6 +70,7 @@ f_skip_sound = utils.ScriptFunction()
 f_pause_sounds = utils.ScriptFunction()
 f_resume_sounds = utils.ScriptFunction()
 f_get_sound_queue_position = utils.ScriptFunction()
+f_get_default_audio_player = utils.ScriptFunction()
 
 def _player_or_default(ap:script.ScriptValue[soundplayer.Player]):
     if ap.inner is None:
@@ -74,8 +81,8 @@ def _player_or_default(ap:script.ScriptValue[soundplayer.Player]):
         assert isinstance(ap.inner, soundplayer.Player)
         return ap.inner
 
-@f_play_sound.overload(("media_entry", [oti.MediaEntry, builtins.String]), ("audio_player", [AudioPlayer, builtins.NullType], None), ("output_device_name", [builtins.String, builtins.NullType], None), ("url_prefix", [builtins.String, builtins.NullType], None))
-async def play_sound(media_entry:script.ScriptVariable[media.MediaEntry|str], audio_player:script.ScriptVariable[soundplayer.Player|None], output_device_name:script.ScriptVariable[str|None], url_prefix:script.ScriptVariable[str|None]):
+@f_play_sound.overload(("media_entry", [oti.MediaEntry, builtins.String]), ("audio_player", [AudioPlayer, builtins.NullType], None), ("output_device_name", [builtins.String, builtins.NullType], None), ("url_prefix", [builtins.String, builtins.NullType], None), ("volume", [builtins.Percent, builtins.Float, builtins.Integer], 1.0))
+async def play_sound(media_entry:script.ScriptVariable[media.MediaEntry|str], audio_player:script.ScriptVariable[soundplayer.Player|None], output_device_name:script.ScriptVariable[str|None], url_prefix:script.ScriptVariable[str|None], volume:script.ScriptVariable[numunits.percent|float|int]):
     v = media_entry.get()
     if v.type.issubtype(oti.MediaEntry):
         assert isinstance(v.inner, media.MediaEntry)
@@ -92,7 +99,7 @@ async def play_sound(media_entry:script.ScriptVariable[media.MediaEntry|str], au
     p = _player_or_default(audio_player.get())
     urlp = url_prefix.get().inner
     ltype = soundplayer.LOC_TYPE_LOCAL if urlp is None else soundplayer.LOC_TYPE_URL
-    uid, l = await p.add_to_queue(name, ltype, urlp, output_device_name.get().inner)
+    uid, l = await p.add_to_queue(name, ltype, urlp, output_device_name.get().inner, float(volume.get().inner))
     return script.wrap_python_value(SoundRequest.inner(uid, l-1))
 
 @f_skip_sound.overload(("request", [SoundRequest, builtins.UUID]), ("audio_player", [AudioPlayer, builtins.NullType], None))
@@ -143,6 +150,10 @@ def get_sound_queue_position(request:script.ScriptVariable[SoundRequest_t|UUID],
             i += 1
     return builtins.null
 
+@f_get_default_audio_player.overload()
+def get_default_audio_player():
+    return script.wrap_python_value(soundplayer.main_player)
+
 
 def activate():
     utils.add_type(SoundRequest, constructor=False)
@@ -153,6 +164,7 @@ def activate():
     utils.merge_function("pause_sounds", f_pause_sounds)
     utils.merge_function("resume_sounds", f_resume_sounds)
     utils.merge_function("get_sound_queue_position", f_get_sound_queue_position)
+    utils.merge_function("get_default_audio_player", f_get_default_audio_player)
 
 def deactivate():
     utils.remove_type(SoundRequest)
@@ -163,3 +175,4 @@ def deactivate():
     utils.remove_function("pause_sounds", f_pause_sounds)
     utils.remove_function("resume_sounds", f_resume_sounds)
     utils.remove_function("get_sound_queue_position", f_get_sound_queue_position)
+    utils.remove_function("get_default_audio_player", f_get_default_audio_player)

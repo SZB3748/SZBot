@@ -2,6 +2,7 @@ import actions
 import aiohttp
 import asyncio
 import atexit
+import audioop
 import exiting
 import logenv
 from overlays import media
@@ -22,12 +23,13 @@ PYAUDIO = pyaudio.PyAudio()
 atexit.register(PYAUDIO.terminate)
 
 class PlayerQueueItem:
-    def __init__(self, media_name:str, location_type:LocationType=LOC_TYPE_LOCAL, url_prefix:str|None=None, start_ms:int=0, output_device_name:str|None=None):
+    def __init__(self, media_name:str, location_type:LocationType=LOC_TYPE_LOCAL, url_prefix:str|None=None, start_ms:int=0, output_device_name:str|None=None, volume:float=1.0):
         self.media_name = media_name
         self.location_type:LocationType = location_type
         self.url_prefix = url_prefix
         self.start_ms = start_ms
         self.output_device_name = output_device_name
+        self.volume = volume
         self._audio:pydub.AudioSegment|None = None
         self._started_prepping = False
         self._done_prepping = asyncio.Event()
@@ -207,10 +209,12 @@ class PlayerQueue:
     #     print("QUEUE END")
 
 class Playback:
-    def __init__(self, audio:pydub.AudioSegment|None=None, start_ms:int=0, output_device_name:str|None=None, frames_per_write:int=1024):
+    def __init__(self, audio:pydub.AudioSegment|None=None, start_ms:int=0, output_device_name:str|None=None, main_volume:float=1.0, entry_volume:float=1.0, frames_per_write:int=1024):
         self.audio = audio
         self.start_ms = start_ms
         self.output_device_name = output_device_name
+        self.main_volume = main_volume
+        self.entry_volume = entry_volume
         self._frames_per_write = frames_per_write
         self._elapsed:int = 0
         self._stream:pyaudio.Stream|None = None
@@ -251,6 +255,8 @@ class Playback:
     def _audio_callback(self, in_data:bytes|None, frame_count:int, time_info:dict[str,float], status:int):
         end_position = self._elapsed + frame_count * self.audio.sample_width * self.audio.channels
         chunk = self.audio.raw_data[self._elapsed:end_position]
+        if self.main_volume != 1.0 or self.entry_volume != 1.0:
+            chunk = audioop.mul(chunk, self.audio.sample_width, self.main_volume * self.entry_volume)
         self._elapsed = end_position
 
         if end_position >= len(self.audio.raw_data):
@@ -292,7 +298,7 @@ class Playback:
             self._stream = None
         self._event.set()
 
-    def reset(self, audio:pydub.AudioSegment, start_secs:float=0.0, output_device_name:str|None=None):
+    def reset(self, audio:pydub.AudioSegment, start_secs:float=0.0, output_device_name:str|None=None, entry_volume:float=1.0):
         if audio is not self.audio:
             self.audio = audio
             self._bytes_per_second = self.audio.frame_rate * self.audio.channels * self.audio.sample_width
@@ -302,6 +308,7 @@ class Playback:
                 self._stream = None
         self.start_secs = start_secs
         self.output_device_name = output_device_name
+        self.entry_volume = entry_volume
         self._elapsed = int(self.start_secs * self._bytes_per_second)
 
     def get_elapsed(self):
@@ -357,8 +364,8 @@ class Player:
         self._queuelock = asyncio.Lock()
         self._queue_has_entries = asyncio.Event()
 
-    async def add_to_queue(self, media_name:str, location_type:LocationType, url_prefix:str|None=None, output_device_name:str|None=None):
-        item = PlayerQueueItem(media_name, location_type, url_prefix=url_prefix, output_device_name=output_device_name)
+    async def add_to_queue(self, media_name:str, location_type:LocationType, url_prefix:str|None=None, output_device_name:str|None=None, volume:float=1.0):
+        item = PlayerQueueItem(media_name, location_type, url_prefix=url_prefix, output_device_name=output_device_name, volume=volume)
         async with self._queuelock:
             self._queue.enqueue(item)
             self._queue_has_entries.set()
@@ -463,7 +470,7 @@ class Player:
 
                 self._current = first
 
-            self.playback.reset(self._current._audio, self._current.start_ms, self._current.output_device_name)
+            self.playback.reset(self._current._audio, self._current.start_ms, self._current.output_device_name, self._current.volume)
             self.playback.play()
             await self.playback.wait()
 
