@@ -269,13 +269,22 @@ class Playback:
         if self.audio is None:
             return
         if self._stream is None:
+            device_index = self._get_output_device_index()
+            if device_index is None:
+                device = PYAUDIO.get_default_output_device_info()
+            else:
+                device = PYAUDIO.get_device_info_by_index(device_index)
+            target_sample_rate = int(device["defaultSampleRate"])
+            if target_sample_rate != self.audio.frame_rate:
+                self.audio = self.audio.set_frame_rate(target_sample_rate)
+                assert target_sample_rate == self.audio.frame_rate, f"Audio sample rates should be the same now, got {self.audio.frame_rate}"
             self._stream = PYAUDIO.open(
                 format=PYAUDIO.get_format_from_width(self.audio.sample_width),
-                channels=self.audio.channels,
-                rate=self.audio.frame_rate,
+                channels=min(self.audio.channels, device["maxOutputChannels"]),
+                rate=target_sample_rate,
                 output=True,
                 stream_callback=self._audio_callback,
-                output_device_index=self._get_output_device_index(),
+                output_device_index=device_index,
                 frames_per_buffer=self._frames_per_write
             )
             self._elapsed = self.start_ms * self._bytes_per_second
@@ -471,8 +480,11 @@ class Player:
                 self._current = first
 
             self.playback.reset(self._current._audio, self._current.start_ms, self._current.output_device_name, self._current.volume)
+            #logenv.main.info(f"playing sound {name} @ {start}", self._current.media_name, start=self._current.start_ms)
             self.playback.play()
+            #logenv.main.debug("started playback")
             await self.playback.wait()
+            #logenv.main.info("finished playing sound {name}", name=self._current.media_name)
 
             if not self._run:
                 break
