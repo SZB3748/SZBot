@@ -222,11 +222,15 @@ class Playback:
     def _get_output_device_index(self)->int|None:
         if self.output_device_name == self._last_output_name:
             return self._last_output_index
+        elif self.output_device_name is None:
+            self._last_output_name = self._last_output_index = None
+            return None
         name_matches:list[tuple[str, int]] = []
+        odnl = self.output_device_name.lower()
         for i in range(PYAUDIO.get_device_count()):
             device_info = PYAUDIO.get_device_info_by_index(i)
             n = device_info["name"]
-            if device_info["maxOutputChannels"] > 0 and self.output_device_name.lower() in n.lower():
+            if device_info["maxOutputChannels"] > 0 and odnl in n.lower():
                 name_matches.append((n, i))
         if name_matches:
             if len(name_matches) > 1:
@@ -240,6 +244,7 @@ class Playback:
             self._last_output_index = i
             return i
         else:
+            logenv.main.warn("failed to find device: {name}", human_text=f"Could not find Output device {repr(self.output_device_name)}", name=self.output_device_name)
             self._last_output_name = self._last_output_index = None
             return None
 
@@ -287,7 +292,7 @@ class Playback:
             self._stream = None
         self._event.set()
 
-    def reset(self, audio:pydub.AudioSegment, start_secs:float=0.0):
+    def reset(self, audio:pydub.AudioSegment, start_secs:float=0.0, output_device_name:str|None=None):
         if audio is not self.audio:
             self.audio = audio
             self._bytes_per_second = self.audio.frame_rate * self.audio.channels * self.audio.sample_width
@@ -296,6 +301,7 @@ class Playback:
                 self._stream.close()
                 self._stream = None
         self.start_secs = start_secs
+        self.output_device_name = output_device_name
         self._elapsed = int(self.start_secs * self._bytes_per_second)
 
     def get_elapsed(self):
@@ -457,7 +463,7 @@ class Player:
 
                 self._current = first
 
-            self.playback.reset(self._current._audio, self._current.start_ms)
+            self.playback.reset(self._current._audio, self._current.start_ms, self._current.output_device_name)
             self.playback.play()
             await self.playback.wait()
 
