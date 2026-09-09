@@ -692,6 +692,48 @@ class _TwitchMessageType(script.ScriptDataType[twitchio.ChatMessage]):
     attrs.entry("type").readonly(utils.SimpleGetAttribute())
     attrs.entry(*_COLOR_NAMES).readonly(utils.SimpleGetAttribute())
 
+_TwitchStreamOnlineTypeAttrs = utils.ScriptAttributeHandler[twitchio.StreamOnline, Any]()
+@_TwitchStreamOnlineTypeAttrs.enforce_child_attrs()
+@_TwitchStreamOnlineTypeAttrs.attach
+class _TwitchStreamOnlineType(script.ScriptDataType[twitchio.StreamOnline]):
+    def serialize(self, value, type_str=False):
+        return dict(
+            broadcaster=utils.serialize_value_headless(value.inner.broadcaster, type_str=type_str),
+            id=value.inner.id, type=value.inner.type, started_at=value.inner.started_at.isoformat()
+        )
+
+    def deserialize(self, x):
+        v = self.inner.__new__(self.inner)
+        v.broadcaster = TwitchUser.deserialize(x["broadcaster"])
+        v.id = x["id"]
+        v.type = x["type"]
+        v.started_at = datetime.fromisoformat(x["started_at"])
+        v._http = _get_http()
+        return v
+
+    attrs = _TwitchStreamOnlineTypeAttrs
+    attrs.entry("broadcaster").readonly(utils.SimpleGetAttribute())
+    attrs.entry("id").readonly(lambda o,n: script.wrap_python_value(int(o.inner.id)))
+    attrs.entry("type").readonly(utils.SimpleGetAttribute())
+    attrs.entry("started_at", utils.SimpleGetAttribute())
+
+_TwitchStreamOfflineTypeAttrs = utils.ScriptAttributeHandler[twitchio.StreamOffline, Any]()
+@_TwitchStreamOfflineTypeAttrs.enforce_child_attrs()
+@_TwitchStreamOfflineTypeAttrs.attach
+class _TwitchStreamOfflineType(script.ScriptDataType[twitchio.StreamOffline]):
+    def serialize(self, value, type_str=False):
+        return dict(broadcaster=utils.serialize_value_headless(value.inner.broadcaster, type_str=type_str))
+
+    def deserialize(self, x):
+        v = self.inner.__new__(self.inner)
+        v.broadcaster = TwitchUser.deserialize(x["broadcaster"])
+        v._http = _get_http()
+        return v
+
+    attrs = _TwitchStreamOnlineTypeAttrs
+    attrs.entry("broadcaster").readonly(utils.SimpleGetAttribute())
+
+
 _TwitchContextTypeAttrs = utils.ScriptAttributeHandler[BotScriptContext,Any](no_subscripting=True)
 @_TwitchContextTypeAttrs.enforce_child_attrs()
 @_TwitchContextTypeAttrs.attach
@@ -727,6 +769,8 @@ TwitchCommandContext = _TwitchCommandContextType("TwitchCommandContext", command
 TwitchRedeem = _TwitchRedeemType("TwitchRedeem", twitchio.ChannelPointsRedemptionAdd, script.BASE_TYPE)
 TwitchReward = _TwitchRewardType("TwitchReward", twitchio.ChannelPointsReward, script.BASE_TYPE)
 TwitchRewardLimitSettings = builtins.pair_alias_subtype("TwitchRewardLimitSettings", ["enabled"], ["value"], twitchio.RewardLimitSettings)
+TwitchStreamOnline = _TwitchStreamOnlineType("TwitchStreamOnline", twitchio.StreamOnline, script.BASE_TYPE)
+TwitchStreamOffline = _TwitchStreamOfflineType("TwitchStreamOffline", twitchio.StreamOffline, script.BASE_TYPE)
 TwitchContext = _TwitchContextType("TwitchContext", BotScriptContext, script.BASE_TYPE)
 
 AnalyticsWindow = _AnalyticsWindowType("AnalyticsWindow", analytics_window, builtins.Pair)
@@ -1074,6 +1118,8 @@ def activate():
     utils.add_type(TwitchRedeem, constructor=False)
     utils.add_type(TwitchReward, constructor=False)
     utils.add_type(TwitchRewardLimitSettings, constructor=False)
+    utils.add_type(TwitchStreamOnline, constructor=False)
+    utils.add_type(TwitchStreamOffline, constructor=False)
     utils.add_type(TwitchContext, constructor=False)
     utils.add_type(AnalyticsWindow)
     utils.merge_function("send_twitch_message", f_send_twitch_message)
@@ -1105,6 +1151,8 @@ def deactivate():
     utils.remove_type(TwitchRedeem)
     utils.remove_type(TwitchReward)
     utils.remove_type(TwitchRewardLimitSettings)
+    utils.remove_function(TwitchStreamOnline)
+    utils.remove_function(TwitchStreamOffline)
     utils.remove_type(TwitchContext)
     utils.remove_type(AnalyticsWindow)
     utils.remove_function("send_twitch_message", f_send_twitch_message)
