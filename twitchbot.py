@@ -19,8 +19,8 @@ from simple_websocket.errors import ConnectionClosed
 import threading
 import tronix
 import twitch.analytics
-import twitch.command_triggers
-import twitch.redeem_triggers
+import twitch.triggers.command
+import twitch.triggers.redeem
 import twitch.tronix_integrations as tti
 import twitchio
 from twitchio.ext import commands
@@ -175,6 +175,16 @@ OAUTH_CHANNEL_SCOPES:set[str] = {
     "moderator:read:followers",
     "channel:read:hype_train",
     "channel:read:subscriptions",
+    "moderator:manage:automod",
+    "channel:moderate",
+    "channel:read:ads",
+    "channel:read:charity",
+    "channel:read:goals",
+    "moderation:read",
+    "channel:manage:vips",
+    "channel:manage:polls",
+    "channel:manage:predictions",
+    "moderator:manage:shoutouts",
 }
 
 def _link_command_newfunc(name:str):
@@ -202,37 +212,37 @@ class Bot(commands.AutoBot):
             subscriptions=subs,
         )
         self.links_commands:set[str] = set()
-        self._callback_command_triggers:dict[str, twitch.command_triggers.CallbackCommandTrigger] = {}
-        self.command_triggers:dict[str, twitch.command_triggers.CommandTrigger] = {}
+        self._callback_command_triggers:dict[str, twitch.triggers.command.CallbackCommandTrigger] = {}
+        self.command_triggers:dict[str, twitch.triggers.command.CommandTrigger] = {}
         self.subs = subs
         self.use_core_commands = use_core_commands
         self._loop = None
 
-    def add_command(self, command:twitch.command_triggers.CommandTrigger|commands.Command):
-        if isinstance(command, twitch.command_triggers.CommandTrigger):
+    def add_command(self, command:twitch.triggers.command.CommandTrigger|commands.Command):
+        if isinstance(command, twitch.triggers.command.CommandTrigger):
             self.command_triggers[command.name] = command
-            if isinstance(command, twitch.command_triggers.CallbackCommandTrigger):
+            if isinstance(command, twitch.triggers.command.CallbackCommandTrigger):
                 self._callback_command_triggers[command.name] = command
             command = command.to_twitch_command()
         return super().add_command(command)
     
-    def remove_command(self, name:str|twitch.command_triggers.CommandTrigger):
-        if isinstance(name, twitch.command_triggers.CommandTrigger):
+    def remove_command(self, name:str|twitch.triggers.command.CommandTrigger):
+        if isinstance(name, twitch.triggers.command.CommandTrigger):
             name = name.name
         command = self.command_triggers.pop(name, None)
-        if isinstance(command, twitch.command_triggers.CallbackCommandTrigger) and name in self._callback_command_triggers:
+        if isinstance(command, twitch.triggers.command.CallbackCommandTrigger) and name in self._callback_command_triggers:
             del self._callback_command_triggers[name]
         return super().remove_command(name)
 
     def sync_commands(self):
-        loaded_commands = twitch.command_triggers.ActionCommandTrigger.load_all()
+        loaded_commands = twitch.triggers.command.ActionCommandTrigger.load_all()
         cmd_difference = set(self.command_triggers.keys()) ^ set(loaded_commands.keys())
         for name in cmd_difference:
             if name in loaded_commands:
                 self.add_command(loaded_commands[name])
             else: #name in self.command_triggers
                 cmd = self.command_triggers[name]
-                if isinstance(cmd, twitch.command_triggers.CallbackCommandTrigger):
+                if isinstance(cmd, twitch.triggers.command.CallbackCommandTrigger):
                     continue #command would be reassigned pointlessly so just do nothing
                 ccmd = self._callback_command_triggers.get(name,None)
                 if ccmd is None:
@@ -243,7 +253,7 @@ class Bot(commands.AutoBot):
             if name in cmd_difference:
                 continue #was added already
             cmd = self.command_triggers[name]
-            assert isinstance(cmd, twitch.command_triggers.ActionCommandTrigger)
+            assert isinstance(cmd, twitch.triggers.command.ActionCommandTrigger)
             cmd.update(lcmd)
 
     def update_link_commands(self):
@@ -255,7 +265,7 @@ class Bot(commands.AutoBot):
                 for name in sym_difference:
                     if name in links:
                         cb = _link_command_newfunc(name)
-                        ct = twitch.command_triggers.CallbackCommandTrigger.new(cb, name)
+                        ct = twitch.triggers.command.CallbackCommandTrigger.new(cb, name)
                         self.add_command(ct)
                         self.links_commands.add(name)
                     else: #name in self.links_commands
@@ -284,20 +294,48 @@ class Bot(commands.AutoBot):
 
 
     async def setup_hook(self):
+        self.add_listener(self.event_automod_message_hold)
+        self.add_listener(self.event_automod_message_update)
+        self.add_listener(self.event_ban)
+        self.add_listener(self.event_unban)
         self.add_listener(self.event_follow)
+        self.add_listener(self.event_ad_break)
         self.add_listener(self.event_cheer)
         self.add_listener(self.event_raid)
         self.add_listener(self.event_message)
+        self.add_listener(self.event_charity_campaign_donate)
+        self.add_listener(self.event_charity_campaign_start)
+        self.add_listener(self.event_charity_campaign_progress)
+        self.add_listener(self.event_charity_campaign_stop)
         self.add_listener(self.event_bits_use)
         self.add_listener(self.event_custom_redemption_add)
+        self.add_listener(self.event_goal_begin)
+        self.add_listener(self.event_goal_progress)
+        self.add_listener(self.event_goal_end)
         self.add_listener(self.event_hype_train)
         self.add_listener(self.event_hype_train_progress)
         self.add_listener(self.event_hype_train_end)
-        self.add_listener(self.event_stream_online)
-        self.add_listener(self.event_stream_offline)
+        self.add_listener(self.event_moderator_add)
+        self.add_listener(self.event_moderator_remove)
+        self.add_listener(self.event_vip_add)
+        self.add_listener(self.event_vip_remove)
+        self.add_listener(self.event_poll_begin)
+        self.add_listener(self.event_poll_progress)
+        self.add_listener(self.event_poll_end)
+        self.add_listener(self.event_prediction_begin)
+        self.add_listener(self.event_prediction_progress)
+        self.add_listener(self.event_prediction_lock)
+        self.add_listener(self.event_prediction_end)
+        self.add_listener(self.event_shared_chat_begin)
+        self.add_listener(self.event_shared_chat_update)
+        self.add_listener(self.event_shared_chat_end)
+        self.add_listener(self.event_shoutout_create)
+        self.add_listener(self.event_shoutout_receive)
         self.add_listener(self.event_subscription)
         self.add_listener(self.event_subscription_gift)
         self.add_listener(self.event_subscription_message)
+        self.add_listener(self.event_stream_online)
+        self.add_listener(self.event_stream_offline)
         if self.use_core_commands:
             await self.add_component(CoreComponent(self))
 
@@ -334,26 +372,46 @@ class Bot(commands.AutoBot):
 
         logenv.main.info("twitch bot ready")
 
+    async def event_automod_message_hold(self, payload:twitchio.AutomodMessageHold):
+        logenv.main.info(f"<{payload.broadcaster}> automod message hold: {payload.user}", payload=payload)
+        await self.run_matches(payload, self.get_matches(payload, twitch.automod.merge_automod_hold_triggers(), twitch.automod.HOLD_CONDITION_MATCHERS))
+
+    async def event_automod_message_update(self, payload:twitchio.AutomodMessageUpdate):
+        logenv.main.info(f"<{payload.broadcaster}> automod message update: {payload.user} {payload.status}", payload=payload)
+        await self.run_matches(payload, self.get_matches(payload, twitch.automod.merge_automod_update_triggers(), twitch.automod.UPDATE_CONDITION_MATCHERS))
+
+    async def event_ban(self, payload:twitchio.ChannelBan):
+        logenv.main.info(f"<{payload.broadcaster}> {payload.moderator} banned {payload.user}", payload=payload)
+        await self.run_matches(payload, self.get_matches(payload, twitch.ban.merge_ban_triggers(), twitch.ban.BAN_CONDITION_MATCHERS))
+
+    async def event_unban(self, payload:twitchio.ChannelUnban):
+        logenv.main.info(f"<{payload.broadcaster}> {payload.moderator} unbanned {payload.user}", payload=payload)
+        await self.run_matches(payload, self.get_matches(payload, twitch.ban.merge_unban_triggers(), twitch.ban.UNBAN_CONDITION_MATCHERS))
+
     async def event_follow(self, payload:twitchio.ChannelFollow):
         logenv.main.info(f"<{payload.broadcaster}> new follow: {payload.user}", payload=payload)
-        await self.run_matches(payload, self.get_matches(payload, twitch.follow_triggers.merge_follow_triggers(), twitch.follow_triggers.CONDITION_MATCHERS))
+        await self.run_matches(payload, self.get_matches(payload, twitch.follow.merge_follow_triggers(), twitch.follow.CONDITION_MATCHERS))
+
+    async def event_ad_break(self, payload:twitchio.ChannelAdBreakBegin):
+        logenv.main.info(f"<{payload.broadcaster}> {payload.requester} started ad break ({payload.duration}s)", payload=payload)
+        await self.run_matches(payload, self.get_matches(payload, twitch.ad_break.merge_ad_begin_triggers(), twitch.ad_break.CONDITION_MATCHERS))
     
     async def event_cheer(self, payload:twitchio.ChannelCheer):
-        logenv.main.info(f"<{payload.broadcaster}> {payload.user} cheered {payload.bits}: {payload.message}", payload=payload)
-        await self.run_matches(payload, self.get_matches(payload, twitch.bits_triggers.merge_cheer_triggers(), twitch.bits_triggers.CHEER_CONDITION_MATCHERS))
+        logenv.main.info(f"<{payload.broadcaster}> {payload.user} cheered {payload.bits}", payload=payload)
+        await self.run_matches(payload, self.get_matches(payload, twitch.bits.merge_cheer_triggers(), twitch.bits.CHEER_CONDITION_MATCHERS))
 
     async def event_raid(self, payload:twitchio.ChannelRaid):
         logenv.main.info(f"<{payload.to_broadcaster}> raided by {payload.from_broadcaster}", payload=payload)
-        await self.run_matches(payload, self.get_matches(payload, twitch.raid_triggers.merge_raid_triggers(), twitch.raid_triggers.CONDITION_MATCHERS))
+        await self.run_matches(payload, self.get_matches(payload, twitch.raid.merge_raid_triggers(), twitch.raid.CONDITION_MATCHERS))
 
     async def event_message(self, message:twitchio.ChatMessage) -> None:      
-        logenv.main.info(f"<{message.broadcaster}> {message.chatter}: {message.text}", payload=message)
+        logenv.main.info(f"<{message.broadcaster}> {message.chatter}", payload=message)
         await twitch.analytics.insert_stat_async(twitch.analytics.MessageStat.from_data(message))
         if message.chatter.id == self.bot_id and not message.chatter.broadcaster:
             return
         
         self.update_link_commands()
-        await self.run_matches(message, self.get_matches(message, twitch.message_triggers.merge_message_triggers(), twitch.message_triggers.CONDITION_MATCHERS))
+        await self.run_matches(message, self.get_matches(message, twitch.message.merge_message_triggers(), twitch.message.CONDITION_MATCHERS))
         await self.process_commands(message)
 
     async def event_command_error(self, payload:commands.CommandErrorPayload):
@@ -363,38 +421,168 @@ class Bot(commands.AutoBot):
         else:
             logenv.main.error_exception(payload.exception, f"command error:\n{logenv.EXCEPTION_TRACEBACK}")
 
+    async def event_charity_campaign_donate(self, payload:twitchio.CharityCampaignDonation):
+        logenv.main.info(f"<{payload.broadcaster}> received charity donation from {payload.user} ({payload.amount})", payload=payload)
+        await self.run_matches(payload, self.get_matches(payload, twitch.charity.merge_chairty_donate_triggers(), twitch.charity.DONATE_CONDITION_MATCHERS))
+
+    async def event_charity_campaign_start(self, payload:twitchio.CharityCampaignStart):
+        logenv.main.info(f"<{payload.broadcaster}> charity campaign started", payload=payload)
+        await self.run_matches(payload, self.get_matches(payload, twitch.charity.merge_chairty_start_triggers(), twitch.charity.START_CONDITION_MATCHERS))
+
+    async def event_charity_campaign_progress(self, payload:twitchio.CharityCampaignProgress):
+        logenv.main.info(f"<{payload.broadcaster}> charity campaign progress", payload=payload)
+        await self.run_matches(payload, self.get_matches(payload, twitch.charity.merge_chairty_progress_triggers(), twitch.charity.PROGRESS_CONDITION_MATCHERS))
+
+    async def event_charity_campaign_stop(self, payload:twitchio.CharityCampaignStop):
+        logenv.main.info(f"<{payload.broadcaster}> charity campaign end", payload=payload)
+        await self.run_matches(payload, self.get_matches(payload, twitch.charity.merge_chairty_stop_triggers(), twitch.charity.STOP_CONDITION_MATCHERS))
+
     async def event_bits_use(self, payload:twitchio.ChannelBitsUse):
         logenv.main.info(f"<{payload.broadcaster}> {payload.user} used {payload.bits} bits", payload=payload)
-        await self.run_matches(payload, self.get_matches(payload, twitch.bits_triggers.merge_bitsuse_triggers(), twitch.bits_triggers.BITSUSE_CONDITION_MATCHERS))
+        await self.run_matches(payload, self.get_matches(payload, twitch.bits.merge_bitsuse_triggers(), twitch.bits.BITSUSE_CONDITION_MATCHERS))
 
     async def event_custom_redemption_add(self, payload:twitchio.ChannelPointsRedemptionAdd):
         logenv.main.info(f"<{payload.broadcaster}> {payload.user} redeemed {payload.reward.title} ({payload.reward.id}//{payload.id})", payload=payload)
         await twitch.analytics.insert_stat_async(twitch.analytics.RedeemStat.from_data(payload))
-        await self.run_matches(payload, self.get_matches(payload, twitch.redeem_triggers.merge_redeem_triggers(), twitch.redeem_triggers.CONDITION_MATCHERS))
+        await self.run_matches(payload, self.get_matches(payload, twitch.triggers.redeem.merge_redeem_triggers(), twitch.triggers.redeem.CONDITION_MATCHERS))
+
+    async def event_goal_begin(self, payload:twitchio.GoalBegin):
+        logenv.main.info(f"<{payload.broadcaster}> goal started", payload=payload)
+        await self.run_matches(payload, self.get_matches(payload, twitch.goal.merge_goal_begin_triggers(), twitch.goal.BEGIN_CONDITION_MATCHERS))
+
+    async def event_goal_progress(self, payload:twitchio.GoalProgress):
+        logenv.main.info(f"<{payload.broadcaster}> goal progress", payload=payload)
+        await self.run_matches(payload, self.get_matches(payload, twitch.goal.merge_goal_progress_triggers(), twitch.goal.PROGRESS_CONDITION_MATCHERS))
+
+    async def event_goal_end(self, payload:twitchio.GoalEnd):
+        logenv.main.info(f"<{payload.broadcaster}> goal end", payload=payload)
+        await self.run_matches(payload, self.get_matches(payload, twitch.goal.merge_goal_end_triggers(), twitch.goal.END_CONDITION_MATCHERS))
         
     async def event_hype_train(self, payload:twitchio.HypeTrainBegin):
         logenv.main.info(f"<{payload.broadcaster}> hype train started", payload=payload)
-        await self.run_matches(payload, self.get_matches(payload, twitch.hypetrain_triggers.merge_hypetrain_begin_triggers(), twitch.hypetrain_triggers.BEGIN_CONDITION_MATCHERS))
+        await self.run_matches(payload, self.get_matches(payload, twitch.hypetrain.merge_hypetrain_begin_triggers(), twitch.hypetrain.BEGIN_CONDITION_MATCHERS))
 
     async def event_hype_train_progress(self, payload:twitchio.HypeTrainProgress):
         logenv.main.info(f"<{payload.broadcaster}> hype train progress", payload=payload)
-        await self.run_matches(payload, self.get_matches(payload, twitch.hypetrain_triggers.merge_hypetrain_progress_triggers(), twitch.hypetrain_triggers.PROGRESS_CONDITION_MATCHERS))
+        await self.run_matches(payload, self.get_matches(payload, twitch.hypetrain.merge_hypetrain_progress_triggers(), twitch.hypetrain.PROGRESS_CONDITION_MATCHERS))
 
     async def event_hype_train_end(self, payload:twitchio.HypeTrainEnd):
         logenv.main.info(f"<{payload.broadcaster}> hype train end", payload=payload)
-        await self.run_matches(payload, self.get_matches(payload, twitch.hypetrain_triggers.merge_hypetrain_end_triggers(), twitch.hypetrain_triggers.END_CONDITION_MATCHERS))
+        await self.run_matches(payload, self.get_matches(payload, twitch.hypetrain.merge_hypetrain_end_triggers(), twitch.hypetrain.END_CONDITION_MATCHERS))
 
+    async def event_moderator_add(self, payload:twitchio.ChannelModeratorAdd):
+        logenv.main.info(f"<{payload.broadcaster}> added moderator {payload.user}", payload=payload)
+        await self.run_matches(payload, self.get_matches(payload, twitch.role.merge_mod_add_triggers(), twitch.role.MOD_ADD_MATCHERS))
+
+    async def event_moderator_remove(self, payload:twitchio.ChannelModeratorRemove):
+        logenv.main.info(f"<{payload.broadcaster}> removed moderator {payload.user}", payload=payload)
+        await self.run_matches(payload, self.get_matches(payload, twitch.role.merge_mod_remove_triggers(), twitch.role.MOD_REMOVE_MATCHERS))
+
+    async def event_vip_add(self, payload:twitchio.ChannelVIPAdd):
+        logenv.main.info(f"<{payload.broadcaster}> added vip {payload.user}", payload=payload)
+        await self.run_matches(payload, self.get_matches(payload, twitch.role.merge_vip_add_triggers(), twitch.role.VIP_ADD_MATCHERS))
+
+    async def event_vip_remove(self, payload:twitchio.ChannelVIPRemove):
+        logenv.main.info(f"<{payload.broadcaster}> removed vip {payload.user}", payload=payload)
+        await self.run_matches(payload, self.get_matches(payload, twitch.role.merge_vip_remove_triggers(), twitch.role.VIP_REMOVE_MATCHERS))
+
+    async def event_poll_begin(self, payload:twitchio.ChannelPollBegin):
+        with logenv.MessageBuilder(logenv.szlogging.levels.INFO, logenv.main) as b:
+            b.append(f"<{payload.broadcaster}> poll started:", payload=payload)
+            b.append(f"    Name: {payload.title} ({payload.id})")
+            for i, choice in enumerate(payload.choices):
+                b.append(f"    {i+1}. {choice.title} ({choice.id})")
+        await self.run_matches(payload, self.get_matches(payload, twitch.poll.merge_poll_begin_triggers(), twitch.poll.BEGIN_CONDITION_MATCHERS))
+
+    async def event_poll_progress(self, payload:twitchio.ChannelPollProgress):
+        with logenv.MessageBuilder(logenv.szlogging.levels.INFO, logenv.main) as b:
+            b.append(f"<{payload.broadcaster}> poll update:", payload=payload)
+            b.append(f"    Name: {payload.title} ({payload.id})")
+            for i, choice in enumerate(payload.choices):
+                b.append(f"    {i+1}. [{choice.votes}] {choice.title} ({choice.id})")
+        await self.run_matches(payload, self.get_matches(payload, twitch.poll.merge_poll_progress_triggers(), twitch.poll.PROGRESS_CONDITION_MATCHERS))
+
+    async def event_poll_end(self, payload:twitchio.ChannelPollEnd):
+        with logenv.MessageBuilder(logenv.szlogging.levels.INFO, logenv.main) as b:
+            b.append(f"<{payload.broadcaster}> poll end:", payload=payload)
+            b.append(f"    Name: {payload.title} ({payload.id})")
+            for i, choice in enumerate(payload.choices):
+                b.append(f"    {i+1}. [{choice.votes}] {choice.title} ({choice.id})")
+        await self.run_matches(payload, self.get_matches(payload, twitch.poll.merge_poll_end_triggers(), twitch.poll.END_CONDITION_MATCHERS))
+
+    async def event_prediction_begin(self, payload:twitchio.ChannelPredictionBegin):
+        with logenv.MessageBuilder(logenv.szlogging.levels.INFO, logenv.main) as b:
+            b.append(f"<{payload.broadcaster}> prediction started:", payload=payload)
+            b.append(f"    Name: {payload.title} ({payload.id})")
+            for i, outcome in enumerate(payload.outcomes):
+                b.append(f"    {i+1}. {outcome.title} ({outcome.id})")
+        await self.run_matches(payload, self.get_matches(payload, twitch.prediction.merge_prediction_begin_triggers(), twitch.prediction.BEGIN_CONDITION_MATCHERS))
+
+    async def event_prediction_progress(self, payload:twitchio.ChannelPredictionProgress):
+        with logenv.MessageBuilder(logenv.szlogging.levels.INFO, logenv.main) as b:
+            b.append(f"<{payload.broadcaster}> prediction update:", payload=payload)
+            b.append(f"    Name: {payload.title} ({payload.id})")
+            for i, outcome in enumerate(payload.outcomes):
+                b.append(f"    {i+1}. [{outcome.users};{outcome.channel_points}p] {outcome.title} ({outcome.id})")
+        await self.run_matches(payload, self.get_matches(payload, twitch.prediction.merge_prediction_progress_triggers(), twitch.prediction.PROGRESS_CONDITION_MATCHERS))
+
+    async def event_prediction_lock(self, payload:twitchio.ChannelPredictionLock):
+        with logenv.MessageBuilder(logenv.szlogging.levels.INFO, logenv.main) as b:
+            b.append(f"<{payload.broadcaster}> prediction lock:", payload=payload)
+            b.append(f"    Name: {payload.title} ({payload.id})")
+            for i, outcome in enumerate(payload.outcomes):
+                b.append(f"    {i+1}. [{outcome.users};{outcome.channel_points}p] {outcome.title} ({outcome.id})")
+        await self.run_matches(payload, self.get_matches(payload, twitch.prediction.merge_prediction_lock_triggers(), twitch.prediction.LOCK_CONDITION_MATCHERS))
+
+    async def event_prediction_end(self, payload:twitchio.ChannelPredictionEnd):
+        with logenv.MessageBuilder(logenv.szlogging.levels.INFO, logenv.main) as b:
+            b.append(f"<{payload.broadcaster}> prediction end:", payload=payload)
+            b.append(f"    Name: {payload.title} ({payload.id})")
+            for i, outcome in enumerate(payload.outcomes):
+                b.append(f"    {i+1}. [{outcome.users};{outcome.channel_points}p] {outcome.title} ({outcome.id})")
+        await self.run_matches(payload, self.get_matches(payload, twitch.prediction.merge_prediction_end_triggers(), twitch.prediction.END_CONDITION_MATCHERS))
+
+    async def event_shared_chat_begin(self, payload:twitchio.SharedChatSessionBegin):
+        with logenv.MessageBuilder(logenv.szlogging.levels.INFO, logenv.main) as b:
+            b.append(f"<{payload.broadcaster} began shared chat:", payload=payload)
+            b.append(f"    Host: {payload.host}")
+            b.append("    Members:")
+            for member in payload.participants:
+                b.append(f"      - {member}")
+        await self.run_matches(payload, self.get_matches(payload, twitch.shared_chat.merge_shared_chat_begin_triggers(), twitch.shared_chat.BEGIN_CONDITION_MATCHERS))
+
+    async def event_shared_chat_update(self, payload:twitchio.SharedChatSessionUpdate):
+        with logenv.MessageBuilder(logenv.szlogging.levels.INFO, logenv.main) as b:
+            b.append(f"<{payload.broadcaster} updated shared chat:", payload=payload)
+            b.append(f"    Host: {payload.host}")
+            b.append("    Members:")
+            for member in payload.participants:
+                b.append(f"      - {member}")
+        await self.run_matches(payload, self.get_matches(payload, twitch.shared_chat.merge_shared_chat_update_triggers(), twitch.shared_chat.UPDATE_CONDITION_MATCHERS))
+
+    async def event_shared_chat_end(self, payload:twitchio.SharedChatSessionEnd):
+        logenv.main.info(f"<{payload.broadcaster} end shared chat (host={payload.host})", payload=payload)
+        await self.run_matches(payload, self.get_matches(payload, twitch.shared_chat.merge_shared_chat_end_triggers(), twitch.shared_chat.END_CONDITION_MATCHERS))
+
+    async def event_shoutout_create(self, payload:twitchio.ShoutoutCreate):
+        logenv.main.info(f"<{payload.broadcaster}> {payload.moderator} shouted out {payload.to_broadcaster}", payload=payload)
+        await self.run_matches(payload, self.get_matches(payload, twitch.shoutout.merge_shoutout_create_triggers(), twitch.shoutout.CREATE_CONDITION_MATCHERS))
+
+    async def event_shoutout_receive(self, payload:twitchio.ShoutoutReceive):
+        logenv.main.info(f"<{payload.broadcaster}> got shoutout from {payload.from_broadcaster}", payload=payload)
+        await self.run_matches(payload, self.get_matches(payload, twitch.shoutout.merge_shoutout_receive_triggers(), twitch.shoutout.RECEIVE_CONDITION_MATCHERS))
+    
     async def event_subscription(self, payload:twitchio.ChannelSubscribe):
         logenv.main.info(f"<{payload.broadcaster}> subscription: {payload.user}", payload=payload)
-        await self.run_matches(payload, self.get_matches(payload, twitch.sub_triggers.merge_sub_triggers(), twitch.sub_triggers.SUB_CONDITION_MATCHERS))
+        await self.run_matches(payload, self.get_matches(payload, twitch.sub.merge_sub_triggers(), twitch.sub.SUB_CONDITION_MATCHERS))
 
     async def event_subscription_gift(self, payload:twitchio.ChannelSubscriptionGift):
         logenv.main.info(f"<{payload.broadcaster}> {payload.user} gifted a sub", payload=payload)
-        await self.run_matches(payload, self.get_matches(payload, twitch.sub_triggers.merge_gift_sub_triggers(), twitch.sub_triggers.GSUB_CONDITION_MATCHERS))
+        await self.run_matches(payload, self.get_matches(payload, twitch.sub.merge_gift_sub_triggers(), twitch.sub.GSUB_CONDITION_MATCHERS))
 
     async def event_subscription_message(self, payload:twitchio.ChannelSubscriptionMessage):
         logenv.main.info(f"<{payload.broadcaster}> {payload.user} announced their sub: {payload.message}", payload=payload)
-        await self.run_matches(payload, self.get_matches(payload, twitch.sub_triggers.merge_sub_msg_triggers(), twitch.sub_triggers.SUB_MSG_CONDITION_MATCHERS))
+        await self.run_matches(payload, self.get_matches(payload, twitch.sub.merge_sub_msg_triggers(), twitch.sub.SUB_MSG_CONDITION_MATCHERS))
 
     async def event_stream_online(self, payload:twitchio.StreamOnline):
         logenv.main.info(f"<{payload.broadcaster}> went live", payload=payload)
@@ -409,8 +597,8 @@ class CoreComponent(commands.Component):
     def __init__(self, bot:Bot):
         self.bot = bot
         for attr in type(self).__dict__.values():
-            if isinstance(attr, twitch.command_triggers.CallbackCommandTrigger):
-                self.bot.add_command(twitch.command_triggers.CallbackCommandTrigger(
+            if isinstance(attr, twitch.triggers.command.CallbackCommandTrigger):
+                self.bot.add_command(twitch.triggers.command.CallbackCommandTrigger(
                     attr.name,
                     attr.description,
                     attr.signature,
@@ -419,17 +607,17 @@ class CoreComponent(commands.Component):
                     bind=self
                 ))
 
-    @twitch.command_triggers.CallbackCommandTrigger.create("help")
+    @twitch.triggers.command.CallbackCommandTrigger.create("help")
     async def help_command(self, ctx:commands.Context, command_name:str=None):
         """Lists and describes commands."""
         self.bot.sync_commands()
-        command_data = twitch.command_triggers.load_commands()
+        command_data = twitch.triggers.command.load_commands()
 
         if command_name is None:
             #exclude commands that user does not meet requirements for
             names = []
             for name, ct in self.bot.command_triggers.items():
-                if isinstance(ct, twitch.command_triggers.CallbackCommandTrigger):
+                if isinstance(ct, twitch.triggers.command.CallbackCommandTrigger):
                     cmd = ct.generate_command()
                 elif name in command_data:
                     cmd = command_data[name]
@@ -445,7 +633,7 @@ class CoreComponent(commands.Component):
             if ct is None:
                 await ctx.send(f"Command {command_name} has no help info.")
             else:
-                if isinstance(ct, twitch.command_triggers.CallbackCommandTrigger):
+                if isinstance(ct, twitch.triggers.command.CallbackCommandTrigger):
                     cmd = ct.generate_command()
                 elif command_name in command_data:
                     cmd = command_data[command_name]
@@ -463,13 +651,13 @@ class CoreComponent(commands.Component):
                     await ctx.send(" ".join(r))
 
 
-    @twitch.command_triggers.CallbackCommandTrigger.create("links")
+    @twitch.triggers.command.CallbackCommandTrigger.create("links")
     async def links_command(self, ctx:commands.Context):
         """Lists names of all link commands."""
         if bot.links_commands:
             await ctx.send(", ".join(name for name in bot.links_commands))
 
-    @twitch.command_triggers.CallbackCommandTrigger.create("pload", permissions=twitch.command_triggers.CommandPermissions(requires_moderator=True))
+    @twitch.triggers.command.CallbackCommandTrigger.create("pload", permissions=twitch.triggers.command.CommandPermissions(requires_moderator=True))
     async def plugin_load(self, ctx:commands.Context, name:str):
         """Loads a plugin with the give name."""
         if not ctx.author.moderator:
@@ -489,7 +677,7 @@ class CoreComponent(commands.Component):
                 logenv.main.error(f"[fail] /api/plugins/load name={name} ({r.status})")
         await ctx.send(f"Failed to load plugin {name}")
 
-    @twitch.command_triggers.CallbackCommandTrigger.create("punload", permissions=twitch.command_triggers.CommandPermissions(requires_moderator=True))
+    @twitch.triggers.command.CallbackCommandTrigger.create("punload", permissions=twitch.triggers.command.CommandPermissions(requires_moderator=True))
     async def plugin_unload(self, ctx:commands.Context, name:str):
         """Unloads a plugin with the given name."""
         if not ctx.author.moderator:
@@ -563,6 +751,33 @@ def init_bot(old_bot:Bot|None=None):
             twitchio.eventsub.HypeTrainBeginSubscription(broadcaster_user_id=user.id),
             twitchio.eventsub.HypeTrainProgressSubscription(broadcaster_user_id=user.id),
             twitchio.eventsub.HypeTrainEndSubscription(broadcaster_user_id=user.id),
+            twitchio.eventsub.AutomodMessageHoldV2Subscription(broadcaster_user_id=user.id, moderator_user_id=user.id),
+            twitchio.eventsub.AutomodMessageUpdateV2Subscription(broadcaster_user_id=user.id, moderator_user_id=user.id),
+            twitchio.eventsub.ChannelBanSubscription(broadcaster_user_id=user.id),
+            twitchio.eventsub.ChannelUnbanSubscription(broadcaster_user_id=user.id),
+            twitchio.eventsub.CharityDonationSubscription(broadcaster_user_id=user.id),
+            twitchio.eventsub.CharityCampaignStartSubscription(broadcaster_user_id=user.id),
+            twitchio.eventsub.CharityCampaignProgressSubscription(broadcaster_user_id=user.id),
+            twitchio.eventsub.CharityCampaignStopSubscription(broadcaster_user_id=user.id),
+            twitchio.eventsub.GoalBeginSubscription(broadcaster_user_id=user.id),
+            twitchio.eventsub.GoalProgressSubscription(broadcaster_user_id=user.id),
+            twitchio.eventsub.GoalEndSubscription(broadcaster_user_id=user.id),
+            twitchio.eventsub.ChannelModeratorAddSubscription(broadcaster_user_id=user.id),
+            twitchio.eventsub.ChannelModeratorRemoveSubscription(broadcaster_user_id=user.id),
+            twitchio.eventsub.ChannelVIPAddSubscription(broadcaster_user_id=user.id),
+            twitchio.eventsub.ChannelVIPRemoveSubscription(broadcaster_user_id=user.id),
+            twitchio.eventsub.ChannelPollBeginSubscription(broadcaster_user_id=user.id),
+            twitchio.eventsub.ChannelPollProgressSubscription(broadcaster_user_id=user.id),
+            twitchio.eventsub.ChannelPollEndSubscription(broadcaster_user_id=user.id),
+            twitchio.eventsub.ChannelPredictionBeginSubscription(broadcaster_user_id=user.id),
+            twitchio.eventsub.ChannelPredictionProgressSubscription(broadcaster_user_id=user.id),
+            twitchio.eventsub.ChannelPredictionLockSubscription(broadcaster_user_id=user.id),
+            twitchio.eventsub.ChannelPredictionEndSubscription(broadcaster_user_id=user.id),
+            twitchio.eventsub.SharedChatSessionBeginSubscription(broadcaster_user_id=user.id),
+            twitchio.eventsub.SharedChatSessionUpdateSubscription(broadcaster_user_id=user.id),
+            twitchio.eventsub.SharedChatSessionEndSubscription(broadcaster_user_id=user.id),
+            twitchio.eventsub.ShoutoutCreateSubscription(broadcaster_user_id=user.id, moderator_user_id=user.id),
+            twitchio.eventsub.ShoutoutReceiveSubscription(broadcaster_user_id=user.id, moderator_user_id=user.id),
         ])
 
     bot = Bot(client_id, client_secret, bot_id, c["Prefix"], subs)

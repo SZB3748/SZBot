@@ -1,5 +1,5 @@
 import aiohttp
-import twitch.command_triggers
+import twitch.triggers.command
 from datetime import datetime, timedelta
 from twitchio.ext import commands
 from twitchbot import API_ENDPOINT, Bot, ratelimit
@@ -10,9 +10,9 @@ async def request_sound_limited(ctx:commands.Context, time:datetime):
     duration = (REQUEST_SOUND_RATELIMIT_DURATION - (datetime.now() - time)).total_seconds()
     await ctx.send(f"{ctx.author.mention} wait {duration} seconds before using this command")
 
-@twitch.command_triggers.CallbackCommandTrigger.create("sound")
+@twitch.triggers.command.CallbackCommandTrigger.create("sound")
 @ratelimit(5, REQUEST_SOUND_RATELIMIT_DURATION, limited_callback=request_sound_limited)
-@twitch.command_triggers.CommandSignature.store()
+@twitch.triggers.command.CommandSignature.store()
 async def request_sound(ctx:commands.Context, name:str):
     """Requests that the song with the given name be played."""
     async with aiohttp.ClientSession() as session:
@@ -21,7 +21,7 @@ async def request_sound(ctx:commands.Context, name:str):
                 await ctx.send("Failed to request for sound to be played.")
 
 
-@twitch.command_triggers.CallbackCommandTrigger.create("listsounds")
+@twitch.triggers.command.CallbackCommandTrigger.create("listsounds")
 async def list_sounds(ctx:commands.Context):
     """List names of all available sounds."""
     async with aiohttp.ClientSession() as session:

@@ -1,7 +1,5 @@
 from . import tronix_integrations as tti
 import actions
-import json
-import os
 from tronix import script
 from twitchio.ext import commands
 from typing import Any, Callable
@@ -19,7 +17,7 @@ class Condition[T]:
     
     def __setstate__(self, d:dict[str]):
         self.type = str(d["type"])
-        self.value = str(d["value"])
+        self.value = str(d.get("value", ""))
     
     def match(self, x:T, condition_matchers:dict[str,Callable[[str, T], bool]]):
         matcher = condition_matchers[self.type]

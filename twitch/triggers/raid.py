@@ -1,4 +1,4 @@
-from . import event_triggers, tronix_integrations as tti
+from .. import event_triggers, tronix_integrations as tti
 import actions
 import twitchio
 from typing import Callable

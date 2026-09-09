@@ -1,8 +1,9 @@
-from . import event_triggers, tronix_integrations as tti
+from .. import event_triggers, tronix_integrations as tti
 import actions
 import re
 import twitchio
 from typing import Callable
+
 
 CONDITION_TYPE_NONE = "none"
 CONDITION_TYPE_PREFIX = "prefix"

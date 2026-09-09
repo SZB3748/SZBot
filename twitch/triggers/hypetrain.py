@@ -1,4 +1,4 @@
-from . import event_triggers, tronix_integrations as tti
+from .. import event_triggers, tronix_integrations as tti
 import actions
 import twitchio
 from typing import Callable
@@ -135,9 +135,9 @@ class ActionHypeTrainEndTrigger(event_triggers.ActionEventTrigger[twitchio.HypeT
 class CallbackHypeTrainEndTrigger(event_triggers.CallbackEventTrigger[twitchio.HypeTrainEnd]):
     pass
 
-callback_hypetrain_begin_triggers:dict[str, HypeTrainBeginTrigger] = {}
-callback_hypetrain_progress_triggers:dict[str, HypeTrainProgressTrigger] = {}
-callback_hypetrain_end_triggers:dict[str, HypeTrainEndTrigger] = {}
+callback_hypetrain_begin_triggers:dict[str, CallbackHypeTrainBeginTrigger] = {}
+callback_hypetrain_progress_triggers:dict[str, CallbackHypeTrainProgressTrigger] = {}
+callback_hypetrain_end_triggers:dict[str, CallbackHypeTrainEndTrigger] = {}
 
 merge_hypetrain_begin_triggers = actions.create_triggers_merge_function(HypeTrainBeginTrigger, ActionHypeTrainBeginTrigger, callback_hypetrain_begin_triggers)
 merge_hypetrain_progress_triggers = actions.create_triggers_merge_function(HypeTrainProgressTrigger, ActionHypeTrainProgressTrigger, callback_hypetrain_progress_triggers)

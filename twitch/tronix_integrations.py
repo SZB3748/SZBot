@@ -25,7 +25,18 @@ class BotScriptContext:
                  cheer:twitchio.ChannelCheer|None=None, bitsuse:twitchio.ChannelBitsUse|None=None, follow:twitchio.ChannelFollow|None=None,
                  train_begin:twitchio.HypeTrainBegin|None=None, train_progress:twitchio.HypeTrainProgress|None=None, train_end:twitchio.HypeTrainEnd|None=None,
                  raid:twitchio.ChannelRaid|None=None, sub:twitchio.ChannelSubscribe|None=None, gift_sub:twitchio.ChannelSubscriptionGift|None=None,
-                 sub_msg:twitchio.ChannelSubscriptionMessage|None=None):
+                 sub_msg:twitchio.ChannelSubscriptionMessage|None=None, ad_begin:twitchio.ChannelAdBreakBegin|None=None, automod_hold:twitchio.AutomodMessageHold|None=None,
+                 automod_update:twitchio.AutomodMessageUpdate|None=None, ban:twitchio.ChannelBan|None=None, unban:twitchio.ChannelUnban|None=None,
+                 charity_donate:twitchio.CharityCampaignDonation|None=None, charity_start:twitchio.CharityCampaignStart|None=None,
+                 charity_progress:twitchio.CharityCampaignProgress|None=None, charity_stop:twitchio.CharityCampaignStop|None=None,
+                 goal_begin:twitchio.GoalBegin|None=None, goal_progress:twitchio.GoalProgress|None=None, goal_end:twitchio.GoalEnd|None=None,
+                 mod_add:twitchio.ChannelModeratorAdd|None=None, mod_remove:twitchio.ChannelModeratorRemove|None=None, vip_add:twitchio.ChannelVIPAdd|None=None,
+                 vip_remove:twitchio.ChannelVIPRemove|None=None, poll_begin:twitchio.ChannelPollBegin|None=None, poll_progress:twitchio.ChannelPollProgress|None=None,
+                 poll_end:twitchio.ChannelPollEnd|None=None, prediction_begin:twitchio.ChannelPredictionBegin|None=None,
+                 prediction_progress:twitchio.ChannelPredictionProgress|None=None, prediction_lock:twitchio.ChannelPredictionLock|None=None,
+                 prediction_end:twitchio.ChannelPredictionEnd|None=None, shared_chat_begin:twitchio.SharedChatSessionBegin|None=None,
+                 shared_chat_update:twitchio.SharedChatSessionUpdate|None=None, shared_chat_end:twitchio.SharedChatSessionEnd|None=None,
+                 shoutout_create:twitchio.ShoutoutCreate|None=None, shoutout_receive:twitchio.ShoutoutReceive|None=None, ):
         self.bot = bot
         self.command_ctx = command_ctx
         self.redeem = redeem
@@ -40,6 +51,34 @@ class BotScriptContext:
         self.sub = sub
         self.gift_sub = gift_sub
         self.sub_msg = sub_msg
+        self.ad_begin = ad_begin
+        self.automod_hold = automod_hold
+        self.automod_update = automod_update
+        self.ban = ban
+        self.unban = unban
+        self.charity_donate = charity_donate
+        self.charity_start = charity_start
+        self.charity_progress = charity_progress
+        self.charity_stop = charity_stop
+        self.goal_begin = goal_begin
+        self.goal_progress = goal_progress
+        self.goal_end = goal_end
+        self.mod_add = mod_add
+        self.mod_remove = mod_remove
+        self.vip_add = vip_add
+        self.vip_remove = vip_remove
+        self.poll_begin = poll_begin
+        self.poll_progress = poll_progress
+        self.poll_end = poll_end
+        self.prediction_begin = prediction_begin
+        self.prediction_progress = prediction_progress
+        self.prediction_lock = prediction_lock
+        self.prediction_end = prediction_end
+        self.shared_chat_begin = shared_chat_begin
+        self.shared_chat_update = shared_chat_update
+        self.shared_chat_end = shared_chat_end
+        self.shoutout_create = shoutout_create
+        self.shoutout_receive = shoutout_receive
 
     def resolve_broadcaster(self)->twitchio.PartialUser|None:
         if self.message is not None:
@@ -48,6 +87,82 @@ class BotScriptContext:
             return self.command_ctx.broadcaster
         elif self.redeem is not None:
             return self.redeem.broadcaster
+        elif self.cheer is not None:
+            return self.cheer.broadcaster
+        elif self.bitsuse is not None:
+            return self.bitsuse.broadcaster
+        elif self.follow is not None:
+            return self.follow.broadcaster
+        elif self.train_begin is not None:
+            return self.train_begin.broadcaster
+        elif self.train_progress is not None:
+            return self.train_progress.broadcaster
+        elif self.train_end is not None:
+            return self.train_end.broadcaster
+        elif self.raid is not None:
+            return self.raid.to_broadcaster
+        elif self.sub is not None:
+            return self.sub.broadcaster
+        elif self.gift_sub is not None:
+            return self.gift_sub.broadcaster
+        elif self.sub_msg is not None:
+            return self.sub_msg.broadcaster
+        elif self.ad_begin is not None:
+            return self.ad_begin.broadcaster
+        elif self.automod_hold is not None:
+            return self.automod_hold.broadcaster
+        elif self.automod_update is not None:
+            return self.automod_update.broadcaster
+        elif self.ban is not None:
+            return self.ban.broadcaster
+        elif self.unban is not None:
+            return self.unban.broadcaster
+        elif self.charity_donate is not None:
+            return self.charity_donate.broadcaster
+        elif self.charity_start is not None:
+            return self.charity_start.broadcaster
+        elif self.charity_progress is not None:
+            return self.charity_progress.broadcaster
+        elif self.charity_stop is not None:
+            return self.charity_stop.broadcaster
+        elif self.goal_begin is not None:
+            return self.goal_begin.broadcaster
+        elif self.goal_progress is not None:
+            return self.goal_progress.broadcaster
+        elif self.goal_end is not None:
+            return self.goal_end.broadcaster
+        elif self.mod_add is not None:
+            return self.mod_add.broadcaster
+        elif self.mod_remove is not None:
+            return self.mod_remove.broadcaster
+        elif self.vip_add is not None:
+            return self.vip_add.broadcaster
+        elif self.vip_remove is not None:
+            return self.vip_remove.broadcaster
+        elif self.poll_begin is not None:
+            return self.poll_begin.broadcaster
+        elif self.poll_progress is not None:
+            return self.poll_progress.broadcaster
+        elif self.poll_end is not None:
+            return self.poll_end.broadcaster
+        elif self.prediction_begin is not None:
+            return self.prediction_begin.broadcaster
+        elif self.prediction_progress is not None:
+            return self.prediction_progress.broadcaster
+        elif self.prediction_lock is not None:
+            return self.prediction_lock.broadcaster
+        elif self.prediction_end is not None:
+            return self.prediction_end.broadcaster
+        elif self.shared_chat_begin is not None:
+            return self.shared_chat_begin.broadcaster
+        elif self.shared_chat_update is not None:
+            return self.shared_chat_update.broadcaster
+        elif self.shared_chat_end is not None:
+            return self.shared_chat_end.broadcaster
+        elif self.shoutout_create is not None:
+            return self.shoutout_create.broadcaster
+        elif self.shoutout_receive is not None:
+            return self.shoutout_receive.broadcaster
 
     def resolve_author(self)->twitchio.PartialUser|None:
         if self.message is not None:
@@ -56,6 +171,32 @@ class BotScriptContext:
             return self.command_ctx.chatter
         elif self.redeem is not None:
             return self.redeem.user
+        elif self.cheer is not None:
+            return self.cheer.user
+        elif self.bitsuse is not None:
+            return self.bitsuse.user
+        elif self.follow is not None:
+            return self.follow.user
+        elif self.raid is not None:
+            return self.raid.from_broadcaster
+        elif self.sub is not None:
+            return self.sub.user
+        elif self.gift_sub is not None:
+            return self.gift_sub.user
+        elif self.sub_msg is not None:
+            return self.sub_msg.user
+        elif self.ad_begin is not None:
+            return self.ad_begin.requester
+        elif self.automod_hold is not None:
+            return self.automod_hold.user
+        elif self.automod_update is not None:
+            return self.automod_update.user
+        elif self.ban is not None:
+            return self.ban.moderator
+        elif self.unban is not None:
+            return self.unban.moderator
+        elif self.charity_donate is not None:
+            return self.charity_donate.user
 
     def resolve_message(self)->twitchio.ChatMessage|None:
         if self.message is not None:

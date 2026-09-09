@@ -1,4 +1,4 @@
-from . import tronix_integrations as tti
+from .. import tronix_integrations as tti
 
 import actions
 import datafile
