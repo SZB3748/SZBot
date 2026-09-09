@@ -34,7 +34,8 @@
         </script>
         {% if make_connection is defined and make_connection %}
         <script>
-            const OVERLAY_WS = new WebSocket(`/api/overlay/connection?name=${OVERLAY_NAME}`);
+            const CONNECTION_ID = "{{connection_id}}";
+            const OVERLAY_WS = new WebSocket(`/api/overlay/connection?name=${OVERLAY_NAME}&reserved_id=${CONNECTION_ID}`);
         </script>
         {% endif %}
     </head>

@@ -4,12 +4,14 @@ import bs4
 import datafile
 import json
 import os
+import plugins
+import runtime as rt
 from werkzeug.security import safe_join
 
 OVERLAYS_PATH = datafile.makepath("overlays.json")
 
 class LayoutFetcher:
-    def resolve_paths(self)->tuple[str|None, str|None]:
+    def resolve_paths(self, default_dir:str|None=None)->tuple[str|None, str|None]:
         raise NotImplementedError
     
     def fetch(self)->tuple[bs4.BeautifulSoup, layouts.Layout]:
@@ -29,8 +31,9 @@ class LayoutByName(LayoutFetcher):
     def __init__(self, name:str):
         self.name = name
 
-    def resolve_paths(self):
-        return safe_join(layouts.LAYOUT_DIR, f"{self.name}.html"), safe_join(layouts.LAYOUT_DIR, f"{self.name}.json")
+    def resolve_paths(self, default_dir=None):
+        dir = layouts.LAYOUT_DIR if default_dir is None else default_dir
+        return safe_join(dir, f"{self.name}.html"), safe_join(dir, f"{self.name}.json")
     
     def __getstate__(self):
         return {
@@ -48,9 +51,12 @@ class LayoutPathPair(LayoutFetcher):
         self.html_dir = html_dir
         self.meta_dir = meta_dir
     
-    def resolve_paths(self):
+    def resolve_paths(self, default_dir=None):
+        if default_dir is None:
+            default_dir = layouts.LAYOUT_DIR
+            
         if self.html_dir is None:
-            dir = layouts.LAYOUT_DIR
+            dir = default_dir
         else:
             dir = self.html_dir
         if dir:
@@ -58,7 +64,7 @@ class LayoutPathPair(LayoutFetcher):
         else:
             html_path = self.html_path
         if self.meta_dir is None:
-            dir = layouts.LAYOUT_DIR
+            dir = default_dir
         else:
             dir = self.meta_dir
         if dir:
@@ -82,9 +88,46 @@ class LayoutPathPair(LayoutFetcher):
         self.meta_path = str(d["meta_path"])
         self.meta_dir = str(d["meta_dir"])
 
+class PluginDefinedLayout(LayoutFetcher):
+    def __init__(self, plugin_name:str, inner_fetcher:LayoutFetcher, intermediate_dir:str|None=None):
+        self.plugin_name = plugin_name
+        self.intermediate_dir = intermediate_dir
+        self.inner = inner_fetcher
+
+    def resolve_paths(self, default_dir=None):
+        if default_dir is None:
+            p = rt.plugin_list[self.plugin_name]
+            ttype, tval = p.run_target
+            if ttype == "path":
+                dir = os.path.abspath(os.path.dirname(tval))
+                if not os.path.samefile(dir, plugins.PLUGINS_DIR):
+                    if self.intermediate_dir is not None:
+                        dir = os.path.abspath(os.path.join(dir, self.intermediate_dir))
+                    return self.inner.resolve_paths(default_dir=dir)
+            raise RuntimeError("Can not determine plugin directory.")
+        else:
+            return self.inner.resolve_paths(default_dir=default_dir)
+        
+        
+    def __getstate__(self):
+        return {
+            "type": type(self).__qualname__,
+            "plugin_name": self.plugin_name,
+            "inner": self.inner.__getstate__()
+        }
+
+    def __setstate__(self, d:dict[str]):
+        self.plugin_name = str(d["plugin_name"])
+        dinner = d["inner"]
+        inner_t = fetcher_types[str(dinner["type"])]
+        inner = inner_t.__new__(inner_t)
+        inner.__setstate__(dinner)
+        self.inner = inner
+
 fetcher_types:dict[str,type[LayoutFetcher]] = {
-    LayoutByName.__name__:LayoutByName,
-    LayoutPathPair.__name__:LayoutPathPair
+    LayoutByName.__qualname__:LayoutByName,
+    LayoutPathPair.__qualname__:LayoutPathPair,
+    PluginDefinedLayout.__qualname__:PluginDefinedLayout
 }
 
 class Overlay:

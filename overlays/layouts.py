@@ -158,13 +158,14 @@ class ActionLayoutElementConstructTrigger(LayoutElementConstructTrigger):
         
 
 class ConstructProcess:
-    def __init__(self, layout:Layout, element:LayoutElement, tree:bs4.BeautifulSoup|None, loop:asyncio.AbstractEventLoop):
+    def __init__(self, layout:Layout, element:LayoutElement, tree:bs4.BeautifulSoup|None, loop:asyncio.AbstractEventLoop, token=None):
         self.layout = layout
         self.element = element
         self.tree = tree
         self.loop = loop
         self.done = asyncio.Event()
         self.success = False
+        self.token = token
 
     def finish(self, success:bool):
         if not self.done.is_set():
@@ -199,7 +200,7 @@ def load_layout_meta(path:str)->Layout|None:
         layout.__setstate__(layout_data)
         return layout
 
-async def _construct(tree:bs4.BeautifulSoup, layout:Layout, args:dict[str]):
+async def _construct(tree:bs4.BeautifulSoup, layout:Layout, args:dict[str], token=None):
     loop = asyncio.get_running_loop()
 
     futures = []
@@ -219,7 +220,7 @@ async def _construct(tree:bs4.BeautifulSoup, layout:Layout, args:dict[str]):
             continue
         
         process_id = uuid4()
-        process = ConstructProcess(layout, element, tree, loop)
+        process = ConstructProcess(layout, element, tree, loop, token=token)
 
         processes.append(process)
             
@@ -235,5 +236,5 @@ async def _construct(tree:bs4.BeautifulSoup, layout:Layout, args:dict[str]):
     
     return tree
 
-async def construct(tree:bs4.BeautifulSoup, layout:Layout, args:dict[str])->str:
-    return (await _construct(tree, layout, args)).prettify()
+async def construct(tree:bs4.BeautifulSoup, layout:Layout, args:dict[str], token=None)->str:
+    return (await _construct(tree, layout, args, token=token)).prettify()

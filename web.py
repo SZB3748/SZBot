@@ -184,27 +184,32 @@ def overlay_route(name:str=""):
     if overlay is None:
         return "" if missing_silent else "Overlay missing.", 404
     
-    if overlay.layout_fetcher is not None:
-        tree, layout = overlay.layout_fetcher.fetch()
-        if layout is None:
-            return "" if missing_silent else "Layout could not be found.", 404
-        else:
-            a = overlay.layout_args.copy()
-            for k,v in args.to_dict(False).items():
-                a[k] = v[0] if len(v) == 1 else v
-            result = _layout_construct_loop_result()
-            with _layout_construct_queue_lock:
-                _layout_construct_queue.append(((tree, layout, a), result))
-                _layout_construct_loop.call_soon_threadsafe(_layout_construct_queue_ready.set)
-            result.event.wait()
-
-            if result.exception is not None:
-                raise result.exception
-            assert result.html is not None, "HTML not contructed and no error raised."
+    if overlay.layout_fetcher is None:
+        return render_template("overlay.html", overlay_name=name, make_connection=overlay.make_connection)
     
-            return render_template("overlay.html", layout_html=Markup(result.html), overlay_name=name, make_connection=overlay.make_connection)
+    tree, layout = overlay.layout_fetcher.fetch()
+    if layout is None:
+        return "" if missing_silent else "Layout could not be found.", 404
+    else:
+        a = overlay.layout_args.copy()
+        for k,v in args.to_dict(False).items():
+            a[k] = v[0] if len(v) == 1 else v
+        result = _layout_construct_loop_result()
+        if overlay.make_connection:
+            connection_id = connections.default_connection_manager.reserve_id()
+        else:
+            connection_id = None
+        with _layout_construct_queue_lock:
+            _layout_construct_queue.append(((tree, layout, a, connection_id), result))
+            _layout_construct_loop.call_soon_threadsafe(_layout_construct_queue_ready.set)
+        result.event.wait()
+
+        if result.exception is not None:
+            raise result.exception
+        assert result.html is not None, "HTML not contructed and no error raised."
+
+        return render_template("overlay.html", layout_html=Markup(result.html), overlay_name=name, make_connection=overlay.make_connection, connection_id=str(connection_id) if connection_id else None)
         
-    return render_template("overlay.html", overlay_name=name, make_connection=overlay.make_connection)
     
 
 @sock.route("/events", bp=coreapi)
@@ -230,9 +235,27 @@ def api_events(ws:Server):
 @sock.route("/overlay/connection", bp=coreapi)
 def api_overlay_connection(ws:Server):
     overlay_name = request.args.get("name", None)
+    reserved_id = request.args.get("reserved_id", "")
     if not overlay_name:
         ws.close(4400, "overlay name missing")
         return
+
+    if reserved_id:
+        try:
+            rid = uuid.UUID(reserved_id)
+        except ValueError:
+            ws.close(4422, "bad value for reserved id")
+            return
+        conn = connections.default_connection_manager.claim_reservation(rid, overlay_name)
+    else:
+        conn = None
+
+    if conn is None:
+        conn = connections.default_connection_manager.new_connection(overlay_name) #TODO work on proxying substitute for remote mode situations
+    else:
+        logenv.main.info("overlay", overlay_name, f"claimed reservation on {rid}")
+    logenv.main.info("overlay", overlay_name, f"connected on {conn.id}")
+
     
     @exiting.register_cleanup_listener
     def _cleanup(ctx):
@@ -243,9 +266,6 @@ def api_overlay_connection(ws:Server):
             ws.close()
             logenv.main.info("closed connection", conn.id, "for overlay", overlay_name)
 
-
-    conn = connections.default_connection_manager.new_connection(overlay_name) #TODO work on proxying substitute for remote mode situations
-    logenv.main.info("overlay", overlay_name, f"connected on {conn.id}")
     try:
         while ws.connected:
             for d in conn.dump_data(timeout=0.1):

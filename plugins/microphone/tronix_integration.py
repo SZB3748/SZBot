@@ -32,24 +32,24 @@ local_f_microphone_fetch = ScriptFunction()
 remote_f_microphone_fetch = ScriptFunction()
 
 def local_microphone_list(ctx:script.ScriptContext):
-    return script.ScriptValue(builtins.Map_readonly, builtins._rodict_dummy(webroutes.main_handler.mics))
+    return script.ScriptValue(builtins.Map_readonly, builtins._rodict_wrapper(webroutes.main_handler.mics))
 
 @utils.async_function
 async def remote_microphone_list(ctx:script.ScriptContext):
     async with s.put(f"http{"s"*_remote_secure}://{_remote_addr}/api/microphone/list") as r:
         r.raise_for_status()
         data = await r.json()
-    rod = builtins._rodict_dummy()
+    rtd = {}
     if isinstance(data, dict):
         for k,v in data.items():
             mid = UUID(k)
             m = _mic_cache.get(mid, None)
             if m is None:
-                rod[mid] = _mic_cache[mid] = m = handler.Microphone.__new__(handler.Microphone)
+                rtd[mid] = _mic_cache[mid] = m = handler.Microphone.__new__(handler.Microphone)
             else:
-                rod[mid] = m
+                rtd[mid] = m
             m.__setstate__(v)
-    return script.ScriptValue(builtins.Map_readonly, rod)
+    return script.ScriptValue(builtins.Map_readonly, builtins._rodict_wrapper(rtd))
 
 @local_f_microphone_fetch.overload(("id", [builtins.String, builtins.UUID]))
 def local_microphone_fetch(id:script.ScriptVariable[str|UUID]):

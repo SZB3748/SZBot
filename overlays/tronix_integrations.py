@@ -318,41 +318,26 @@ async def _get_html_element_with_ctx_tree(ctx:script.ScriptContext, elem:script.
         elm = elem.inner.resolve_inner(None)
     return elm
 
-@_MediaEntryType.f_construct.overload(("name", builtins.String), ("file_extention", builtins.String), ("tags", builtins.List, []), ("mimetype", [builtins.String, builtins.NullType], None))
-def MediaEntry_construct(self, name:script.ScriptVariable[str], file_extention:script.ScriptVariable[str], tags:script.ScriptVariable[list], mimetype:script.ScriptVariable[str|None]):
+@_MediaEntryType.f_construct.overload(("name", builtins.String), ("file_extention", builtins.String), ("tags", builtins.ListOf(builtins.String), []), ("mimetype", [builtins.String, builtins.NullType], None))
+def MediaEntry_construct(self, name:script.ScriptVariable[str], file_extention:script.ScriptVariable[str], tags:script.ScriptVariable[list[str]], mimetype:script.ScriptVariable[str|None]):
     ext = os.path.basename(file_extention.get().inner)
     if "." in ext:
         ext = ext.rsplit(".", 1)[-1]
-    
-    t = tags.get().inner
-    for tag in t:
-        if not isinstance(tag, str):
-            ... #TODO error tags must be strings
 
-    entry = media.MediaEntry(name.get().inner, f"{name}.{ext}", t.copy(), mimetype.get().inner)
+    entry = media.MediaEntry(name.get().inner, f"{name}.{ext}", tags.get().inner.copy(), mimetype.get().inner)
     return script.ScriptValue(self, entry)
 
-@_LayoutType.f_construct.overload(("name", builtins.String), ("elements", [builtins.Map, builtins.NullType], None), ("parameters", [builtins.Map, builtins.NullType], None))
+@_LayoutType.f_construct.overload(("name", builtins.String), ("elements", [builtins.MapOf(builtins.String, LayoutElement), builtins.NullType], None), ("parameters", [builtins.MapOf(builtins.String, actions.ActionRequestedValue), builtins.NullType], None))
 def Layout_construct(self, name:script.ScriptVariable[str], elements:script.ScriptVariable[dict|None], parameters:script.ScriptVariable[dict|None]):
     el = elements.get().inner
     if el is None:
         el = {}
     else:
-        for k,v in el.items():
-            if not isinstance(k, str):
-                ... #TODO error must be str
-            if not isinstance(v, layouts.LayoutElement):
-                ... #TODO error must be layout element
         el = dict(el)
     ps = parameters.get().inner
     if ps is None:
         ps = {}
     else:
-        for k,v in ps.items():
-            if not isinstance(k, str):
-                ... #TODO error must be str
-            if not isinstance(v, actions.ActionRequestedValue):
-                ... #TODO error must be action requested value
         ps = dict(ps)
     return script.ScriptValue(self, layouts.Layout(name.get().inner, el, ps))
 
@@ -360,15 +345,9 @@ def Layout_construct(self, name:script.ScriptVariable[str], elements:script.Scri
 def HTMLElement_construct_withtext(self, tag:script.ScriptVariable[str], inner_text:script.ScriptVariable[str]):
     return script.ScriptValue(self, _HTMLElement(tag.get().inner, inner_text=inner_text.get().inner))
 
-@_HtmlElementType.f_construct.overload(("tag", builtins.String), ("attributes", [builtins.Map, builtins.NullType], None), ("inner_text", [builtins.String, builtins.NullType], None))
+@_HtmlElementType.f_construct.overload(("tag", builtins.String), ("attributes", [builtins.MapOf(builtins.String), builtins.NullType], None), ("inner_text", [builtins.String, builtins.NullType], None))
 def HTMLElement_construct(self, tag:script.ScriptVariable[str], attributes:script.ScriptVariable[dict|None], inner_text:script.ScriptVariable[str|None]):
-    attrs = attributes.get().inner
-    if attrs is not None:
-        for attr in attrs:
-            if not isinstance(attr, str):
-                ... #TODO error attribute names must be strings
-    return script.ScriptValue(self, _HTMLElement(tag.get().inner, attrs=attrs, inner_text=inner_text.get().inner))
-
+    return script.ScriptValue(self, _HTMLElement(tag.get().inner, attrs=dict(attributes.get().inner), inner_text=inner_text.get().inner))
 
 @f_send_to_overlay.overload(("overlay", builtins.String), dict(name="data", dtypes=[builtins.AnyType], pack=True))
 def send_to_overlay(overlay:script.ScriptVariable[str], *data:script.ScriptVariable):
@@ -487,7 +466,7 @@ async def layout_fail_element_construction(ctx:script.ScriptContext):
     await layouts.remove_construction_process(procid)
     process.finish(False)
 
-@f_add_sublayout.overload(("layout", Layout), ("args", [builtins.Map, builtins.NullType], None), pass_ctx=True)
+@f_add_sublayout.overload(("layout", Layout), ("args", [builtins.MapOf(builtins.String), builtins.NullType], None), pass_ctx=True)
 async def add_sublayout_autoelm(ctx:script.ScriptContext, layout:script.ScriptVariable[layouts.Layout], args:script.ScriptVariable[dict|None]):
     procid = _get_layout_cprocid(ctx)
     process = await _get_layout_cprocess(procid)
@@ -496,14 +475,12 @@ async def add_sublayout_autoelm(ctx:script.ScriptContext, layout:script.ScriptVa
     if a is None:
         a = {}
     else:
-        for k in a:
-            if not isinstance(k, str):
-                ... #TODO error must all be strings
+        a = dict(a)
 
     lyt = layout.get().inner
     tree = layouts.load_layout_html(safe_join(layouts.LAYOUT_DIR, f"{lyt.name}.html"))
     elm = _get_layout_element(process, process.element.id)
-    subtree = await layouts._construct(tree, layout, a)
+    subtree = await layouts._construct(tree, layout, a, process.token)
     for child in subtree.children:
         elm.append(child)
     
@@ -526,7 +503,15 @@ async def add_sublayout_manualelm(ctx:script.ScriptContext, element:script.Scrip
         elm = _get_layout_element(process, elem.inner.id)
     else:
         elm = await _get_html_element_with_ctx_tree(ctx, elem)
-    subtree = await layouts._construct(tree, layout, a)
+
+    procid = await _try_layout_cprocid(ctx)
+    if procid is None:
+        token = None
+    else:
+        process = await _get_layout_cprocess(procid)
+        token = process.token
+
+    subtree = await layouts._construct(tree, layout, a, token)
     for child in subtree.children:
         elm.append(child)
 
@@ -552,7 +537,13 @@ async def construct_layout(ctx:script.ScriptContext, layout:script.ScriptVariabl
 
     lyt = layout.get().inner
     tree = layouts.load_layout_html(safe_join(layouts.LAYOUT_DIR, f"{lyt.name}.html"))
-    return script.wrap_python_value(await layouts._construct(tree, layout, a))
+    procid = await _try_layout_cprocid(ctx)
+    if procid is None:
+        token = None
+    else:
+        process = await _get_layout_cprocess(procid)
+        token = process.token
+    return script.wrap_python_value(await layouts._construct(tree, layout, a, token))
 
 @ti.f_save.overload(dict(name="entries", dtypes=[MediaEntry], pack=True))
 def save_media_entry(*entries:script.ScriptVariable[media.MediaEntry]):

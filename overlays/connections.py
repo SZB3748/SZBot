@@ -1,4 +1,4 @@
-from tronix import utils
+from datetime import datetime
 import threading
 from uuid import UUID, uuid4
 
@@ -38,6 +38,28 @@ class ConnectionManager:
     def __init__(self):
         self._connections:dict[UUID, Connection] = {}
         self._name_lookup:dict[str, list[Connection]] = {}
+        self._reserved_ids:dict[UUID, datetime] = {}
+
+    def reserve_id(self)->UUID:
+        uid = uuid4()
+        self._reserved_ids[uid] = datetime.now()
+        return uid
+
+    def claim_reservation(self, uid:UUID, overlay_name:str):
+        dt = self._reserved_ids.pop(uid, None)
+        expired = []
+        now = datetime.now()
+        if self._reserved_ids:
+            for rid, x in self._reserved_ids.items():
+                if (now - x).total_seconds() >= 120:
+                    expired.append(rid)
+            if expired:
+                for rid in expired:
+                    del self._reserved_ids[rid]
+        if dt is not None:
+            conn = Connection(uid, overlay_name)
+            return self.add_connection(conn)
+        return None
 
     def new_connection(self, overlay_name:str):
         conn = Connection(uuid4(), overlay_name)

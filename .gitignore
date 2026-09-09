@@ -7,6 +7,7 @@ data/*
 
 #Exclude non-builtin plugins
 plugins/*
+!plugins/canvasoverlay/
 !plugins/soundreq/
 !plugins/sounds
 !plugins/pngoverlay/
