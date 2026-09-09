@@ -36,7 +36,8 @@ class BotScriptContext:
                  prediction_progress:twitchio.ChannelPredictionProgress|None=None, prediction_lock:twitchio.ChannelPredictionLock|None=None,
                  prediction_end:twitchio.ChannelPredictionEnd|None=None, shared_chat_begin:twitchio.SharedChatSessionBegin|None=None,
                  shared_chat_update:twitchio.SharedChatSessionUpdate|None=None, shared_chat_end:twitchio.SharedChatSessionEnd|None=None,
-                 shoutout_create:twitchio.ShoutoutCreate|None=None, shoutout_receive:twitchio.ShoutoutReceive|None=None, ):
+                 shoutout_create:twitchio.ShoutoutCreate|None=None, shoutout_receive:twitchio.ShoutoutReceive|None=None, online:twitchio.StreamOnline|None=None,
+                 offline:twitchio.StreamOffline|None=None):
         self.bot = bot
         self.command_ctx = command_ctx
         self.redeem = redeem
@@ -79,6 +80,8 @@ class BotScriptContext:
         self.shared_chat_end = shared_chat_end
         self.shoutout_create = shoutout_create
         self.shoutout_receive = shoutout_receive
+        self.online = online
+        self.offline = offline
 
     def resolve_broadcaster(self)->twitchio.PartialUser|None:
         if self.message is not None:
@@ -163,6 +166,10 @@ class BotScriptContext:
             return self.shoutout_create.broadcaster
         elif self.shoutout_receive is not None:
             return self.shoutout_receive.broadcaster
+        elif self.online is not None:
+            return self.online.broadcaster
+        elif self.offline is not None:
+            return self.offline.broadcaster
 
     def resolve_author(self)->twitchio.PartialUser|None:
         if self.message is not None:

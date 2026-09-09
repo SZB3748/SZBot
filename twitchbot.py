@@ -587,10 +587,12 @@ class Bot(commands.AutoBot):
     async def event_stream_online(self, payload:twitchio.StreamOnline):
         logenv.main.info(f"<{payload.broadcaster}> went live", payload=payload)
         await twitch.analytics.insert_stat_async(twitch.analytics.StreamStartStat.from_data(payload))
+        await self.run_matches(payload, self.get_matches(payload, twitch.online.merge_online_triggers(), twitch.online.ONLINE_CONDITION_MATCHERS))
     
     async def event_stream_offline(self, payload:twitchio.StreamOffline):
         logenv.main.info(f"<{payload.broadcaster}> is now offline", payload=payload)
         await twitch.analytics.insert_stat_async(twitch.analytics.StreamEndStat.from_data(payload))
+        await self.run_matches(payload, self.get_matches(payload, twitch.online.merge_offline_triggers(), twitch.online.OFFLINE_CONDITION_MATCHERS))
 
 
 class CoreComponent(commands.Component):

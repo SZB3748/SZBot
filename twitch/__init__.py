@@ -1,6 +1,6 @@
 from . import analytics, event_triggers, tronix_integrations
 from .triggers import ad_break, automod, ban, bits, charity, command, follow, \
-                      goal, hypetrain, message, poll, prediction, raid, redeem, \
+                      goal, hypetrain, message, online, poll, prediction, raid, redeem, \
                       role, shared_chat, shoutout, sub
 
 
@@ -25,6 +25,8 @@ def enable_event_triggers(value:bool):
     hypetrain.ActionHypeTrainProgressTrigger.enabled(value)
     hypetrain.ActionHypeTrainEndTrigger.enabled(value)
     message.ActionMessageTrigger.enabled(value)
+    online.ActionOnlineTrigger.enabled(value)
+    online.ActionOfflineTrigger.enabled(value)
     poll.ActionPollBeginTrigger.enabled(value)
     poll.ActionPollProgressTrigger.enabled(value)
     poll.ActionPollEndTrigger.enabled(value)
