@@ -194,7 +194,6 @@ def create_triggers_merge_function[T:Trigger, U:Trigger, V:Trigger](t_type:type[
     def merge()->dict[str, T]:
         d = callbacks.copy()
         d.update(at_type.load_all())
-        logenv.main.debug(d)
         return d
     return merge
 
@@ -459,6 +458,7 @@ def run_shared_loop():
 
 _run_trigger = True
 _run_trigger_loop = None
+_run_trigger_loop_wait = threading.Event()
 _run_triggers_queue:list[tuple[Trigger, tuple, dict]] = []
 _run_triggers_queue_lock = threading.Lock()
 _run_triggers_queue_ready = asyncio.Event()
@@ -481,6 +481,7 @@ async def _run_triggers(id, triggers:list[tuple[Trigger, tuple, dict]]):
 async def run_triggers_loop():
     global _run_trigger_loop
     _run_trigger_loop = asyncio.get_running_loop()
+    _run_trigger_loop_wait.set()
     while _run_trigger:
         await _run_triggers_queue_ready.wait()
         if not _run_trigger:
@@ -519,3 +520,40 @@ def deserialize_script_return_value(s:str|None):
     if not isinstance(s, str):
         return None
     return tronix.utils.deserialize_value(pickle.loads(base64.b64decode(s.encode("utf-8"))))
+
+
+class StartupActionTrigger(Trigger):
+
+    TYPE_NAME = "startup"
+
+    def __init__(self, name:str, action_name:str):
+        super().__init__(name)
+        self.action_name = action_name
+
+    def __getstate__(self):
+        return dict(
+            name=self.name,
+            action_name=self.action_name
+        )
+
+    def __setstate__(self, d):
+        self.name = str(d["name"])
+        self.action_name = str(d["action_name"])
+
+    async def handle(self):
+        action = load_action_table().get(self.action_name, None)
+        if action is None:
+            ... #TODO exception action not found
+        s = tronix.script.Script(action.script)
+        if action.is_script_environment_local():
+            await script_runner.run_async(s)
+            rtvar = s.scope.get(ACTION_RETURN_VALUE_VAR_NAME, None)
+            if isinstance(rtvar, tronix.script.ScriptVariable):
+                return rtvar.get()
+        else:
+            uid, *_ = enqueue_script(s, action.script_environment)
+            success, return_value = await wait_script_finish_async(uid)
+            if success:
+                if return_value is not None:
+                    s.scope[ACTION_RETURN_VALUE_VAR_NAME] = tronix.script.ScriptVariable(return_value)
+                return return_value

@@ -1,5 +1,6 @@
 import argparse
 import config
+import runtime as rt
 import twitchbot
 from urllib.parse import quote
 import web
@@ -24,8 +25,9 @@ def get_auth_token(oauth:dict[str], addr:tuple[str, int]=DEFAULT_ADDR, redirect:
         print("Opening", url, "in your default browser")
     except:
         print("Could not automatically find a browser, open", url, "in a browser")
+    rt.host_addr = host, port
     try:
-        web.serve(host, port)
+        web.serve()
     except OSError:
         print("Webserver is already running, or had other issues which prevented it from starting.")
 

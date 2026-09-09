@@ -645,7 +645,7 @@ def sock_action_environment_switch(ws:Server):
                                     } if isinstance(s, tronix.Script) else s
                                 } for uid, env_name, s, *_ in q
                             ]
-                        }))
+                        }, ensure_ascii=False))
                         q.clear()
             if _arldq:
                 with _arl_done_lock:
@@ -660,7 +660,7 @@ def sock_action_environment_switch(ws:Server):
                                 }
                                 for uid, script, success in q
                             }
-                        }))
+                        }, ensure_ascii=False))
                         q.clear()
     except KeyboardInterrupt:
         pass
@@ -922,7 +922,7 @@ def attach_core(interface_mode:str, overlay_mode:str, api_mode:str, tronix_mode:
         #replace default_container.dispatch so that all events for the default event system get sent to the remote instance
         def proxy_dispatch(*e:events.Event):
             batch = [{"name":event.name, "data":event.data} for event in e]
-            r = requests.post(f"http{"s"*rt.remote_secure}://{rt.host_addr[0]}:{rt.host_addr[1]}/api/events/dispatch", data={"batch":json.dumps(batch)})
+            r = requests.post(f"http{"s"*rt.remote_secure}://{rt.host_addr[0]}:{rt.host_addr[1]}/api/events/dispatch", data={"batch":json.dumps(batch, ensure_ascii=False)})
             r.raise_for_status()
         events.default_container.dispatch = proxy_dispatch
 

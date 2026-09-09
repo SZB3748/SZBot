@@ -199,11 +199,14 @@ def run():
         for name, t in actions._trigger_types.items():
             b.append(name, t)
 
+    web.attach_core(interface_mode, overlay_mode, api_mode, tronix_mode)
+
     if trigger_runner_thread is not None:
         logenv.main.info("starting trigger runner thread")
         trigger_runner_thread.start()
-
-    web.attach_core(interface_mode, overlay_mode, api_mode, tronix_mode)
+        actions.StartupActionTrigger.enabled(True)
+        actions._run_trigger_loop_wait.wait()
+        actions.enqueue_triggers([(trigger, (), {}) for trigger in actions.StartupActionTrigger.load_all().values()])
 
     logenv.main.info("starting web server")
     e = None
