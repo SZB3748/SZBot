@@ -730,7 +730,7 @@ class _TwitchStreamOfflineType(script.ScriptDataType[twitchio.StreamOffline]):
         v._http = _get_http()
         return v
 
-    attrs = _TwitchStreamOnlineTypeAttrs
+    attrs = _TwitchStreamOfflineTypeAttrs
     attrs.entry("broadcaster").readonly(utils.SimpleGetAttribute())
 
 
