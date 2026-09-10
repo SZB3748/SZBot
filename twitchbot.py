@@ -284,14 +284,15 @@ class Bot(commands.AutoBot):
         return matched
     
     async def run_matches(self, event, matched:list[twitch.event_triggers.EventTrigger]):
+        futures = []
         with logenv.MessageBuilder(logenv.szlogging.levels.DEBUG, logenv.main) as b:
             b.append("matched {count} triggers:", count=len(matched))
             for trigger in matched:
-                b.append(f"trigger {trigger}")
+                b.append(f"trigger {trigger} {trigger.name}")
                 c = trigger.handle(self, event)
                 if inspect.isawaitable(c):
-                    await c
-
+                    futures.append(asyncio.ensure_future(c))
+        await asyncio.gather(*futures)
 
     async def setup_hook(self):
         self.add_listener(self.event_automod_message_hold)
