@@ -501,7 +501,7 @@ def remote_api_script_env_handler():
         if isinstance(msg, memoryview):
             msg = msg.tobytes()
         data = json.loads(msg)
-        _handle_env_switch_instruction(data)
+        _handle_env_switch_instruction(data, actions.current_environment_name)
 
     def ws_on_error(ws, e:Exception):
         if isinstance(e, (ConnectionRefusedError, ConnectionClosed)):
@@ -545,7 +545,12 @@ async def _arl_future(uid:uuid.UUID, queued:list[tuple[uuid.UUID, tronix.Script,
         script_lookup = {uid:script for uid, script, *_ in queued}
         with _arl_done_lock:
             for uid, success, env, *_ in results:
-                _arl_done[env] = (uid, script_lookup[uid], success)
+                done_entry = (uid, script_lookup[uid], success)
+                done = _arl_done.get(env,None)
+                if done is None:
+                    _arl_done[env] = [done_entry]
+                else:
+                    done.append(done_entry)
     finally:
         async with _arl_futures_lock:
             _arl_futures.pop(uid, None)
@@ -572,9 +577,9 @@ def start_action_runner_local():
     _arl_thread.start()
     return _arl_thread
 
-def _handle_env_switch_instruction(data:dict[str]):
+def _handle_env_switch_instruction(data:dict[str], name:str):
     instruction = data["instruction"]
-    logenv.main.debug("script env switch got instruction: {instruction}", instruction=instruction)
+    logenv.main.debug("script env switch: {name} got instruction: {instruction}", name=name, instruction=instruction)
     if instruction == "run":
         scripts = data.get("scripts",None)
         if isinstance(scripts, list):
@@ -592,7 +597,7 @@ def _handle_env_switch_instruction(data:dict[str]):
                         scope_ser = pickle.loads(base64.b64decode(script["scope"]))
                         scope = tronix.utils.deserialize_namespace(scope_ser) if isinstance(scope_ser, dict) else scope_ser
                         s = tronix.Script(script["content"], scope)
-                        add_run.append((uid, s, env))
+                        add_run.append((uid, s, name))
                 else:
                     uid = uuid.UUID(sdata["uid"])
                     script = sdata["script"]
@@ -646,7 +651,7 @@ def sock_action_environment_switch(ws:Server):
                 else:
                     if isinstance(data, dict):
                         try:
-                            _handle_env_switch_instruction(data)
+                            _handle_env_switch_instruction(data, environment_name)
                         except Exception as e:
                             logenv.main.error_exception(e, logenv.EXCEPTION_TRACEBACK, human_text="Got an unexpected exception while running the script environment.")
             if _esq:
