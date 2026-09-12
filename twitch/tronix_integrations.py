@@ -242,15 +242,15 @@ class analytics_window(builtins._pair[datetime|None, datetime|None]):
 
     @property
     def is_empty(self):
-        return self._pair[0] is None and self._pair[1] is None
+        return self.first is None and self.second is None
     
     @property
     def is_start_open(self):
-        return self._pair[0] is None
+        return self.first is None
     
     @property
     def is_end_open(self):
-        return self._pair[1] is None
+        return self.second is None
     
     @property
     def age(self):
