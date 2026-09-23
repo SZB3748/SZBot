@@ -136,7 +136,7 @@ class ActionLayoutElementConstructTrigger(LayoutElementConstructTrigger):
     async def handle(self, construct_ctx):
         action = actions.load_action_table().get(self.action_name, None)
         if action is None:
-            ... #TODO exception action not found
+            raise actions.ActionNotFound(f"Could not find action: {self.action_name}", action_name=self.action_name)
 
         filled = self.action_mapping.fill_values(construct_ctx)
         script_scope = action.collect_script_values(filled)

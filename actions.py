@@ -238,9 +238,9 @@ class Action:
                 if isinstance(value, rv.type):
                     rtv[rv.name] = tronix.script.ScriptVariable(tronix.script.wrap_python_value(value))
                     continue
-                ... #TODO error type doesnt match
+                raise TypeError(f"Action {repr(self.name)} requested value {repr(rv.name)} of type {rv.type.__name__}, got value of type {type(value).__name__}")
             elif rv.required:
-                ... #TODO error missing required value
+                raise ValueError(f"Missing required value: {rv.name}")
         return rtv
     
     def is_script_environment_local(self):
@@ -331,9 +331,15 @@ async def _run_script(uid:UUID, s:tronix.Script, *x):
     success = False
     try:
         await script_runner.run_async(s)
+    except tronix.exceptions.TronixException as te:
+        help_s = tronix.utils.generate_exception_help(s, te)
+        logenv.main.error_exception(
+            e,
+            f"Script {{uid}} encountered an exception:\n{logenv.EXCEPTION_TRACEBACK}",
+            human_text=help_s,
+            uid=str(uid)
+        )
     except Exception as e:
-        #TODO handle exceptions
-        #TODO be more helpful in the human text, especially if its a script exception and not a python one
         logenv.main.error_exception(
             e,
             f"Script {{uid}} encountered an exception:\n{logenv.EXCEPTION_TRACEBACK}",
@@ -522,6 +528,13 @@ def deserialize_script_return_value(s:str|None):
     return tronix.utils.deserialize_value(pickle.loads(base64.b64decode(s.encode("utf-8"))))
 
 
+class ActionNotFound(KeyError):
+    "Action could not be found."
+
+    def __init__(self, *args, action_name:str):
+        super().__init__(*args)
+        self.action_name = action_name
+
 class StartupActionTrigger(Trigger):
 
     TYPE_NAME = "startup"
@@ -543,7 +556,7 @@ class StartupActionTrigger(Trigger):
     async def handle(self):
         action = load_action_table().get(self.action_name, None)
         if action is None:
-            ... #TODO exception action not found
+            raise ActionNotFound(f"Could not find action: {self.action_name}", action_name=self.action_name)
         s = tronix.script.Script(action.script)
         if action.is_script_environment_local():
             await script_runner.run_async(s)

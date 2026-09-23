@@ -778,7 +778,7 @@ AnalyticsWindow = _AnalyticsWindowType("AnalyticsWindow", analytics_window, buil
 def get_tctx(ctx:script.ScriptContext):
     ns = ctx.stack.find_name(TWITCH_CONTEXT_VAR_NAME)
     if ns is None:
-        raise exceptions.TMissingName(f"missing twitch context {repr(TWITCH_CONTEXT_VAR_NAME)}")
+        raise exceptions.TRMissingName(f"missing twitch context {repr(TWITCH_CONTEXT_VAR_NAME)}")
     tctxv:script.ScriptValue[BotScriptContext] = ns[TWITCH_CONTEXT_VAR_NAME].get()
     if not tctxv.type.issubtype(TwitchContext):
         raise InvalidTwitchContext("twitch context is missing or was overriden")
