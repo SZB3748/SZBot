@@ -556,6 +556,10 @@ class _TwitchMessageType(script.ScriptDataType[twitchio.ChatMessage]):
     attrs.entry("text").readonly(utils.SimpleGetAttribute())
     attrs.entry("reply").readonly(utils.SimpleGetAttribute())
     attrs.entry("type").readonly(utils.SimpleGetAttribute())
+    attrs.entry("fragments").readonly(lambda o,n: script.wrap_python_value(builtins._rolist_wrapper(o.inner.fragments)))
+    attrs.entry("cheer").readonly(utils.SimpleGetAttribute())
+    attrs.entry("badges").readonly(lambda o,n: script.wrap_python_value(builtins._rolist_wrapper(o.inner.badges)))
+    
     attrs.entry(*_COLOR_NAMES).readonly(utils.SimpleGetAttribute())
 
 _TwitchStreamOnlineTypeAttrs = utils.ScriptAttributeHandler[twitchio.StreamOnline, Any]()
@@ -599,6 +603,74 @@ class _TwitchStreamOfflineType(script.ScriptDataType[twitchio.StreamOffline]):
     attrs = _TwitchStreamOfflineTypeAttrs
     attrs.entry("broadcaster").readonly(utils.SimpleGetAttribute())
 
+_TwitchAdBreakBeginTypeAttrs = utils.ScriptAttributeHandler[twitchio.ChannelAdBreakBegin, Any]()
+@_TwitchAdBreakBeginTypeAttrs.enforce_child_attrs()
+@_TwitchAdBreakBeginTypeAttrs.attach
+class _TwitchAdBreakBeginType(script.ScriptDataType[twitchio.ChannelAdBreakBegin]):
+    def serialize(self, value, type_str=False):
+        return dict(
+            automatic=value.inner.automatic,
+            broadcaster=utils.serialize_value_headless(value.inner.broadcaster, type_str=type_str),
+            duration=value.inner.duration, 
+            requester=utils.serialize_value_headless(value.inner.requester, type_str=type_str),
+            started_at=value.inner.started_at.isoformat()
+        )
+
+    def deserialize(self, x):
+        v = self.inner.__new__(self.inner)
+        v.automatic = bool(x["automatic"])
+        v.broadcaster = TwitchUser.deserialize(x["broadcaster"])
+        v.duration = int(x["duration"])
+        v.requester = TwitchUser.deserialize(x["requester"])
+        v.started_at = datetime.fromisoformat(x["started_at"])
+        v._http = _get_http()
+        return v
+
+    attrs = _TwitchAdBreakBeginTypeAttrs
+    attrs.entry("automatic").readonly(utils.SimpleGetAttribute())
+    attrs.entry("broadcaster").readonly(utils.SimpleGetAttribute())
+    attrs.entry("requester").readonly(utils.SimpleGetAttribute())
+    attrs.entry("duration").readonly(lambda o,n: script.wrap_python_value(durtypes._seconds_duration(o.inner.duration)))
+    attrs.entry("started_at").readonly(utils.SimpleGetAttribute())
+    attrs.entry("ends_at").readonly(lambda o,n: script.wrap_python_value(o.inner.started_at + timedelta(seconds=o.inner.duration)))
+
+_TwitchChatClearTypeAttrs = utils.ScriptAttributeHandler[twitchio.ChannelChatClear,Any]()
+@_TwitchChatClearTypeAttrs.enforce_child_attrs()
+@_TwitchChatClearTypeAttrs.attach
+class _TwitchChatClearType(script.ScriptDataType[twitchio.ChannelChatClear]):
+    def serialize(self, value, type_str=False):
+        return dict(broadcaster=utils.serialize_value_headless(value.inner.broadcaster, type_str=type_str))
+
+    def deserialize(self, x):
+        v = self.inner.__new__(self.inner)
+        v.broadcaster = TwitchUser.deserialize(x["broadcaster"])
+        v._http = _get_http()
+        return v
+
+    attrs = _TwitchChatClearTypeAttrs
+    attrs.entry("broadcaster").readonly(utils.SimpleGetAttribute())
+
+_TwitchChatClearUserTypeAttrs = utils.ScriptAttributeHandler[twitchio.ChannelChatClearUserMessages,Any]()
+@_TwitchChatClearUserTypeAttrs.enforce_child_attrs()
+@_TwitchChatClearUserTypeAttrs.attach
+class _TwitchChatClearUserType(script.ScriptDataType[twitchio.ChannelChatClearUserMessages]):
+    def serialize(self, value, type_str=False):
+        return dict(
+            broadcaster=utils.serialize_value_headless(value.inner.broadcaster, type_str=type_str),
+            user=utils.serialize_value_headless(value.inner.user, type_str=type_str)
+        )
+
+    def deserialize(self, x):
+        v = self.inner.__new__(self.inner)
+        v.broadcaster = TwitchUser.deserialize(x["broadcaster"])
+        v.user = TwitchUser.deserialize(x["user"])
+        v._http = _get_http()
+        return v
+
+    attrs = _TwitchChatClearTypeAttrs
+    attrs.entry("broadcaster").readonly(utils.SimpleGetAttribute())
+    attrs.entry("user").readonly(utils.SimpleGetAttribute())
+
 
 _TwitchContextTypeAttrs = utils.ScriptAttributeHandler[BotScriptContext,Any](no_subscripting=True)
 @_TwitchContextTypeAttrs.enforce_child_attrs()
@@ -635,8 +707,12 @@ TwitchCommandContext = _TwitchCommandContextType("TwitchCommandContext", command
 TwitchRedeem = _TwitchRedeemType("TwitchRedeem", twitchio.ChannelPointsRedemptionAdd, script.BASE_TYPE)
 TwitchReward = _TwitchRewardType("TwitchReward", twitchio.ChannelPointsReward, script.BASE_TYPE)
 TwitchRewardLimitSettings = builtins.pair_alias_subtype("TwitchRewardLimitSettings", ["enabled"], ["value"], twitchio.RewardLimitSettings)
+TwitchCooldownSettings = builtins.pair_alias_subtype("TwitchCooldownSettings", ["enabled"], ["seconds"], twitchio.CooldownSettings)
 TwitchStreamOnline = _TwitchStreamOnlineType("TwitchStreamOnline", twitchio.StreamOnline, script.BASE_TYPE)
 TwitchStreamOffline = _TwitchStreamOfflineType("TwitchStreamOffline", twitchio.StreamOffline, script.BASE_TYPE)
+TwitchAdBreakBegin = _TwitchAdBreakBeginType("TwitchAdBreakBegin", twitchio.ChannelAdBreakBegin, script.BASE_TYPE)
+TwitchChatClear = _TwitchChatClearType("TwitchChatClear", twitchio.ChannelChatClear, script.BASE_TYPE)
+TwitchChatClearUser = _TwitchChatClearUserType("TwitchChatClearUser", twitchio.ChannelChatClearUserMessages, script.BASE_TYPE)
 TwitchContext = _TwitchContextType("TwitchContext", BotScriptContext, script.BASE_TYPE)
 
 TwitchAnalyticsWindow = _AnalyticsWindowType("TwitchAnalyticsWindow", analytics_window, builtins.Pair)
@@ -670,6 +746,7 @@ def AnalyticsWindow_construct(self, first:ScriptVariable[datetime], second:Scrip
     return ScriptVariable(self, analytics_window(first, second))
 
 f_send_twitch_message = ScriptFunction()
+f_send_twitch_announcement = ScriptFunction()
 f_twitch_shoutout = ScriptFunction()
 f_twitch_timeout = ScriptFunction()
 f_twitch_ban = ScriptFunction()
@@ -697,6 +774,22 @@ async def send_twitch_message_manualdest(ctx:script.ScriptContext, msg:ScriptVar
         if b is None:
             ... #TODO error could not resolve broadcaster
     await b.send_message(msg.get().inner, sender=tctx.bot.user)
+
+@f_send_twitch_announcement.overload(("msg", builtins.String), ("color", builtins.String, "primary"), pass_ctx=True)
+async def send_twitch_announcement_autodest(ctx:script.ScriptContext, msg:script.ScriptVariable[str], color:script.ScriptVariable[str]):
+    tctx = get_tctx(ctx)
+    await _resolve_broadcaster(tctx).send_announcement(moderator=tctx.bot.user, message=msg.get().inner, color=color.get().inner)
+
+@f_send_twitch_announcement.overload(("msg", builtins.String), ("color", builtins.String, "primary"), ("broadcaster", _UserUnion+[builtins.NullType], None), pass_ctx=True)
+async def send_twitch_announcement_manualdest(ctx:script.ScriptContext, msg:script.ScriptVariable[str], color:script.ScriptVariable[str], broadcaster:script.ScriptVariable[str|int|twitchio.PartialUser|None]):
+    tctx = get_tctx(ctx)
+    if broadcaster.get().inner is None:
+        b = _resolve_broadcaster(tctx)
+    else:
+        b = await _resolve_user(tctx, broadcaster)
+        if b is None:
+            ... #TODO error could not resolve broadcaster
+    await b.send_announcement(moderator=tctx.bot.user, message=msg.get().inner, color=color.get().inner)
 
 @f_twitch_shoutout.overload(("user", _UserUnion), pass_ctx=True)
 async def twitch_shoutout_autodest(ctx:script.ScriptContext, user:ScriptVariable[str|int|twitchio.PartialUser]):
@@ -993,11 +1086,16 @@ def activate():
     utils.add_type(TwitchRedeem, constructor=False)
     utils.add_type(TwitchReward, constructor=False)
     utils.add_type(TwitchRewardLimitSettings, constructor=False)
+    utils.add_type(TwitchCooldownSettings, constructor=False)
     utils.add_type(TwitchStreamOnline, constructor=False)
     utils.add_type(TwitchStreamOffline, constructor=False)
+    utils.add_type(TwitchAdBreakBegin, constructor=False)
+    utils.add_type(TwitchChatClear, constructor=False)
+    utils.add_type(TwitchChatClearUser, constructor=False)
     utils.add_type(TwitchContext, constructor=False)
     utils.add_type(TwitchAnalyticsWindow)
     utils.merge_function("send_twitch_message", f_send_twitch_message)
+    utils.merge_function("send_twitch_announcement", f_send_twitch_announcement)
     utils.merge_function("twitch_shoutout", f_twitch_shoutout)
     utils.merge_function("twitch_timeout", f_twitch_timeout)
     utils.merge_function("twitch_ban", f_twitch_ban)
@@ -1026,11 +1124,16 @@ def deactivate():
     utils.remove_type(TwitchRedeem)
     utils.remove_type(TwitchReward)
     utils.remove_type(TwitchRewardLimitSettings)
-    utils.remove_function(TwitchStreamOnline)
-    utils.remove_function(TwitchStreamOffline)
+    utils.remove_type(TwitchCooldownSettings)
+    utils.remove_type(TwitchStreamOnline)
+    utils.remove_type(TwitchStreamOffline)
+    utils.remove_type(TwitchAdBreakBegin)
+    utils.remove_type(TwitchChatClear)
+    utils.remove_type(TwitchChatClearUser)
     utils.remove_type(TwitchContext)
     utils.remove_type(TwitchAnalyticsWindow)
     utils.remove_function("send_twitch_message", f_send_twitch_message)
+    utils.remove_function("send_twitch_announcement", f_send_twitch_announcement)
     utils.remove_function("twitch_shoutout", f_twitch_shoutout)
     utils.remove_function("twitch_timeout", f_twitch_timeout)
     utils.remove_function("twitch_ban", f_twitch_ban)

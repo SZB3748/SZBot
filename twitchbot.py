@@ -185,6 +185,7 @@ OAUTH_CHANNEL_SCOPES:set[str] = {
     "channel:manage:polls",
     "channel:manage:predictions",
     "moderator:manage:shoutouts",
+    "moderator:manage:announcements"
 }
 
 def _link_command_newfunc(name:str):
