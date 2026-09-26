@@ -371,17 +371,21 @@ def iterate_over_action_func_params(target:script.ScriptVariable[_action_functio
     s = step.get().inner
     return script.wrap_python_value(builtins._sequence_iterator(v-s, v, stop.get().inner, s, target.get().inner))
 
+_PARAM_NO_DEFAULT = object()
+
 @f_append.overload(("params", ActionFunctionParameters), ("parameter", builtins.FunctionParameter), ("maps_to", [builtins.String, builtins.NullType], builtins.null))
 def append_params_direct(params:script.ScriptVariable[_action_function_parameters], parameter:script.ScriptVariable[utils.ScriptFunctionParam], maps_to:script.ScriptVariable[str|None]):
     params.get().inner.add_parameter(parameter.get().inner, maps_to.get().inner)
 
-@f_append.overload(("params", ActionFunctionParameters), ("requested_value", ActionRequestedValue), ("parameter_name", [builtins.String, builtins.NullType], builtins.null), ("default", builtins.AnyType, utils._PARAM_NO_DEFAULT))
+@f_append.overload(("params", ActionFunctionParameters), ("requested_value", ActionRequestedValue), ("parameter_name", [builtins.String, builtins.NullType], builtins.null), ("default", builtins.AnyType, _PARAM_NO_DEFAULT))
 def append_params_rv(params:script.ScriptVariable[_action_function_parameters], requested_value:script.ScriptVariable[actions.ActionRequestedValue], parameter_name:script.ScriptVariable[str|None], default:script.ScriptVariable):
-    params.get().inner.add_value_request(requested_value.get().inner, parameter_name.get().inner, default.get().inner)
+    d = default.get().inner
+    params.get().inner.add_value_request(requested_value.get().inner, parameter_name.get().inner, utils._PARAM_NO_DEFAULT if d is _PARAM_NO_DEFAULT else d)
 
-@f_append.overload(("params", ActionFunctionParameters), ("requested_value_name", builtins.String), ("parameter_name", [builtins.String, builtins.NullType], None), ("default", builtins.AnyType, utils._PARAM_NO_DEFAULT))
+@f_append.overload(("params", ActionFunctionParameters), ("requested_value_name", builtins.String), ("parameter_name", [builtins.String, builtins.NullType], None), ("default", builtins.AnyType, _PARAM_NO_DEFAULT))
 def append_params_rvr(params:script.ScriptVariable[_action_function_parameters], requested_value_name:script.ScriptVariable[str], parameter_name:script.ScriptVariable[str|None], default:script.ScriptVariable):
-    params.get().inner.add_value_request_by_name(requested_value_name.get().inner, parameter_name.get().inner, default.get().inner)
+    d = default.get().inner
+    params.get().inner.add_value_request_by_name(requested_value_name.get().inner, parameter_name.get().inner, utils._PARAM_NO_DEFAULT if d is _PARAM_NO_DEFAULT else d)
 
 def activate():
 
