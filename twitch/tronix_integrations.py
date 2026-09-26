@@ -72,8 +72,10 @@ class BotScriptContext[T]:
             return self.data.user
 
     def resolve_message(self)->twitchio.ChatMessage|None:
-        if isinstance(self.data, (twitchio.ChatMessage, commands.Context)):
+        if isinstance(self.data, commands.Context):
             return self.data.message
+        elif isinstance(self.data, twitchio.ChatMessage):
+            return self.data
         
 def _resolve_broadcaster(tctx:BotScriptContext):
     b = tctx.resolve_broadcaster()
