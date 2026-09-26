@@ -667,7 +667,7 @@ class _TwitchChatClearUserType(script.ScriptDataType[twitchio.ChannelChatClearUs
         v._http = _get_http()
         return v
 
-    attrs = _TwitchChatClearTypeAttrs
+    attrs = _TwitchChatClearUserTypeAttrs
     attrs.entry("broadcaster").readonly(utils.SimpleGetAttribute())
     attrs.entry("user").readonly(utils.SimpleGetAttribute())
 
