@@ -593,8 +593,12 @@ def _handle_env_switch_instruction(data:dict[str], name:str):
                     script = sdata["script"]
                     if isinstance(script, dict):
                         uid = uuid.UUID(sdata["uid"])
-                        scope_ser = pickle.loads(base64.b64decode(script["scope"]))
-                        scope = tronix.utils.deserialize_namespace(scope_ser) if isinstance(scope_ser, dict) else scope_ser
+                        scope_d = script["scope"]
+                        if scope_d is None:
+                            scope = {}
+                        else:
+                            scope_ser = pickle.loads(base64.b64decode(scope_d))
+                            scope = tronix.utils.deserialize_namespace(scope_ser) if isinstance(scope_ser, dict) else scope_ser
                         s = tronix.Script(script["content"], scope)
                         add_run.append((uid, s, name))
                 else:
