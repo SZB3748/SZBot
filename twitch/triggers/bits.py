@@ -58,16 +58,12 @@ BitsUseTrigger = event_triggers.EventTrigger[twitchio.ChannelBitsUse]
 
 class ActionCheerTrigger(event_triggers.ActionEventTrigger[twitchio.ChannelCheer]):
     TYPE_NAME = "twitch_cheer"
-    def create_bot_script_context(self, bot, event):
-        return tti.BotScriptContext(bot, cheer=event)
 
 class CallbackCheerTrigger(event_triggers.CallbackEventTrigger[twitchio.ChannelCheer]):
     pass
 
 class ActionBitsUseTrigger(event_triggers.ActionEventTrigger[twitchio.ChannelBitsUse]):
     TYPE_NAME = "twitch_bitsuse"
-    def create_bot_script_context(self, bot, event):
-        return tti.BotScriptContext(bot, bitsuse=event)
     
 class CallbackCheerTrigger(event_triggers.CallbackEventTrigger[twitchio.ChannelBitsUse]):
     pass

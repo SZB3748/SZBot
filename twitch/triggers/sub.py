@@ -104,24 +104,18 @@ SubMessageTrigger = event_triggers.EventTrigger[twitchio.ChannelSubscriptionMess
     
 class ActionSubTrigger(event_triggers.ActionEventTrigger[twitchio.ChannelSubscribe]):
     TYPE_NAME = "twitch_sub"
-    def create_bot_script_context(self, bot, event):
-        return tti.BotScriptContext(bot, sub=event)
     
 class CallbackSubTrigger(event_triggers.CallbackEventTrigger[twitchio.ChannelSubscribe]):
     pass
 
 class ActionGiftSubTrigger(event_triggers.ActionEventTrigger[twitchio.ChannelSubscriptionGift]):
     TYPE_NAME = "twitch_gift_sub"
-    def create_bot_script_context(self, bot, event):
-        return tti.BotScriptContext(bot, gift_sub=event)
     
 class CallbackGiftSubTrigger(event_triggers.CallbackEventTrigger[twitchio.ChannelSubscriptionGift]):
     pass
 
 class ActionSubMessageTrigger(event_triggers.ActionEventTrigger[twitchio.ChannelSubscriptionMessage]):
     TYPE_NAME = "twitch_sub_message"
-    def create_bot_script_context(self, bot, event):
-        return tti.BotScriptContext(bot, sub_msg=event)
     
 class CallbackSubMessageTrigger(event_triggers.CallbackEventTrigger[twitchio.ChannelSubscriptionMessage]):
     pass

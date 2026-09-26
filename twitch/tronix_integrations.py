@@ -1,6 +1,6 @@
 from . import analytics
 from datetime import datetime, timedelta, timezone
-from tronix import builtins, exceptions, script, utils
+from tronix import builtins, duration_types as durtypes, exceptions, script, utils
 from tronix.script import ScriptVariable
 from tronix.utils import ScriptFunction
 import twitchio
@@ -20,196 +20,60 @@ def _get_http():
 class InvalidTwitchContext(exceptions.TRuntimeException):
     "Twitch context is not of the expected type."
 
-class BotScriptContext:
-    def __init__(self, bot:commands.Bot, command_ctx:commands.Context|None=None, redeem:twitchio.ChannelPointsRedemptionAdd|None=None, message:twitchio.ChatMessage|None=None,
-                 cheer:twitchio.ChannelCheer|None=None, bitsuse:twitchio.ChannelBitsUse|None=None, follow:twitchio.ChannelFollow|None=None,
-                 train_begin:twitchio.HypeTrainBegin|None=None, train_progress:twitchio.HypeTrainProgress|None=None, train_end:twitchio.HypeTrainEnd|None=None,
-                 raid:twitchio.ChannelRaid|None=None, sub:twitchio.ChannelSubscribe|None=None, gift_sub:twitchio.ChannelSubscriptionGift|None=None,
-                 sub_msg:twitchio.ChannelSubscriptionMessage|None=None, ad_begin:twitchio.ChannelAdBreakBegin|None=None, automod_hold:twitchio.AutomodMessageHold|None=None,
-                 automod_update:twitchio.AutomodMessageUpdate|None=None, ban:twitchio.ChannelBan|None=None, unban:twitchio.ChannelUnban|None=None,
-                 charity_donate:twitchio.CharityCampaignDonation|None=None, charity_start:twitchio.CharityCampaignStart|None=None,
-                 charity_progress:twitchio.CharityCampaignProgress|None=None, charity_stop:twitchio.CharityCampaignStop|None=None,
-                 goal_begin:twitchio.GoalBegin|None=None, goal_progress:twitchio.GoalProgress|None=None, goal_end:twitchio.GoalEnd|None=None,
-                 mod_add:twitchio.ChannelModeratorAdd|None=None, mod_remove:twitchio.ChannelModeratorRemove|None=None, vip_add:twitchio.ChannelVIPAdd|None=None,
-                 vip_remove:twitchio.ChannelVIPRemove|None=None, poll_begin:twitchio.ChannelPollBegin|None=None, poll_progress:twitchio.ChannelPollProgress|None=None,
-                 poll_end:twitchio.ChannelPollEnd|None=None, prediction_begin:twitchio.ChannelPredictionBegin|None=None,
-                 prediction_progress:twitchio.ChannelPredictionProgress|None=None, prediction_lock:twitchio.ChannelPredictionLock|None=None,
-                 prediction_end:twitchio.ChannelPredictionEnd|None=None, shared_chat_begin:twitchio.SharedChatSessionBegin|None=None,
-                 shared_chat_update:twitchio.SharedChatSessionUpdate|None=None, shared_chat_end:twitchio.SharedChatSessionEnd|None=None,
-                 shoutout_create:twitchio.ShoutoutCreate|None=None, shoutout_receive:twitchio.ShoutoutReceive|None=None, online:twitchio.StreamOnline|None=None,
-                 offline:twitchio.StreamOffline|None=None):
+class BotScriptContext[T]:
+    def __init__(self, bot:commands.Bot, data:T):
         self.bot = bot
-        self.command_ctx = command_ctx
-        self.redeem = redeem
-        self.message = message
-        self.cheer = cheer
-        self.bitsuse = bitsuse
-        self.follow = follow
-        self.train_begin = train_begin
-        self.train_progress = train_progress
-        self.train_end = train_end
-        self.raid = raid
-        self.sub = sub
-        self.gift_sub = gift_sub
-        self.sub_msg = sub_msg
-        self.ad_begin = ad_begin
-        self.automod_hold = automod_hold
-        self.automod_update = automod_update
-        self.ban = ban
-        self.unban = unban
-        self.charity_donate = charity_donate
-        self.charity_start = charity_start
-        self.charity_progress = charity_progress
-        self.charity_stop = charity_stop
-        self.goal_begin = goal_begin
-        self.goal_progress = goal_progress
-        self.goal_end = goal_end
-        self.mod_add = mod_add
-        self.mod_remove = mod_remove
-        self.vip_add = vip_add
-        self.vip_remove = vip_remove
-        self.poll_begin = poll_begin
-        self.poll_progress = poll_progress
-        self.poll_end = poll_end
-        self.prediction_begin = prediction_begin
-        self.prediction_progress = prediction_progress
-        self.prediction_lock = prediction_lock
-        self.prediction_end = prediction_end
-        self.shared_chat_begin = shared_chat_begin
-        self.shared_chat_update = shared_chat_update
-        self.shared_chat_end = shared_chat_end
-        self.shoutout_create = shoutout_create
-        self.shoutout_receive = shoutout_receive
-        self.online = online
-        self.offline = offline
+        self.data = data
 
-    def resolve_broadcaster(self)->twitchio.PartialUser|None:
-        if self.message is not None:
-            return self.message.broadcaster
-        elif self.command_ctx is not None:
-            return self.command_ctx.broadcaster
-        elif self.redeem is not None:
-            return self.redeem.broadcaster
-        elif self.cheer is not None:
-            return self.cheer.broadcaster
-        elif self.bitsuse is not None:
-            return self.bitsuse.broadcaster
-        elif self.follow is not None:
-            return self.follow.broadcaster
-        elif self.train_begin is not None:
-            return self.train_begin.broadcaster
-        elif self.train_progress is not None:
-            return self.train_progress.broadcaster
-        elif self.train_end is not None:
-            return self.train_end.broadcaster
-        elif self.raid is not None:
-            return self.raid.to_broadcaster
-        elif self.sub is not None:
-            return self.sub.broadcaster
-        elif self.gift_sub is not None:
-            return self.gift_sub.broadcaster
-        elif self.sub_msg is not None:
-            return self.sub_msg.broadcaster
-        elif self.ad_begin is not None:
-            return self.ad_begin.broadcaster
-        elif self.automod_hold is not None:
-            return self.automod_hold.broadcaster
-        elif self.automod_update is not None:
-            return self.automod_update.broadcaster
-        elif self.ban is not None:
-            return self.ban.broadcaster
-        elif self.unban is not None:
-            return self.unban.broadcaster
-        elif self.charity_donate is not None:
-            return self.charity_donate.broadcaster
-        elif self.charity_start is not None:
-            return self.charity_start.broadcaster
-        elif self.charity_progress is not None:
-            return self.charity_progress.broadcaster
-        elif self.charity_stop is not None:
-            return self.charity_stop.broadcaster
-        elif self.goal_begin is not None:
-            return self.goal_begin.broadcaster
-        elif self.goal_progress is not None:
-            return self.goal_progress.broadcaster
-        elif self.goal_end is not None:
-            return self.goal_end.broadcaster
-        elif self.mod_add is not None:
-            return self.mod_add.broadcaster
-        elif self.mod_remove is not None:
-            return self.mod_remove.broadcaster
-        elif self.vip_add is not None:
-            return self.vip_add.broadcaster
-        elif self.vip_remove is not None:
-            return self.vip_remove.broadcaster
-        elif self.poll_begin is not None:
-            return self.poll_begin.broadcaster
-        elif self.poll_progress is not None:
-            return self.poll_progress.broadcaster
-        elif self.poll_end is not None:
-            return self.poll_end.broadcaster
-        elif self.prediction_begin is not None:
-            return self.prediction_begin.broadcaster
-        elif self.prediction_progress is not None:
-            return self.prediction_progress.broadcaster
-        elif self.prediction_lock is not None:
-            return self.prediction_lock.broadcaster
-        elif self.prediction_end is not None:
-            return self.prediction_end.broadcaster
-        elif self.shared_chat_begin is not None:
-            return self.shared_chat_begin.broadcaster
-        elif self.shared_chat_update is not None:
-            return self.shared_chat_update.broadcaster
-        elif self.shared_chat_end is not None:
-            return self.shared_chat_end.broadcaster
-        elif self.shoutout_create is not None:
-            return self.shoutout_create.broadcaster
-        elif self.shoutout_receive is not None:
-            return self.shoutout_receive.broadcaster
-        elif self.online is not None:
-            return self.online.broadcaster
-        elif self.offline is not None:
-            return self.offline.broadcaster
+    def resolve_broadcaster(self):
+        if isinstance(self.data, (commands.Context, twitchio.ChannelPointsRedemptionAdd, twitchio.ChatMessage,
+                                  twitchio.ChannelCheer, twitchio.ChannelBitsUse, twitchio.ChannelFollow,
+                                  twitchio.HypeTrainBegin, twitchio.HypeTrainProgress, twitchio.HypeTrainEnd,
+                                  twitchio.ChannelSubscribe, twitchio.ChannelSubscriptionGift,
+                                  twitchio.ChannelSubscriptionMessage, twitchio.ChannelAdBreakBegin,
+                                  twitchio.AutomodMessageHold, twitchio.AutomodMessageUpdate, twitchio.ChannelBan,
+                                  twitchio.ChannelUnban, twitchio.CharityCampaignDonation, twitchio.CharityCampaignStart,
+                                  twitchio.CharityCampaignProgress, twitchio.CharityCampaignStop, twitchio.GoalBegin,
+                                  twitchio.GoalProgress, twitchio.GoalEnd, twitchio.ChannelModeratorAdd,
+                                  twitchio.ChannelModeratorRemove, twitchio.ChannelVIPAdd, twitchio.ChannelVIPRemove,
+                                  twitchio.ChannelPollBegin, twitchio.ChannelPollProgress, twitchio.ChannelPollEnd,
+                                  twitchio.ChannelPredictionBegin, twitchio.ChannelPredictionProgress,
+                                  twitchio.ChannelPredictionLock, twitchio.ChannelPredictionEnd,
+                                  twitchio.SharedChatSessionBegin, twitchio.SharedChatSessionUpdate,
+                                  twitchio.SharedChatSessionEnd, twitchio.ShoutoutCreate, twitchio.ShoutoutReceive,
+                                  twitchio.StreamOnline, twitchio.StreamOffline)):
+            return self.data.broadcaster
+        elif isinstance(self.data, twitchio.ChannelRaid):
+            return self.data.to_broadcaster
 
-    def resolve_author(self)->twitchio.PartialUser|None:
-        if self.message is not None:
-            return self.message.chatter
-        elif self.command_ctx is not None:
-            return self.command_ctx.chatter
-        elif self.redeem is not None:
-            return self.redeem.user
-        elif self.cheer is not None:
-            return self.cheer.user
-        elif self.bitsuse is not None:
-            return self.bitsuse.user
-        elif self.follow is not None:
-            return self.follow.user
-        elif self.raid is not None:
-            return self.raid.from_broadcaster
-        elif self.sub is not None:
-            return self.sub.user
-        elif self.gift_sub is not None:
-            return self.gift_sub.user
-        elif self.sub_msg is not None:
-            return self.sub_msg.user
-        elif self.ad_begin is not None:
-            return self.ad_begin.requester
-        elif self.automod_hold is not None:
-            return self.automod_hold.user
-        elif self.automod_update is not None:
-            return self.automod_update.user
-        elif self.ban is not None:
-            return self.ban.moderator
-        elif self.unban is not None:
-            return self.unban.moderator
-        elif self.charity_donate is not None:
-            return self.charity_donate.user
+    def resolve_author(self):
+        if isinstance(self.data, (commands.Context, twitchio.ChatMessage)):
+            return self.data.chatter
+        elif isinstance(self.data, twitchio.ChannelRaid):
+            return self.data.from_broadcaster
+        elif isinstance(self.data, twitchio.ChannelAdBreakBegin):
+            return self.data.requester
+        elif isinstance(self.data, (twitchio.ChannelBan, twitchio.ChannelUnban)):
+            return self.data.moderator
+        elif isinstance(self.data, (twitchio.ChannelPointsRedemptionAdd, twitchio.ChannelCheer, twitchio.ChannelBitsUse,
+                                    twitchio.ChannelFollow, twitchio.HypeTrainBegin, twitchio.HypeTrainProgress,
+                                    twitchio.HypeTrainEnd, twitchio.ChannelSubscribe, twitchio.ChannelSubscriptionGift,
+                                    twitchio.ChannelSubscriptionMessage, twitchio.AutomodMessageHold,
+                                    twitchio.AutomodMessageUpdate, twitchio.CharityCampaignDonation,
+                                    twitchio.CharityCampaignStart, twitchio.CharityCampaignProgress,
+                                    twitchio.CharityCampaignStop, twitchio.GoalBegin, twitchio.GoalProgress, twitchio.GoalEnd,
+                                    twitchio.ChannelModeratorAdd, twitchio.ChannelModeratorRemove, twitchio.ChannelVIPAdd,
+                                    twitchio.ChannelVIPRemove, twitchio.ChannelPollBegin, twitchio.ChannelPollProgress,
+                                    twitchio.ChannelPollEnd, twitchio.ChannelPredictionBegin, twitchio.ChannelPredictionProgress,
+                                    twitchio.ChannelPredictionLock, twitchio.ChannelPredictionEnd,
+                                    twitchio.SharedChatSessionBegin, twitchio.SharedChatSessionUpdate,
+                                    twitchio.SharedChatSessionEnd, twitchio.ShoutoutCreate, twitchio.ShoutoutReceive,
+                                    twitchio.StreamOnline, twitchio.StreamOffline)):
+            return self.data.user
 
     def resolve_message(self)->twitchio.ChatMessage|None:
-        if self.message is not None:
-            return self.message
-        elif self.command_ctx is not None:
-            return self.command_ctx.message
+        if isinstance(self.data, (twitchio.ChatMessage, commands.Context)):
+            return self.data.message
         
 def _resolve_broadcaster(tctx:BotScriptContext):
     b = tctx.resolve_broadcaster()
@@ -230,9 +94,9 @@ def _resolve_message(tctx:BotScriptContext):
     return msg
 
 def _resolve_redeem(tctx:BotScriptContext):
-    if tctx.redeem is None:
+    if not isinstance(tctx.data, twitchio.ChannelPointsRedemptionAdd):
         ... #TODO error missing redeem context
-    return tctx.redeem
+    return tctx.data
 
 class analytics_window(builtins._pair[datetime|None, datetime|None]):
     
@@ -773,7 +637,7 @@ TwitchStreamOnline = _TwitchStreamOnlineType("TwitchStreamOnline", twitchio.Stre
 TwitchStreamOffline = _TwitchStreamOfflineType("TwitchStreamOffline", twitchio.StreamOffline, script.BASE_TYPE)
 TwitchContext = _TwitchContextType("TwitchContext", BotScriptContext, script.BASE_TYPE)
 
-AnalyticsWindow = _AnalyticsWindowType("AnalyticsWindow", analytics_window, builtins.Pair)
+TwitchAnalyticsWindow = _AnalyticsWindowType("TwitchAnalyticsWindow", analytics_window, builtins.Pair)
 
 def get_tctx(ctx:script.ScriptContext):
     ns = ctx.stack.find_name(TWITCH_CONTEXT_VAR_NAME)
@@ -933,10 +797,19 @@ async def _count_item(window:ScriptVariable[analytics_window], check_name:str, c
     else:
         return script.ScriptValue(builtins.Integer, int(executed.result[0]))
 
-@f_current_twitch_stream_window.overload(("broadcaster", _UserUnion+[builtins.NullType], None), ("threshold_secs", [builtins.Integer,builtins.Float], 0), ("threshold_mins", [builtins.Integer,builtins.Float], 0), ("threshold_hours", [builtins.Integer,builtins.Float], 0), ("error", [builtins.Integer,builtins.Float], 2.5), pass_ctx=True)
-async def current_twitch_stream_window(ctx:script.ScriptContext, broadcaster:ScriptVariable[str|int|twitchio.PartialUser|None], threshold_secs:ScriptVariable[int|float], threshold_mins:ScriptVariable[int|float], threshold_hours:ScriptVariable[int|float], error:ScriptVariable[int|float]):
+@f_current_twitch_stream_window.overload(("broadcaster", _UserUnion+[builtins.NullType], None), ("threshold", [builtins.Integer,builtins.Float, builtins.Duration, builtins.ComplexDuration], 0), ("error", [builtins.Integer,builtins.Float], 2.5), pass_ctx=True)
+async def current_twitch_stream_window(ctx:script.ScriptContext, broadcaster:ScriptVariable[str|int|twitchio.PartialUser|None], threshold:ScriptVariable[int|float], error:ScriptVariable[int|float]):
     tctx = get_tctx(ctx)
-    seconds = threshold_secs.get().inner + threshold_mins.get().inner * 60 + threshold_hours.get().inner * 3600
+    tx = threshold.get()
+    if tx.type.issubtype(builtins.ComplexDuration):
+        assert isinstance(tx.inner, durtypes._complex_duration)
+        #current_twitch_stream_window(threshold: seconds(2.5) + minutes(5))
+        seconds = tx.inner.as_seconds().x
+    elif tx.type.issubtype(tx.inner, durtypes._duration):
+        assert isinstance(tx.inner, durtypes._duration)
+        seconds = tx.inner.x * durtypes._unitspace_convert(durtypes._seconds_duration.FACTOR, durtypes._seconds_duration.POWER, tx.inner.FACTOR, tx.inner.POWER)
+    else:
+        seconds = float(tx.inner)
     if broadcaster.get().inner is None:
         b = _resolve_broadcaster(tctx)
     else:
@@ -945,7 +818,7 @@ async def current_twitch_stream_window(ctx:script.ScriptContext, broadcaster:Scr
             ... #TODO error could not resolve broadcaster
     return await _query_current_stream_window(int(b.id), seconds, error.get().inner)
 
-@f_is_this_twitch_user_first_message.overload(("window", AnalyticsWindow), ("message", [builtins.UUID,TwitchMessage,builtins.NullType], None), ("author", _UserUnion+[builtins.NullType], None), pass_ctx=True)
+@f_is_this_twitch_user_first_message.overload(("window", TwitchAnalyticsWindow), ("message", [builtins.UUID,TwitchMessage,builtins.NullType], None), ("author", _UserUnion+[builtins.NullType], None), pass_ctx=True)
 async def is_this_twitch_user_first_message(ctx:script.ScriptContext, window:ScriptVariable[analytics_window], message:ScriptVariable[UUID|twitchio.ChatMessage|None], author:ScriptVariable[str|int|twitchio.PartialUser|None]):
     tctx = get_tctx(ctx)
     msg = message.get()
@@ -975,7 +848,7 @@ async def is_this_twitch_user_first_message(ctx:script.ScriptContext, window:Scr
     return await _is_first_item(window, analytics.MessageStat.COLUMN_MESSAGE_ID, analytics.MessageStat, msg, [f"{analytics.MessageStat.COLUMN_AUTHOR_ID}=?"], [uid])
     
 
-@f_is_this_twitch_channel_first_message.overload(("window", AnalyticsWindow), ("message", [builtins.UUID,TwitchMessage,builtins.NullType], None), pass_ctx=True)
+@f_is_this_twitch_channel_first_message.overload(("window", TwitchAnalyticsWindow), ("message", [builtins.UUID,TwitchMessage,builtins.NullType], None), pass_ctx=True)
 async def is_this_twitch_channel_first_message(ctx:script.ScriptContext, window:ScriptVariable[analytics_window], message:ScriptVariable[UUID|twitchio.ChatMessage|None]):
     tctx = get_tctx(ctx)
     msg = message.get()
@@ -989,7 +862,7 @@ async def is_this_twitch_channel_first_message(ctx:script.ScriptContext, window:
     
     return await _is_first_item(window, analytics.MessageStat.COLUMN_MESSAGE_ID, analytics.MessageStat, msg, [], [])
 
-@f_is_this_twitch_user_first_redeem.overload(("window", AnalyticsWindow), ("redeem", [builtins.UUID,TwitchRedeem,TwitchReward,builtins.NullType], None), ("user", _UserUnion+[builtins.NullType], None), pass_ctx=True)
+@f_is_this_twitch_user_first_redeem.overload(("window", TwitchAnalyticsWindow), ("redeem", [builtins.UUID,TwitchRedeem,TwitchReward,builtins.NullType], None), ("user", _UserUnion+[builtins.NullType], None), pass_ctx=True)
 async def is_this_twitch_user_first_redeem(ctx:script.ScriptContext, window:ScriptVariable[analytics_window], redeem:ScriptVariable[UUID|twitchio.ChannelPointsRedemptionAdd|twitchio.ChannelPointsReward|None], user:ScriptVariable[str|int|twitchio.PartialUser|None]):
     tctx = get_tctx(ctx)
     rdm = redeem.get()
@@ -1027,7 +900,7 @@ async def is_this_twitch_user_first_redeem(ctx:script.ScriptContext, window:Scri
     else:
         return await _is_first_item(window, rdms.COLUMN_REWARD_ID, rdms, rwd, [f"{rdms.COLUMN_AUTHOR_ID}=?"], [uid])
 
-@f_is_this_twitch_channel_first_redeem.overload(("window", AnalyticsWindow), ("redeem", [builtins.UUID,TwitchRedeem,TwitchReward,builtins.NullType], None), pass_ctx=True)
+@f_is_this_twitch_channel_first_redeem.overload(("window", TwitchAnalyticsWindow), ("redeem", [builtins.UUID,TwitchRedeem,TwitchReward,builtins.NullType], None), pass_ctx=True)
 async def is_this_twitch_channel_first_redeem(ctx:script.ScriptContext, window:ScriptVariable[analytics_window], redeem:ScriptVariable[UUID|twitchio.ChannelPointsRedemptionAdd|twitchio.ChannelPointsReward|None]):
     tctx = get_tctx(ctx)
     rdm = redeem.get()
@@ -1049,7 +922,7 @@ async def is_this_twitch_channel_first_redeem(ctx:script.ScriptContext, window:S
     else:
         return await _is_first_item(window, rdms.COLUMN_REWARD_ID, rdms, rwd, [], [])
     
-@f_count_redemptions_for_twitch_user.overload(("window", AnalyticsWindow), ("reward", [builtins.UUID,TwitchRedeem,TwitchReward,builtins.NullType], None), ("user", _UserUnion+[builtins.NullType], None), pass_ctx=True)
+@f_count_redemptions_for_twitch_user.overload(("window", TwitchAnalyticsWindow), ("reward", [builtins.UUID,TwitchRedeem,TwitchReward,builtins.NullType], None), ("user", _UserUnion+[builtins.NullType], None), pass_ctx=True)
 async def count_redemptions_for_twitch_user(ctx:script.ScriptContext, window:ScriptVariable[analytics_window], reward:ScriptVariable[UUID|twitchio.ChannelPointsRedemptionAdd|twitchio.ChannelPointsReward|None], user:ScriptVariable[str|int|twitchio.PartialUser|None]):
     tctx = get_tctx(ctx)
     rwd = reward.get()
@@ -1083,7 +956,7 @@ async def count_redemptions_for_twitch_user(ctx:script.ScriptContext, window:Scr
     rdms = analytics.RedeemStat
     return await _count_item(window, rdms.COLUMN_REWARD_ID, rdms, [f"{rdms.COLUMN_AUTHOR_ID}=?"], [uid])
 
-@f_count_redemptions_for_twitch_channel.overload(("window", AnalyticsWindow), ("reward", [builtins.UUID,TwitchRedeem,TwitchReward,builtins.NullType], None), pass_ctx=True)
+@f_count_redemptions_for_twitch_channel.overload(("window", TwitchAnalyticsWindow), ("reward", [builtins.UUID,TwitchRedeem,TwitchReward,builtins.NullType], None), pass_ctx=True)
 async def count_redemptions_for_twitch_channel(ctx:script.ScriptContext, window:ScriptVariable[analytics_window], reward:ScriptVariable[UUID|twitchio.ChannelPointsRedemptionAdd|twitchio.ChannelPointsReward|None]):
     tctx = get_tctx(ctx)
     rwd = reward.get()
@@ -1121,7 +994,7 @@ def activate():
     utils.add_type(TwitchStreamOnline, constructor=False)
     utils.add_type(TwitchStreamOffline, constructor=False)
     utils.add_type(TwitchContext, constructor=False)
-    utils.add_type(AnalyticsWindow)
+    utils.add_type(TwitchAnalyticsWindow)
     utils.merge_function("send_twitch_message", f_send_twitch_message)
     utils.merge_function("twitch_shoutout", f_twitch_shoutout)
     utils.merge_function("twitch_timeout", f_twitch_timeout)
@@ -1154,7 +1027,7 @@ def deactivate():
     utils.remove_function(TwitchStreamOnline)
     utils.remove_function(TwitchStreamOffline)
     utils.remove_type(TwitchContext)
-    utils.remove_type(AnalyticsWindow)
+    utils.remove_type(TwitchAnalyticsWindow)
     utils.remove_function("send_twitch_message", f_send_twitch_message)
     utils.remove_function("twitch_shoutout", f_twitch_shoutout)
     utils.remove_function("twitch_timeout", f_twitch_timeout)

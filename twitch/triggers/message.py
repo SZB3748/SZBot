@@ -37,8 +37,6 @@ MessageTrigger = event_triggers.EventTrigger[twitchio.ChatMessage]
 
 class ActionMessageTrigger(event_triggers.ActionEventTrigger[twitchio.ChatMessage]):
     TYPE_NAME = "twitch_message"
-    def create_bot_script_context(self, bot, event):
-        return tti.BotScriptContext(bot, message=event)
         
 class CallbackMessageTrigger(event_triggers.CallbackEventTrigger[twitchio.ChatMessage]):
     pass

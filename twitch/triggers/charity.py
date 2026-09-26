@@ -25,8 +25,6 @@ ChairtyDonateTrigger = event_triggers.EventTrigger[twitchio.CharityDonation]
 
 class ActionChairtyDonateTrigger(event_triggers.ActionEventTrigger[twitchio.CharityDonation]):
     TYPE_NAME = "twitch_charity_donate"
-    def create_bot_script_context(self, bot, event):
-        return tti.BotScriptContext(bot, charity_donate=event)
     
 class CallbackChairtyDonateTrigger(event_triggers.CallbackEventTrigger[twitchio.CharityDonation]):
     pass
@@ -35,8 +33,6 @@ ChairtyStartTrigger = event_triggers.EventTrigger[twitchio.CharityCampaignStart]
 
 class ActionChairtyStartTrigger(event_triggers.ActionEventTrigger[twitchio.CharityCampaignStart]):
     TYPE_NAME = "twitch_charity_start"
-    def create_bot_script_context(self, bot, event):
-        return tti.BotScriptContext(bot, charity_start=event)
     
 class CallbackChairtyStartTrigger(event_triggers.CallbackEventTrigger[twitchio.CharityCampaignStart]):
     pass
@@ -45,8 +41,6 @@ ChairtyProgressTrigger = event_triggers.EventTrigger[twitchio.CharityCampaignPro
 
 class ActionChairtyProgressTrigger(event_triggers.ActionEventTrigger[twitchio.CharityCampaignProgress]):
     TYPE_NAME = "twitch_charity_progress"
-    def create_bot_script_context(self, bot, event):
-        return tti.BotScriptContext(bot, charity_progress=event)
     
 class CallbackChairtyProgressTrigger(event_triggers.CallbackEventTrigger[twitchio.CharityCampaignProgress]):
     pass
@@ -55,8 +49,6 @@ ChairtyStopTrigger = event_triggers.EventTrigger[twitchio.CharityCampaignStop]
 
 class ActionChairtyStopTrigger(event_triggers.ActionEventTrigger[twitchio.CharityCampaignStop]):
     TYPE_NAME = "twitch_charity_stop"
-    def create_bot_script_context(self, bot, event):
-        return tti.BotScriptContext(bot, charity_stop=event)
     
 class CallbackChairtyStopTrigger(event_triggers.CallbackEventTrigger[twitchio.CharityCampaignStop]):
     pass

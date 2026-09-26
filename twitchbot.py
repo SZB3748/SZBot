@@ -337,6 +337,8 @@ class Bot(commands.AutoBot):
         self.add_listener(self.event_subscription_message)
         self.add_listener(self.event_stream_online)
         self.add_listener(self.event_stream_offline)
+        self.add_listener(self.event_chat_clear)
+        self.add_listener(self.event_chat_clear_user)
         if self.use_core_commands:
             await self.add_component(CoreComponent(self))
 
@@ -595,6 +597,14 @@ class Bot(commands.AutoBot):
         await twitch.analytics.insert_stat_async(twitch.analytics.StreamEndStat.from_data(payload))
         await self.run_matches(payload, self.get_matches(payload, twitch.online.merge_offline_triggers(), twitch.online.OFFLINE_CONDITION_MATCHERS))
 
+    async def event_chat_clear(self, payload:twitchio.ChannelChatClear):
+        logenv.main.info(f"<{payload.broadcaster}> chat was cleared")
+        await self.run_matches(payload, self.get_matches(payload, twitch.chat.merge_clear_triggers(), twitch.chat.CLEAR_CONDITION_MATCHERS))
+    
+    async def event_chat_clear_user(self, payload:twitchio.ChannelChatClearUserMessages):
+        logenv.main.info(f"<{payload.broadcaster}> all messages cleared for {payload.user}")
+        await self.run_matches(payload, self.get_matches(payload, twitch.chat.merge_clear_user_triggers(), twitch.chat.CLEAR_USER_CONDITION_MATCHERS))
+
 
 class CoreComponent(commands.Component):
     def __init__(self, bot:Bot):
@@ -781,6 +791,7 @@ def init_bot(old_bot:Bot|None=None):
             twitchio.eventsub.SharedChatSessionEndSubscription(broadcaster_user_id=user.id),
             twitchio.eventsub.ShoutoutCreateSubscription(broadcaster_user_id=user.id, moderator_user_id=user.id),
             twitchio.eventsub.ShoutoutReceiveSubscription(broadcaster_user_id=user.id, moderator_user_id=user.id),
+            twitchio.eventsub.ChatClearSubscription(broadcaster_user_id=user.id, user_id=user.id),
         ])
 
     bot = Bot(client_id, client_secret, bot_id, c["Prefix"], subs)
@@ -855,7 +866,7 @@ def ws_on_message(ws:websocket.WebSocket, msg:str|bytearray|memoryview):
                         scope_ser = pickle.loads(base64.b64decode(script["scope"]))
                         if isinstance(scope_ser, dict):
                             scope = tronix.utils.deserialize_namespace(scope_ser)
-                            scope.setdefault(tti.TWITCH_CONTEXT_VAR_NAME, tronix.script.ScriptVariable(tronix.script.wrap_python_value(tti.BotScriptContext(bot))))
+                            scope.setdefault(tti.TWITCH_CONTEXT_VAR_NAME, tronix.script.ScriptVariable(tronix.script.wrap_python_value(tti.BotScriptContext(bot, None))))
                         else:
                             scope = scope_ser
                         s = tronix.Script(script["content"], scope)

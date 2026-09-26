@@ -17,8 +17,6 @@ BanTrigger = event_triggers.EventTrigger[twitchio.ChannelBan]
 
 class ActionBanTrigger(event_triggers.ActionEventTrigger[twitchio.ChannelBan]):
     TYPE_NAME = "twitch_ban"
-    def create_bot_script_context(self, bot, event):
-        return tti.BotScriptContext(bot, ban=event)
 
 class CallbackBanTrigger(event_triggers.CallbackEventTrigger[twitchio.ChannelBan]):
     pass
@@ -27,8 +25,6 @@ UnbanTrigger = event_triggers.EventTrigger[twitchio.ChannelUnban]
 
 class ActionUnbanTrigger(event_triggers.ActionEventTrigger[twitchio.ChannelUnban]):
     TYPE_NAME = "twitch_unban"
-    def create_bot_script_context(self, bot, event):
-        return tti.BotScriptContext(bot, unban=event)
 
 class CallbackUnbanTrigger(event_triggers.CallbackEventTrigger[twitchio.ChannelUnban]):
     pass

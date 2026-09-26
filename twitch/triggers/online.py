@@ -17,8 +17,6 @@ OnlineTrigger = event_triggers.EventTrigger[twitchio.StreamOnline]
 
 class ActionOnlineTrigger(event_triggers.ActionEventTrigger[twitchio.StreamOnline]):
     TYPE_NAME = "twitch_online"
-    def create_bot_script_context(self, bot, event):
-        return tti.BotScriptContext(bot, online=event)
 
 class CallbackOnlineTrigger(event_triggers.CallbackEventTrigger[twitchio.StreamOnline]):
     pass
@@ -27,8 +25,6 @@ OfflineTrigger = event_triggers.EventTrigger[twitchio.StreamOffline]
 
 class ActionOfflineTrigger(event_triggers.ActionEventTrigger[twitchio.StreamOffline]):
     TYPE_NAME = "twitch_offline"
-    def create_bot_script_context(self, bot, event):
-        return tti.BotScriptContext(bot, offline=event)
 
 class CallbackOfflineTrigger(event_triggers.CallbackEventTrigger[twitchio.StreamOffline]):
     pass

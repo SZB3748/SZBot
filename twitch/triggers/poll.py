@@ -21,8 +21,6 @@ PollBeginTrigger = event_triggers.EventTrigger[twitchio.ChannelPollBegin]
 
 class ActionPollBeginTrigger(event_triggers.ActionEventTrigger[twitchio.ChannelPollBegin]):
     TYPE_NAME = "twitch_poll_begin"
-    def create_bot_script_context(self, bot, event):
-        return tti.BotScriptContext(bot, poll_begin=event)
     
 class CallbackPollBeginTrigger(event_triggers.CallbackEventTrigger[twitchio.ChannelPollBegin]):
     pass
@@ -31,8 +29,6 @@ PollProgressTrigger = event_triggers.EventTrigger[twitchio.ChannelPollProgress]
 
 class ActionPollProgressTrigger(event_triggers.ActionEventTrigger[twitchio.ChannelPollProgress]):
     TYPE_NAME = "twitch_poll_progress"
-    def create_bot_script_context(self, bot, event):
-        return tti.BotScriptContext(bot, poll_progress=event)
     
 class CallbackPollProgressTrigger(event_triggers.CallbackEventTrigger[twitchio.ChannelPollProgress]):
     pass
@@ -41,8 +37,6 @@ PollEndTrigger = event_triggers.EventTrigger[twitchio.ChannelPollEnd]
 
 class ActionPollEndTrigger(event_triggers.ActionEventTrigger[twitchio.ChannelPollEnd]):
     TYPE_NAME = "twitch_poll_end"
-    def create_bot_script_context(self, bot, event):
-        return tti.BotScriptContext(bot, poll_end=event)
     
 class CallbackPollEndTrigger(event_triggers.CallbackEventTrigger[twitchio.ChannelPollEnd]):
     pass

@@ -84,8 +84,8 @@ class ActionEventTrigger[T](EventTrigger[T]):
                 self.conditions.append(condition)
         self.action_mapping = action_mapping
 
-    def create_bot_script_context(self, bot:commands.Bot, event:T)->tti.BotScriptContext:
-        raise NotImplementedError
+    def create_bot_script_context(self, bot:commands.Bot, event:T)->tti.BotScriptContext[T]:
+        return tti.BotScriptContext(bot, event)
 
     async def handle(self, bot:commands.Bot, event:T):
         action = actions.load_action_table().get(self.action_name, None)

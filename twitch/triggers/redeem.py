@@ -53,8 +53,6 @@ RedeemTrigger = event_triggers.EventTrigger[twitchio.ChannelPointsRedemptionAdd]
     
 class ActionRedeemTrigger(event_triggers.ActionEventTrigger[twitchio.ChannelPointsRedemptionAdd]):
     TYPE_NAME = "twitch_redeem"
-    def create_bot_script_context(self, bot, event):
-        return tti.BotScriptContext(bot, redeem=event)
 
 class CallbackRedeemTrigger(event_triggers.CallbackEventTrigger[twitchio.ChannelPointsRedemptionAdd]):
     pass

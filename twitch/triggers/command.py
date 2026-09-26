@@ -260,7 +260,7 @@ class ActionCommandTrigger(CommandTrigger):
         
         if action.is_script_environment_local():
             if ctx is not None:
-                script_scope.setdefault(tti.TWITCH_CONTEXT_VAR_NAME, script.ScriptVariable(utils.wrap_python_value(tti.BotScriptContext(ctx.bot, command_ctx=ctx))))
+                script_scope.setdefault(tti.TWITCH_CONTEXT_VAR_NAME, script.ScriptVariable(utils.wrap_python_value(tti.BotScriptContext(ctx.bot, ctx))))
             await actions.script_runner.run_async(s)
             rtvar = s.scope.get(actions.ACTION_RETURN_VALUE_VAR_NAME, None)
             if isinstance(rtvar, script.ScriptVariable):

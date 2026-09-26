@@ -21,8 +21,6 @@ GoalBeginTrigger = event_triggers.EventTrigger[twitchio.GoalBegin]
 
 class ActionGoalBeginTrigger(event_triggers.ActionEventTrigger[twitchio.GoalBegin]):
     TYPE_NAME = "twitch_goal_begin"
-    def create_bot_script_context(self, bot, event):
-        return tti.BotScriptContext(bot, goal_begin=event)
     
 class CallbackGoalBeginTrigger(event_triggers.CallbackEventTrigger[twitchio.GoalBegin]):
     pass
@@ -31,8 +29,6 @@ GoalProgressTrigger = event_triggers.EventTrigger[twitchio.GoalProgress]
 
 class ActionGoalProgressTrigger(event_triggers.ActionEventTrigger[twitchio.GoalProgress]):
     TYPE_NAME = "twitch_goal_progress"
-    def create_bot_script_context(self, bot, event):
-        return tti.BotScriptContext(bot, goal_progress=event)
     
 class CallbackGoalProgressTrigger(event_triggers.CallbackEventTrigger[twitchio.GoalProgress]):
     pass
@@ -41,8 +37,6 @@ GoalEndTrigger = event_triggers.EventTrigger[twitchio.GoalEnd]
 
 class ActionGoalEndTrigger(event_triggers.ActionEventTrigger[twitchio.GoalEnd]):
     TYPE_NAME = "twitch_goal_end"
-    def create_bot_script_context(self, bot, event):
-        return tti.BotScriptContext(bot, goal_end=event)
     
 class CallbackGoalEndTrigger(event_triggers.CallbackEventTrigger[twitchio.GoalEnd]):
     pass

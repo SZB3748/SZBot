@@ -1,5 +1,5 @@
 from . import analytics, event_triggers, tronix_integrations
-from .triggers import ad_break, automod, ban, bits, charity, command, follow, \
+from .triggers import ad_break, automod, ban, bits, charity, chat, command, follow, \
                       goal, hypetrain, message, online, poll, prediction, raid, redeem, \
                       role, shared_chat, shoutout, sub
 
@@ -16,6 +16,8 @@ def enable_event_triggers(value:bool):
     charity.ActionChairtyStartTrigger.enabled(value)
     charity.ActionChairtyProgressTrigger.enabled(value)
     charity.ActionChairtyStopTrigger.enabled(value)
+    chat.ActionChatClearTrigger.enabled(value)
+    chat.ActionChatClearUserTrigger.enabled(value)
     command.ActionCommandTrigger.enabled(value)
     follow.ActionFollowTrigger.enabled(value)
     goal.ActionGoalBeginTrigger.enabled(value)

@@ -109,8 +109,6 @@ HypeTrainBeginTrigger = event_triggers.EventTrigger[twitchio.HypeTrainBegin]
 
 class ActionHypeTrainBeginTrigger(event_triggers.ActionEventTrigger[twitchio.HypeTrainBegin]):
     TYPE_NAME = "twitch_train_begin"
-    def create_bot_script_context(self, bot, event):
-        return tti.BotScriptContext(bot, train_begin=event)
     
 class CallbackHypeTrainBeginTrigger(event_triggers.CallbackEventTrigger[twitchio.HypeTrainBegin]):
     pass
@@ -119,8 +117,6 @@ HypeTrainProgressTrigger = event_triggers.EventTrigger[twitchio.HypeTrainProgres
 
 class ActionHypeTrainProgressTrigger(event_triggers.ActionEventTrigger[twitchio.HypeTrainProgress]):
     TYPE_NAME = "twitch_train_progress"
-    def create_bot_script_context(self, bot, event):
-        return tti.BotScriptContext(bot, train_progress=event)
     
 class CallbackHypeTrainProgressTrigger(event_triggers.CallbackEventTrigger[twitchio.HypeTrainProgress]):
     pass
@@ -129,8 +125,6 @@ HypeTrainEndTrigger = event_triggers.EventTrigger[twitchio.HypeTrainEnd]
 
 class ActionHypeTrainEndTrigger(event_triggers.ActionEventTrigger[twitchio.HypeTrainEnd]):
     TYPE_NAME = "twitch_train_end"
-    def create_bot_script_context(self, bot, event):
-        return tti.BotScriptContext(bot, train_end=event)
     
 class CallbackHypeTrainEndTrigger(event_triggers.CallbackEventTrigger[twitchio.HypeTrainEnd]):
     pass

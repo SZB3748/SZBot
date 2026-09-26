@@ -21,8 +21,6 @@ FollowTrigger = event_triggers.EventTrigger[twitchio.ChannelFollow]
 
 class ActionFollowTrigger(event_triggers.ActionEventTrigger[twitchio.ChannelFollow]):
     TYPE_NAME = "twitch_follow"
-    def create_bot_script_context(self, bot, event):
-        return tti.BotScriptContext(bot, follow=event)
     
 class CallbackFollowTrigger(event_triggers.CallbackEventTrigger[twitchio.ChannelFollow]):
     pass

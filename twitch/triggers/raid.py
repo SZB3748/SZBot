@@ -29,8 +29,6 @@ RaidTrigger = event_triggers.EventTrigger[twitchio.ChannelRaid]
 
 class ActionRaidTrigger(event_triggers.ActionEventTrigger[twitchio.ChannelRaid]):
     TYPE_NAME = "twitch_raid"
-    def create_bot_script_context(self, bot, event):
-        return tti.BotScriptContext(bot, raid=event)
     
 class CallbackRaidTrigger(event_triggers.CallbackEventTrigger[twitchio.ChannelRaid]):
     pass

@@ -173,9 +173,8 @@ def actions_page():
 def overlay_route(name:str=""):
     args = request.args.copy()
     missing_silent = args.pop("missing-silent", "")
-    n = args.pop("name","")
     if not name:
-        name = n
+        name = args.pop("name","")
         if not name:
             return "" if missing_silent else "Overlay name not provided.", 400
     
@@ -917,12 +916,14 @@ def attach_core(interface_mode:str, overlay_mode:str, api_mode:str, tronix_mode:
         vcoreinterface = Blueprint("proxy_core_interface", __name__)
         for p in ["/", "/configs", "/actions"]:
             create_endpoint_proxy(rt.remote_addr, rt.remote_secure, [p], vcoreinterface, socket=False)
+        app.register_blueprint(vcoreinterface)
 
     if overlay_mode == plugins.COMPONENT_MODE_NORMAL:
         app.register_blueprint(coreoverlay)
     elif overlay_mode == plugins.COMPONENT_MODE_REMOTE:
         vcoreoverlay = Blueprint("proxy_core_overlay", __name__)
         create_endpoint_proxy(rt.remote_addr, rt.remote_secure, ["/overlay", "/overlay/<path:path>"], vcoreoverlay, socket=False)
+        app.register_blueprint(vcoreoverlay)
 
     tronix_enabled = tronix_mode in (plugins.COMPONENT_MODE_NORMAL, plugins.COMPONENT_MODE_REMOTE)
 

@@ -13,8 +13,6 @@ AdBeginTrigger = event_triggers.EventTrigger[twitchio.ChannelAdBreakBegin]
 
 class ActionAdBeginTrigger(event_triggers.ActionEventTrigger[twitchio.ChannelAdBreakBegin]):
     TYPE_NAME = "twitch_ad_begin"
-    def create_bot_script_context(self, bot, event):
-        return tti.BotScriptContext(bot, ad_begin=event)
 
 class CallbackAdBeginTrigger(event_triggers.CallbackEventTrigger[twitchio.ChannelAdBreakBegin]):
     pass

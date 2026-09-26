@@ -17,8 +17,6 @@ AutomodHoldTrigger = event_triggers.EventTrigger[twitchio.AutomodMessageHold]
 
 class ActionAutomodHoldTrigger(event_triggers.ActionEventTrigger[twitchio.AutomodMessageHold]):
     TYPE_NAME = "twitch_automod_hold"
-    def create_bot_script_context(self, bot, event):
-        return tti.BotScriptContext(bot, automod_hold=event)
 
 class CallbackAutomodHoldTrigger(event_triggers.ActionEventTrigger[twitchio.AutomodMessageHold]):
     pass
@@ -27,8 +25,6 @@ AutomodUpdateTrigger = event_triggers.EventTrigger[twitchio.AutomodMessageUpdate
 
 class ActionAutomodUpdateTrigger(event_triggers.ActionEventTrigger[twitchio.AutomodMessageUpdate]):
     TYPE_NAME = "twitch_automod_update"
-    def create_bot_script_context(self, bot, event):
-        return tti.BotScriptContext(bot, automod_update=event)
 
 class CallbackAutomodUpdateTrigger(event_triggers.ActionEventTrigger[twitchio.AutomodMessageUpdate]):
     pass

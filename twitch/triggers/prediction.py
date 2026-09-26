@@ -25,8 +25,6 @@ PredictionBeginTrigger = event_triggers.EventTrigger[twitchio.ChannelPredictionB
 
 class ActionPredictionBeginTrigger(event_triggers.ActionEventTrigger[twitchio.ChannelPredictionBegin]):
     TYPE_NAME = "twitch_prediction_begin"
-    def create_bot_script_context(self, bot, event):
-        return tti.BotScriptContext(bot, prediction_begin=event)
     
 class CallbackPredictionBeginTrigger(event_triggers.CallbackEventTrigger[twitchio.ChannelPredictionBegin]):
     pass
@@ -35,8 +33,6 @@ PredictionProgressTrigger = event_triggers.EventTrigger[twitchio.ChannelPredicti
 
 class ActionPredictionProgressTrigger(event_triggers.ActionEventTrigger[twitchio.ChannelPredictionProgress]):
     TYPE_NAME = "twitch_prediction_progress"
-    def create_bot_script_context(self, bot, event):
-        return tti.BotScriptContext(bot, prediction_progress=event)
     
 class CallbackPredictionProgressTrigger(event_triggers.CallbackEventTrigger[twitchio.ChannelPredictionProgress]):
     pass
@@ -45,8 +41,6 @@ PredictionLockTrigger = event_triggers.EventTrigger[twitchio.ChannelPredictionLo
 
 class ActionPredictionLockTrigger(event_triggers.ActionEventTrigger[twitchio.ChannelPredictionLock]):
     TYPE_NAME = "twitch_prediction_lock"
-    def create_bot_script_context(self, bot, event):
-        return tti.BotScriptContext(bot, prediction_lock=event)
     
 class CallbackPredictionLockTrigger(event_triggers.CallbackEventTrigger[twitchio.ChannelPredictionLock]):
     pass
@@ -55,8 +49,6 @@ PredictionEndTrigger = event_triggers.EventTrigger[twitchio.ChannelPredictionEnd
 
 class ActionPredictionEndTrigger(event_triggers.ActionEventTrigger[twitchio.ChannelPredictionEnd]):
     TYPE_NAME = "twitch_prediction_end"
-    def create_bot_script_context(self, bot, event):
-        return tti.BotScriptContext(bot, prediction_end=event)
     
 class CallbackPredictionEndTrigger(event_triggers.CallbackEventTrigger[twitchio.ChannelPredictionEnd]):
     pass

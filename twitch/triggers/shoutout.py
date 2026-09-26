@@ -17,8 +17,6 @@ ShoutoutCreateTrigger = event_triggers.EventTrigger[twitchio.ShoutoutCreate]
 
 class ActionShoutoutCreateTrigger(event_triggers.ActionEventTrigger[twitchio.ShoutoutCreate]):
     TYPE_NAME = "twitch_shoutout_create"
-    def create_bot_script_context(self, bot, event):
-        return tti.BotScriptContext(bot, shoutout_create=event)
 
 class CallbackShoutoutCreateTrigger(event_triggers.CallbackEventTrigger[twitchio.ShoutoutCreate]):
     pass
@@ -27,8 +25,6 @@ ShoutoutReceiveTrigger = event_triggers.EventTrigger[twitchio.ShoutoutReceive]
 
 class ActionShoutoutReceiveTrigger(event_triggers.ActionEventTrigger[twitchio.ShoutoutReceive]):
     TYPE_NAME = "twitch_shoutout_receive"
-    def create_bot_script_context(self, bot, event):
-        return tti.BotScriptContext(bot, shoutout_receive=event)
 
 class CallbackShoutoutReceiveTrigger(event_triggers.CallbackEventTrigger[twitchio.ShoutoutReceive]):
     pass

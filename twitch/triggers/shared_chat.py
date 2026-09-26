@@ -21,8 +21,6 @@ SharedChatBeginTrigger = event_triggers.EventTrigger[twitchio.SharedChatSessionB
 
 class ActionSharedChatBeginTrigger(event_triggers.ActionEventTrigger[twitchio.SharedChatSessionBegin]):
     TYPE_NAME = "twitch_shared_chat_begin"
-    def create_bot_script_context(self, bot, event):
-        return tti.BotScriptContext(bot, shared_chat_begin=event)
     
 class CallbackSharedChatBeginTrigger(event_triggers.CallbackEventTrigger[twitchio.SharedChatSessionBegin]):
     pass
@@ -31,8 +29,6 @@ SharedChatUpdateTrigger = event_triggers.EventTrigger[twitchio.SharedChatSession
 
 class ActionSharedChatUpdateTrigger(event_triggers.ActionEventTrigger[twitchio.SharedChatSessionUpdate]):
     TYPE_NAME = "twitch_shared_chat_update"
-    def create_bot_script_context(self, bot, event):
-        return tti.BotScriptContext(bot, shared_chat_update=event)
     
 class CallbackSharedChatUpdateTrigger(event_triggers.CallbackEventTrigger[twitchio.SharedChatSessionUpdate]):
     pass
@@ -41,8 +37,6 @@ SharedChatEndTrigger = event_triggers.EventTrigger[twitchio.SharedChatSessionEnd
 
 class ActionSharedChatEndTrigger(event_triggers.ActionEventTrigger[twitchio.SharedChatSessionEnd]):
     TYPE_NAME = "twitch_shared_chat_end"
-    def create_bot_script_context(self, bot, event):
-        return tti.BotScriptContext(bot, shared_chat_end=event)
     
 class CallbackSharedChatEndTrigger(event_triggers.CallbackEventTrigger[twitchio.SharedChatSessionEnd]):
     pass
