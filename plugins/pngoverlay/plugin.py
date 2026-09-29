@@ -5,6 +5,7 @@ import os
 import plugins
 import runtime as rt
 import threading
+from typing import Protocol
 import web
 
 DIR = os.path.dirname(__file__)
@@ -15,6 +16,11 @@ COMPONENT_OVERLAY = "overlay"
 COMPONENT_API = "api"
 COMPONENT_EVENTS = "events"
 
+P_MICROPHONE = "microphone"
+P_KEYBINDS = "keybinds"
+
+init = plugins.PluginInit().bind()
+
 microphone_read_thread:threading.Thread = None
 keybinds_key_events_thread:threading.Thread = None
 
@@ -23,6 +29,18 @@ def create_navigator(statemap:statemapping.StateMap, default_state:str,
                      on_push:statemapping.OnPushCallback, on_pop:statemapping.OnPopCallback, on_change:statemapping.OnChangeCallback):
     return statemapping.StateMapNavigator(statemap, default_state, on_push, on_pop, on_change)
 
+class MicrophoneModule(Protocol):
+    COMPONENT_API:str
+
+class KeybindsModule(Protocol):
+    class _webroutes_t(Protocol):
+        keylisteners:events.EventListenerCollection
+
+    COMPONENT_API:str
+    webroutes:_webroutes_t
+    
+
+@init.event()
 def on_load(ctx:plugins.LoadEvent):
     global microphone_read_thread, keybinds_key_events_thread
 
@@ -37,15 +55,23 @@ def on_load(ctx:plugins.LoadEvent):
     m_api = ctx.plugin.get_component_mode(COMPONENT_API)
     m_events = ctx.plugin.get_component_mode(COMPONENT_EVENTS)
 
-    microphone = rt.plugin_list.get("microphone", None)
-    keybinds = rt.plugin_list.get("keybinds", None)
+    microphone = plugins.fetch(P_MICROPHONE)
+    microphone_m = plugins.fetch_module(microphone, MicrophoneModule)
+    keybinds = plugins.fetch(P_KEYBINDS)
+    keybinds_m = plugins.fetch_module(keybinds, KeybindsModule)
 
-    if not (microphone is None or microphone.module is None):
+    if microphone_m is None:
+        if microphone is None:
+            logenv.main.info("plugin could not be found: {name}", name=P_MICROPHONE, human_text=f"{ctx.plugin.name} plugin tried to access {P_MICROPHONE} plugin but could not (not necessarily a bad thing).")
+        else:
+            logenv.main.warn("expected plugin to be enabled: {name}", name=P_MICROPHONE, human_text=f"{ctx.plugin.name} plugin found {P_MICROPHONE} plugin and expected it to be enabled, but it is disabled.")
+        microphone_m_api = plugins.COMPONENT_MODE_OFF
+    else:
         statemapping.EVENT_CONDITION_TYPES[statemapping.MicActivityCondition.CATEGORY_NAME] = statemapping.MicActivityCondition
-        microphone_m_api = microphone.get_component_mode(microphone.module.COMPONENT_API)
-        if microphone_m_api == plugins.COMPONENT_MODE_NORMAL:
+        microphone_m_api = microphone.get_component_mode(microphone_m.COMPONENT_API)
+        if plugins.is_normal(microphone_m_api):
             _args = f"{rt.host_addr[0]}:{rt.host_addr[1]}", web.SELF_SECURE
-        elif microphone_m_api == plugins.COMPONENT_MODE_REMOTE:
+        elif plugins.is_remote(microphone_m_api):
             raddr, rsecure = plugins.must_have_remote_address(f"Plugin {ctx.plugin.name} requires a remote address to be specified.")
             _args = f"{raddr[0]}:{raddr[1]}", rsecure
         else:
@@ -54,24 +80,28 @@ def on_load(ctx:plugins.LoadEvent):
             statemapping.mic_volumes_run = True
             microphone_read_thread = threading.Thread(target=statemapping.mic_volume_background_runner, args=_args)
             microphone_read_thread.start()
-    
-    if keybinds is not None and keybinds.module is not None:
-        keybinds_m_api = keybinds.get_component_mode(keybinds.module.COMPONENT_API)
-        if keybinds_m_api == plugins.COMPONENT_MODE_NORMAL:
-            webroutes.keybinds_keylisteners = keybinds.module.webroutes.keylisteners
+
+    if keybinds_m is None:
+        if microphone is None:
+            logenv.main.info("plugin could not be found: {name}", name=P_KEYBINDS, human_text=f"{ctx.plugin.name} plugin tried to access {P_KEYBINDS} plugin but could not (not necessarily a bad thing).")
+        else:
+            logenv.main.warn("expected plugin to be enabled: {name}", name=P_KEYBINDS, human_text=f"{ctx.plugin.name} plugin found {P_KEYBINDS} plugin and expected it to be enabled, but it is disabled.")
+        keybinds_m_api = plugins.COMPONENT_MODE_OFF
+    else:
+        keybinds_m_api = keybinds.get_component_mode(keybinds_m.COMPONENT_API)
+        if plugins.is_normal(keybinds_m_api):
+            webroutes.keybinds_keylisteners = keybinds_m.webroutes.keylisteners
             webroutes.attach_listeners()
-        elif keybinds_m_api == plugins.COMPONENT_MODE_REMOTE:
+        elif plugins.is_remote(keybinds_m_api):
             webroutes.keybinds_keylisteners = events.EventListenerCollection()
             keybinds_key_events_thread = threading.Thread(target=webroutes.listen_remote_events_keys, args=(rt.remote_addr, rt.remote_secure))
             keybinds_key_events_thread.start()
             webroutes.attach_listeners()
-    else:
-        keybinds_m_api = plugins.COMPONENT_MODE_OFF
 
     if ctx.is_start:
-        webroutes.add_routes(web.app, web.api, m_interface == plugins.COMPONENT_MODE_NORMAL, m_overlay == plugins.COMPONENT_MODE_NORMAL, m_api == plugins.COMPONENT_MODE_NORMAL)
-        rinterface = m_interface == plugins.COMPONENT_MODE_REMOTE
-        roverlay = m_overlay == plugins.COMPONENT_MODE_REMOTE
+        webroutes.add_routes(web.app, web.api, plugins.is_normal(m_interface), plugins.is_normal(m_overlay), plugins.is_normal(m_api))
+        rinterface = plugins.is_remote(m_interface)
+        roverlay = plugins.is_remote(m_overlay)
         vpngoverlaypages_parent = webroutes.Blueprint("proxy_pngoverlayparent", __name__, static_folder=webroutes.pngoverlaypages_parent.static_folder, template_folder=webroutes.pngoverlaypages_parent.template_folder, static_url_path=webroutes.pngoverlaypages_parent.static_url_path)
         if rinterface:
             web.create_component_proxy(vpngoverlaypages_parent, webroutes.pngoverlaypages.name, webroutes.pngoverlaypages.url_prefix, socket=False)
@@ -79,20 +109,19 @@ def on_load(ctx:plugins.LoadEvent):
             web.create_component_proxy(vpngoverlaypages_parent, webroutes.pngoverlayoverlays.name, webroutes.pngoverlayoverlays.url_prefix, socket=False)
         if rinterface or roverlay:
             web.add_bp_if_new(web.app, vpngoverlaypages_parent)
-        if m_api == plugins.COMPONENT_MODE_REMOTE:
+        if plugins.is_remote(m_api):
             web.create_component_proxy(web.api, webroutes.pngoverlayapi.name, webroutes.pngoverlayapi.url_prefix)
 
-    if m_api == plugins.COMPONENT_MODE_NORMAL:
+    if plugins.is_normal(m_api):
         webroutes.init_statemap(ctx.plugin.meta)
-    
-        assert m_events != plugins.COMPONENT_MODE_REMOTE, "PNG Overlay event negotiator has no remote mode."
-        if m_events == plugins.COMPONENT_MODE_NORMAL:
+        if plugins.is_normal(m_events):
             event_negotiator = webroutes.event_negotiator = statemapping.EventNegotiator(lambda: webroutes.navigator.stack, lambda: webroutes.navigator.statemap, webroutes.dispatch_state_change_event)
             webroutes.event_negotiator_thread = threading.Thread(target=event_negotiator.background_task)
             webroutes.event_negotiator_thread.start()
-    elif m_events == plugins.COMPONENT_MODE_NORMAL:
-        logenv.main.warn("PNG Overlay event negotiator will not be run due to api component mode:", m_api)
+    elif plugins.is_normal(m_events):
+        logenv.main.warn(f"{ctx.plugin.name} event negotiator will not be run due to api component mode: {{mode}}", mode=m_api)
 
+@init.event()
 def on_unload(ctx:plugins.UnloadEvent):
     global microphone_read_thread, keybinds_key_events_thread
     webroutes.web_loaded = False

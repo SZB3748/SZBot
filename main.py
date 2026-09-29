@@ -132,7 +132,7 @@ def exit_handler(e:Exception|None=None):
     for plugin_name in reversed(rt.plugin_load_order):
         plugin = rt.plugin_list[plugin_name]
         if plugin.module is not None:
-            plugin.unload(plugins.UnloadEvent(plugin, True, e))
+            plugin.unload(plugins.UnloadEvent(True, e))
     logenv.main.info("unloaded plugins")
 
     if trigger_runner_thread is not None:
@@ -152,7 +152,7 @@ def run():
         for plugin_name in rt.plugin_load_order:
             plugin = rt.plugin_list[plugin_name]
             if plugin.module is not None and plugin.startup_load:
-                plugin.load(plugins.LoadEvent(plugin, True))
+                plugin.load(plugins.LoadEvent(True))
         logenv.main.info("loaded plugins")
     elif plugin_enabled_count:
         logenv.main.warn("no plugins made it into the load order\nmake sure that any dependenant plugins are enabled")

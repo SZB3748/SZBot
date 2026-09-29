@@ -18,6 +18,13 @@ s = requests.Session()
 activation_handlers:dict[str, Callable[[], None]] = {}
 deactivation_handlers:dict[str, Callable[[], None]] = {}
 
+def register_integration(name:str, activation:Callable[[], None], deactivation:Callable[[], None]):
+    activation_handlers[name] = activation
+    deactivation_handlers[name] = deactivation
+
+def unregister_integration(name:str):
+    return activation_handlers.pop(name, None), deactivation_handlers.pop(name, None)
+
 class _action_requested_value_parameter(builtins._pair[str, Any]):
     pass
 

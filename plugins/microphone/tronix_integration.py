@@ -58,7 +58,7 @@ def local_microphone_fetch(id:script.ScriptVariable[str|UUID]):
         try:
             mid = UUID(mid_s)
         except:
-            raise exceptions.TBadValue("microphone id cannot be read", parameter="id")
+            raise exceptions.TRBadValue("microphone id cannot be read", parameter="id")
     else:
         mid = mid_s
     mic = webroutes.main_handler.mics.get(mid, None)
@@ -73,7 +73,7 @@ async def remote_microphone_fetch(id:script.ScriptVariable[str|UUID]):
         try:
             mid = UUID(mid_s)
         except:
-            raise exceptions.TBadValue("microphone id cannot be read", parameter="id")
+            raise exceptions.TRBadValue("microphone id cannot be read", parameter="id")
     else:
         mid = mid_s
     mid_s = str(mid)

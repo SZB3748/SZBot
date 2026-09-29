@@ -318,7 +318,7 @@ def api_load_plugin():
     plugin = rt.plugin_list.get(name, None)
     if plugin is None:
         return "", 404
-    plugin.load(plugins.LoadEvent(plugin, False))
+    plugin.load(plugins.LoadEvent(False))
     return "", 204
 
 @coreapi.post("/plugins/unload")
@@ -327,7 +327,7 @@ def api_unload_plugin():
     plugin = rt.plugin_list.get(name, None)
     if plugin is None:
         return "", 404
-    plugin.unload(plugins.UnloadEvent(plugin, False, None))
+    plugin.unload(plugins.UnloadEvent(False, None))
     return "", 204
 
 class _layout_construct_loop_result:

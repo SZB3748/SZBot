@@ -26,7 +26,8 @@ keys_buckets = events.EventBucketContainer()
 def send_keybinds(merged:dict[str,keybind_triggers.KeyBindTrigger]): #TODO keybinds type and serialization to tuple[str,int]
     binds = set()
     for t in merged.values():
-        binds.add((t.kb.keys, t.kb.mode.value))
+        for kb in t.kbs:
+            binds.add((kb.keys, kb.mode.value))
     keyevents.dispatch(events.Event("update_keybinds", {"binds": list(binds)}))
 
 @keylisteners.listener("key_press")
@@ -38,11 +39,12 @@ def event_key_press(event:events.Event):
     logenv.main.debug("keybinds: press {keys} {mode}", keys=keys, mode=mode.name)
     triggers:list[tuple[keybind_triggers.KeyBindTrigger, tuple, dict]] = []
     for kbt in keybind_triggers.merge_keybind_triggers().values():
-        if mode != kbt.kb.mode:
-            continue
-        onames = keybind.parse_keybind_string(kbt.kb.keys)
-        if names == onames:
-            triggers.append((kbt, (), {}))
+        for kb in kbt.kbs:
+            if mode != kb.mode:
+                continue
+            onames = keybind.parse_keybind_string(kb.keys)
+            if names == onames:
+                triggers.append((kbt, (kb,), {}))
     if triggers:
         actions.enqueue_triggers(triggers)
 

@@ -1,14 +1,16 @@
 import config
 from dataclasses import dataclass
 import importlib.util
+import inspect
 import logenv
 import os
 import re
 import sys
 from types import ModuleType
+import typing
 from typing import Any, Callable, NoReturn
 
-from twitchio.ext.commands import Bot
+#from twitchio.ext.commands import Bot
 
 MetaTypeOptions = dict[str]
 MetaTypeAllowed = bool
@@ -20,7 +22,9 @@ DataTarget = tuple[str, Any]
 class EventCallbackContext:
     """Context for handling a plugin event."""
 
-    def handle(self, plugin):
+    NAME:str = None
+
+    def handle(self, plugin:"Plugin"):
         raise NotImplementedError
     
 EventCallback = Callable[[EventCallbackContext], None]
@@ -38,6 +42,15 @@ TYPE_NAME_NULL = "null"
 COMPONENT_MODE_NORMAL = "normal"
 COMPONENT_MODE_REMOTE = "remote"
 COMPONENT_MODE_OFF = None
+
+def is_normal(mode:str|None):
+    return mode == COMPONENT_MODE_NORMAL
+
+def is_remote(mode:str|None):
+    return mode == COMPONENT_MODE_REMOTE
+
+def is_off(mode:str|None):
+    return mode == COMPONENT_MODE_OFF
 
 ExcludedType = type("excluded", (), {"__repr__": lambda _: "excluded"})
 excluded = ExcludedType()
@@ -57,6 +70,12 @@ def must_have_remote_address(message:str="One of your plugins requires a remote 
 
 class PluginException(Exception):
     """Base class for Plugin Exceptions."""
+
+class PluginMissingException(PluginException):
+    """Plugin could not be found."""
+
+class PluginNotEnabledException(PluginException):
+    """Tried to do something while plugin wasn't enabled."""
 
 class PluginLoadException(PluginException):
     """Failed to load the plugin."""
@@ -186,13 +205,35 @@ class Meta:
         self.configs = configs
         self.components = components
 
-ComponentList = dict[str, str|None]
-    
+ComponentList = dict[str, str|None]    
+
+_INIT_NAME = "SZBOT_PLUGIN_INIT"
+
+class PluginInit:
+    def __init__(self, events:dict[str, Callable]|None=None):
+        self._events = {} if events is None else events
+
+    def add_event(self, f:Callable, name:str|None=None):
+        if name is None:
+            name:str = f.__name__
+            if name.startswith("on_"):
+                name = name[3:]
+        self._events[name] = f
+
+    def event(self, name:str|None=None):
+        def decor(f):
+            self.add_event(f, name)
+            return f
+        return decor
+
+    def bind(self):
+        f = inspect.currentframe().f_back
+        f.f_globals[_INIT_NAME] = self
+        return self
 
 class Plugin:
     def __init__(self, name:str, run_target:DataTarget, meta_target:DataTarget, meta:Meta|None=None, components:ComponentList=None, module:ModuleType|None=None,
-                 run_next:list[str]|None=None, depends_on:list[str]|None=None, on_load:EventCallback|None=None, on_unload:EventCallback|None=None,
-                 on_twitch_bot_load:EventCallback|None=None, on_twitch_bot_unload:EventCallback|None=None, startup_load:bool=True):
+                 run_next:list[str]|None=None, depends_on:list[str]|None=None, startup_load:bool=True):
         self.name = name
         self.run_target = run_target
         self.meta_target = meta_target
@@ -208,12 +249,9 @@ class Plugin:
             self.meta = meta
         self.components = {} if components is None else components
         self.module = module
-        self.run_next = [] if run_next is None else run_next #run th-----+is plugin before these plugins
+        self.run_next = [] if run_next is None else run_next #run this plugin before these plugins
         self.depends_on = [] if depends_on is None else depends_on #run this plugin after these plugins
-        self.on_load = on_load
-        self.on_unload = on_unload
-        self.on_twitch_bot_load = on_twitch_bot_load
-        self.on_twitch_bot_unload = on_twitch_bot_unload
+        self._init:PluginInit|None = None
         self.is_loaded = False
         self.startup_load = startup_load
 
@@ -225,10 +263,7 @@ class Plugin:
                 if dirname not in sys.path:
                     sys.path.append(dirname)
                 self.module = import_plugin_file(self.name, runvalue)
-            self.on_load = getattr(self.module, "on_load", None)
-            self.on_unload = getattr(self.module, "on_unload", None)
-            self.on_twitch_bot_load = getattr(self.module, "on_twitch_bot_load", None)
-            self.on_twitch_bot_unload = getattr(self.module, "on_twitch_bot_unload", None)
+            self._init:PluginInit = getattr(self.module, _INIT_NAME, None)
 
     def disable(self, *ctxs:EventCallbackContext):
         if self.module is not None:
@@ -237,30 +272,29 @@ class Plugin:
             del sys.modules[self.module.__name__]
             self.module = None
 
+    def get_event(self, name:str, default=None):
+        if self._init is not None:
+            return self._init._events.get(name, default)
+        return default
+
     def load(self, ctx:EventCallbackContext):
-        if not self.is_loaded and self.on_load is not None:
-            self.on_load(ctx)
-            self.is_loaded = True
+        return ctx.handle(self)
     
     def unload(self, ctx:EventCallbackContext):
-        if self.is_loaded and self.on_unload is not None:
-            self.on_unload(ctx)
-            self.is_loaded = False
+        return ctx.handle(self)
     
-    def twitch_bot_load(self, ctx:EventCallbackContext):
-        if not self.is_loaded and self.on_twitch_bot_load is not None:
-            self.on_twitch_bot_load(ctx)
-            self.is_loaded = True
+    # def twitch_bot_load(self, ctx:EventCallbackContext):
+    #     if not self.is_loaded and self.on_twitch_bot_load is not None:
+    #         self.on_twitch_bot_load(ctx)
+    #         self.is_loaded = True
     
-    def twitch_bot_unload(self, ctx:EventCallbackContext):
-        if self.is_loaded and self.on_twitch_bot_unload is not None:
-            self.on_twitch_bot_unload(ctx)
-            self.is_loaded = False
+    # def twitch_bot_unload(self, ctx:EventCallbackContext):
+    #     if self.is_loaded and self.on_twitch_bot_unload is not None:
+    #         self.on_twitch_bot_unload(ctx)
+    #         self.is_loaded = False
 
     def get_component_mode(self, name:str, default=COMPONENT_MODE_NORMAL):
-        if name in self.components:
-            return self.components[name]
-        return default
+        return self.components.get(name, default)
 
 def get_invalid_plugin_components(components:dict[str, str|None], meta:Meta)->list[str]:
     if not isinstance(meta.components, dict):
@@ -272,28 +306,63 @@ def get_invalid_plugin_components(components:dict[str, str|None], meta:Meta)->li
             invalid.append(component)
     return invalid
 
-@dataclass
+
 class LoadEvent(EventCallbackContext):
-    plugin:Plugin
-    is_start:bool
 
-@dataclass
+    NAME = "load"
+
+    def __init__(self, is_start:bool, plugin:Plugin=None):
+        self.plugin = plugin
+        self.is_start = is_start
+
+    def handle(self, plugin):
+        self.plugin = plugin
+        cb = plugin.get_event(self.NAME)
+        if not plugin.is_loaded and cb is not None:
+            cb(self)
+            plugin.is_loaded = True
+
 class UnloadEvent(EventCallbackContext):
-    plugin:Plugin
-    is_end:bool
-    exception:Exception|None
 
-@dataclass
-class TwitchBotLoadEvent(EventCallbackContext):
-    plugin:Plugin
-    is_start:bool
-    bot:Bot
+    NAME = "unload"
 
-@dataclass
-class TwitchBotUnloadEvent(EventCallbackContext):
-    plugin:Plugin
-    is_end:bool
-    exception:Exception|None
+    def __init__(self, is_end:bool, exception:Exception|None, plugin:Plugin=None):
+        self.plugin = plugin
+        self.is_end = is_end
+        self.exception = exception
+
+    def handle(self, plugin):
+        self.plugin = plugin
+        cb = plugin.get_event(self.NAME)
+        if plugin.is_loaded and cb is not None:
+            cb(self)
+            plugin.is_loaded = False
+
+class RunEvent(EventCallbackContext):
+
+    NAME = "run"
+
+    def __init__(self, mode:str|None=None, plugin:Plugin=None):
+        self.mode = mode
+        self.plugin = plugin
+
+    def handle(self, plugin):
+        self.plugin = plugin
+        cb = plugin.get_event(self.NAME)
+        if plugin.is_loaded and cb is not None:
+            cb(self)
+
+# @dataclass
+# class TwitchBotLoadEvent(EventCallbackContext):
+#     plugin:Plugin
+#     is_start:bool
+#     bot:Bot
+
+# @dataclass
+# class TwitchBotUnloadEvent(EventCallbackContext):
+#     plugin:Plugin
+#     is_end:bool
+#     exception:Exception|None
 
 def import_plugin_file(name:str, path:str)->ModuleType:
     spec = importlib.util.spec_from_file_location(name, path, submodule_search_locations=[os.path.dirname(path)])
@@ -301,6 +370,21 @@ def import_plugin_file(name:str, path:str)->ModuleType:
     sys.modules[name] = module
     spec.loader.exec_module(module)
     return module
+
+def fetch(name:str):
+    import runtime as rt
+    return rt.plugin_list.get(name, None)
+
+def fetch_module[T](plugin:Plugin|str, protocol:type[T]=ModuleType)->T|None:
+    if plugin is None:
+        return None
+    if isinstance(plugin, str):
+        plugin = fetch(plugin)
+        if plugin is None:
+            return None
+    if plugin.module is None:
+        return None
+    return plugin.module
 
 def parse_plugin_meta(data:dict[str])->Meta:
     name = data.get("name", excluded)

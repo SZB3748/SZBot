@@ -1,6 +1,5 @@
 from . import soundplayer, tronix_integrations as sti, webroutes
 
-
 import actions
 import asyncio
 import plugins
@@ -12,8 +11,11 @@ COMPONENT_API = "api"
 COMPONENT_PLAYER = "player"
 COMPONENT_TRONIX = "tronix"
 
+init = plugins.PluginInit().bind()
+
 player_handle:asyncio.Future|None = None
 
+@init.event()
 def on_load(ctx:plugins.LoadEvent):
     global player_handle
 
@@ -24,24 +26,22 @@ def on_load(ctx:plugins.LoadEvent):
     m_tronix = ctx.plugin.get_component_mode(COMPONENT_TRONIX)
 
     if ctx.is_start:
-        webroutes.add_routes(web.api, m_api == plugins.COMPONENT_MODE_NORMAL)
-        if m_api == plugins.COMPONENT_MODE_REMOTE:
+        webroutes.add_routes(web.api, plugins.is_normal(m_api))
+        if plugins.is_remote(m_api):
             web.create_component_proxy(web.api, webroutes.soundsapi.name, webroutes.soundsapi.url_prefix, socket=False)
-    
-    assert m_player != plugins.COMPONENT_MODE_REMOTE, "Sound Player has no remote mode."
-    assert m_tronix != plugins.COMPONENT_MODE_REMOTE, "Sound Player has no remote mode."
 
-    if m_player == plugins.COMPONENT_MODE_NORMAL:
+    if plugins.is_normal(m_player):
         soundplayer.main_player = soundplayer.Player()
         player_handle = asyncio.run_coroutine_threadsafe(soundplayer.main_player.handle(), loop=actions.shared_loop)
     
-    if m_tronix == plugins.COMPONENT_MODE_NORMAL:
+    if plugins.is_normal(m_tronix):
         if ctx.is_start:
             ti.activation_handlers[ctx.plugin.name] = sti.activate
         else:
             sti.activate()
         ti.deactivation_handlers[ctx.plugin.name] = sti.deactivate
 
+@init.event()
 def on_unload(ctx:plugins.UnloadEvent):
     global player_handle
     webroutes.web_loaded = False

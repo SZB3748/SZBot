@@ -9,8 +9,11 @@ COMPONENT_INTERFACE = "interface"
 COMPONENT_API = "api"
 COMPONENT_HANDLER = "handler"
 
+init = plugins.PluginInit().bind()
+
 handler_thread:threading.Thread = None
 
+@init.event()
 def on_load(ctx:plugins.LoadEvent):
     global handler_thread
     webroutes.web_loaded = True
@@ -20,17 +23,15 @@ def on_load(ctx:plugins.LoadEvent):
     m_handler = ctx.plugin.get_component_mode(COMPONENT_HANDLER)
 
     if ctx.is_start:
-        webroutes.add_routes(web.app, web.api, m_interface == plugins.COMPONENT_MODE_NORMAL, m_api == plugins.COMPONENT_MODE_NORMAL)
-        rinterface = m_interface == plugins.COMPONENT_MODE_REMOTE
+        webroutes.add_routes(web.app, web.api, plugins.is_normal(m_interface), plugins.is_normal(m_api))
         vmicrophonepages_parent = webroutes.Blueprint("proxy_microphoneparent", __name__, static_folder=webroutes.microphone_parent.static_folder, template_folder=webroutes.microphone_parent.template_folder, static_url_path=webroutes.microphone_parent.static_url_path)
-        if rinterface:
+        if plugins.is_remote(m_interface):
             web.create_component_proxy(vmicrophonepages_parent, webroutes.microphonepages.name, webroutes.microphonepages.url_prefix, socket=False)
             web.add_bp_if_new(web.app, vmicrophonepages_parent)
-        if m_api == plugins.COMPONENT_MODE_REMOTE:
+        if plugins.is_remote(m_api):
             web.create_component_proxy(web.api, webroutes.microphoneapi.name, webroutes.microphoneapi.url_prefix)
     
-    assert m_handler != plugins.COMPONENT_MODE_REMOTE, "Microphone handler has no remote mode."
-    if m_handler == plugins.COMPONENT_MODE_NORMAL:
+    if plugins.is_normal(m_handler):
         c_parent:dict[str] = plugins.read_configs(config.CONFIG_FILE, ctx.plugin.meta)
         c = c_parent.get("Microphone", None)
         devices = None
@@ -44,6 +45,7 @@ def on_load(ctx:plugins.LoadEvent):
         else:
             logenv.main.error("Microphone: could not find initialization info from configs.")
 
+@init.event()
 def on_unload(ctx:plugins.UnloadEvent):
     global handler_thread
     webroutes.web_loaded = False

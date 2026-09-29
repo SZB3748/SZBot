@@ -17,7 +17,7 @@ COMPONENT_LISTENER = "listener"
 
 keyboard_listener_proc:subprocess.Popen = None
 
-#TODO allow for trigger to listen for a set of keybinds (one of any) or any keybinds; have the keybind mappable into the requested values
+init = plugins.PluginInit()
 
 def keyboard_listener_cleanup(ctx):
     global keyboard_listener_proc
@@ -36,6 +36,7 @@ def run_keyboard_listener(api_host_address:tuple[str,int], secure_api:bool=False
     exiting.register_cleanup_listener(keyboard_listener_cleanup)
     return subprocess.Popen([sys.executable, KEYBOARD_LISTENER_FILE, f"ws{"s"*secure_api}://{api_host_address[0]}:{api_host_address[1]}/api/keybinds/events"])
 
+@init.event()
 def on_load(ctx:plugins.LoadEvent):
     global keyboard_listener_proc
 
@@ -49,9 +50,9 @@ def on_load(ctx:plugins.LoadEvent):
     keybind_triggers.ActionKeyBindTrigger.enabled(True)
 
     if ctx.is_start:
-        webroutes.add_routes(web.app, web.api, m_interface == plugins.COMPONENT_MODE_NORMAL, m_api == plugins.COMPONENT_MODE_NORMAL)
-        rinterface = m_interface == plugins.COMPONENT_MODE_REMOTE
-        rapi = m_api == plugins.COMPONENT_MODE_REMOTE
+        webroutes.add_routes(web.app, web.api, plugins.is_normal(m_interface), plugins.is_normal(m_api))
+        rinterface = plugins.is_remote(m_interface)
+        rapi = plugins.is_remote(m_api)
         if rinterface or rapi:
             plugins.must_have_remote_address(f"The {ctx.plugin.name} plugin requires a remote address to be specified.")
         vpngoverlaypages_parent = webroutes.Blueprint("proxy_keybindsparent", __name__, static_folder=webroutes.keybindspages_parent.static_folder, template_folder=webroutes.keybindspages_parent.template_folder, static_url_path=webroutes.keybindspages_parent.static_url_path)
@@ -61,16 +62,14 @@ def on_load(ctx:plugins.LoadEvent):
         if rapi:
             web.create_component_proxy(web.api, webroutes.keybindsapi.name, webroutes.keybindsapi.url_prefix)
 
-    if m_listener == plugins.COMPONENT_MODE_NORMAL:
+    if plugins.is_normal(m_listener):
         keyboard_listener_proc = run_keyboard_listener(rt.host_addr, web.SELF_SECURE)
-    elif m_listener == plugins.COMPONENT_MODE_REMOTE:
+    elif plugins.is_remote(m_listener):
         remote_address, remote_secure = plugins.must_have_remote_address(f"The {ctx.plugin.name} plugin requires a remote address to be specified.")
         keyboard_listener_proc = run_keyboard_listener(remote_address, remote_secure)
 
+@init.event()
 def on_unload(ctx:plugins.UnloadEvent):
     webroutes.web_loaded = False
     keybind_triggers.ActionKeyBindTrigger.enabled(False)
     keyboard_listener_cleanup(None)
-
-
-cleanup = lambda _: on_unload
